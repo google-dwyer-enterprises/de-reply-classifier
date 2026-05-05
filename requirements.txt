@@ -1,0 +1,5 @@
+requests>=2.32
+python-dotenv>=1.0
+supabase>=2.5
+anthropic>=0.40
+openpyxl>=3.1

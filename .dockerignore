@@ -1,0 +1,17 @@
+venv/
+nocodb_data/
+exports/
+debug/
+test_data/
+__pycache__/
+*.pyc
+.env
+.git/
+.vscode/
+.idea/
+*.xlsx
+*.csv
+*.log
+NEXT_STEPS.md
+plan*.md
+SCORE_PLAN.md
