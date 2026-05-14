@@ -76,3 +76,87 @@ alter table leads add column if not exists status3 text;
 alter table leads add column if not exists status4 text;
 create index if not exists leads_status1_idx on leads (status1);
 create index if not exists leads_status4_idx on leads (status4);
+
+-- v4: per-status reason + source reply body on leads
+alter table leads add column if not exists reason1 text;
+alter table leads add column if not exists reason2 text;
+alter table leads add column if not exists reason3 text;
+alter table leads add column if not exists reply1_body text;
+alter table leads add column if not exists reply2_body text;
+alter table leads add column if not exists reply3_body text;
+
+-- SmartScout: Amazon brand market data + lead match resolution
+create table if not exists smartscout_brands (
+  brand_norm text primary key,
+  brand_original text not null,
+  primary_category text,
+  primary_subcategory text,
+  amazon_in_stock_rate numeric,
+  average_number_of_sellers numeric,
+  average_price numeric,
+  estimated_monthly_revenue numeric,
+  estimated_monthly_units_sold numeric,
+  one_month_growth numeric,
+  twelve_month_growth numeric,
+  trailing_12_months numeric,
+  average_package_volume numeric,
+  average_rating numeric,
+  total_ratings_count integer,
+  average_number_of_fba_sellers numeric,
+  total_product_count integer,
+  brand_score numeric,
+  storefront text,
+  dominant_seller text,
+  dominant_seller_sales_percentage numeric,
+  dominant_seller_country text,
+  last_seen_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists lead_smartscout_match (
+  lead_email text primary key,
+  brand_norm text references smartscout_brands(brand_norm) on delete set null,
+  match_score numeric,
+  match_method text,  -- 'fuzzy' | 'llm' | 'manual' | 'none'
+  resolved_at timestamptz not null default now(),
+  use_this_company text  -- the lead company string that was matched (for audit/verification)
+);
+create index if not exists lead_smartscout_match_brand_idx on lead_smartscout_match (brand_norm);
+
+-- Backfill of use_this_company for existing rows (re-run resolve-smartscout to populate):
+alter table lead_smartscout_match add column if not exists use_this_company text;
+
+-- Prospeo lead scraper: new decision-maker leads pulled from Prospeo by domain
+create table if not exists prospeo_new_leads (
+  id bigserial primary key,
+  email text unique not null,
+  first_name text,
+  last_name text,
+  title text,
+  company_name text,
+  company_domain text,
+  company_website text,
+  source_domain text,            -- inclusion-list domain queried
+  prospeo_raw jsonb,             -- full API payload for audit
+  agency_filter_result text,     -- 'brand' | 'agency' | 'reseller' | 'marketplace' | 'unknown'
+  agency_filter_method text,     -- 'rule' | 'llm' | 'none'
+  agency_filter_reason text,
+  rejected boolean not null default false,
+  scraped_at timestamptz not null default now(),
+  exported_at timestamptz        -- set when row is written to a CSV / promoted to lead_contacts
+);
+create index if not exists prospeo_new_leads_scraped_idx on prospeo_new_leads (scraped_at desc);
+create index if not exists prospeo_new_leads_status_idx on prospeo_new_leads (rejected, agency_filter_result);
+create index if not exists prospeo_new_leads_source_idx on prospeo_new_leads (source_domain);
+
+-- Mobile enrichment (10 credits per verified mobile; opt-in via --with-mobile)
+alter table prospeo_new_leads add column if not exists mobile text;
+alter table prospeo_new_leads add column if not exists mobile_status text;
+
+-- Domain inclusion list driving the scraper (cleaned of .org/.edu/gmail/etc.)
+create table if not exists domain_inclusion_list (
+  domain text primary key,
+  added_at timestamptz not null default now(),
+  last_scraped_at timestamptz,
+  notes text
+);

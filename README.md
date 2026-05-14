@@ -89,6 +89,38 @@ python run.py update-status
 
 NocoDB reads from the `lead_status` view (which wraps `lead_status_mv`).
 
+### How status1/2/3 are picked (dedup-by-label)
+
+`leads_status_update` (via `excel_writer.fetch_per_lead_summary`) does NOT pick the top-3 most recent or most relevant replies — it picks the top-3 **distinct labels**, with one representative reply per label (the newest reply that received that label), then ranks by `STATUS_PRIORITY`.
+
+**Concrete example.** `abc@gmail.com` replies 5 times across 6 months:
+
+| # | Date | Body (paraphrased) | Classifier label |
+|---|---|---|---|
+| 1 | Jan 3 | "Take me off your list" | unsubscribe |
+| 2 | Feb 14 | "Sounds interesting, send pricing" | interested |
+| 3 | Mar 22 | "Got the deck, looks good — let's set up a call" | interested |
+| 4 | Apr 5 | "Just signed with a competitor, removing this from our pipeline" | not_interested |
+| 5 | May 1 | "Hey, is this still on the table?" | interested |
+
+Distinct labels: `interested`, `not_interested`, `unsubscribe`. For each, the **newest** reply with that label is kept:
+- `interested` → reply #5
+- `not_interested` → reply #4
+- `unsubscribe` → reply #1
+
+After ranking by `STATUS_PRIORITY`:
+- `status1` = `interested` → reply #5
+- `status2` = `not_interested` → reply #4
+- `status3` = `unsubscribe` → reply #1
+
+**What this means in practice:**
+- Replies #2 and #3 (the strongest "interested" signals — pricing request, call agreement) are **invisible** in NocoDB. They were merged into reply #5's slot because reply #5 also got `interested` and is newer.
+- The dashboard makes the lead look like a fresh lukewarm inquiry, when the real history shows a hot lead in Feb–Mar who chose a competitor in April and circled back in May.
+
+**Implications:**
+- `statusN`, `reasonN`, `reply_bodyN` (when added) all describe the **newest reply per label**, not the most informative one.
+- If a client wants to see all replies (not just one-per-label), that requires a child table linked to `leads`, not more columns.
+
 ## Recreating `lead_status_mv` (matview + wrapper view)
 
 Use this when you need NocoDB to re-detect schema changes (e.g., new columns added to `leads`), or after dropping with `CASCADE` to clean up.
@@ -187,14 +219,41 @@ SELECT lc.apollo_company_name AS "Apollo Company Name",
     lc.last_name AS "Last Name",
     lc.emails AS "Emails",
     COALESCE(l.manual_status, l.auto_status) AS status,
-    l.status1,
-    l.status2,
-    l.status3,
-    l.status4,
+    l.status1 AS "Status 1",
+    l.status2 AS "Status 2",
+    l.status3 AS "Status 3",
+    l.status4 AS "Status 4",
     l.score,
     l.clients,
     l.campaigns,
     l.reason AS "More detail about status",
+    l.reason1 AS "Status 1 Reason",
+    l.reply1_body AS "Status 1 Reply",
+    l.reason2 AS "Status 2 Reason",
+    l.reply2_body AS "Status 2 Reply",
+    l.reason3 AS "Status 3 Reason",
+    l.reply3_body AS "Status 3 Reply",
+    sb.primary_category AS "Primary Category",
+    sb.primary_subcategory AS "Primary Subcategory",
+    sb.amazon_in_stock_rate AS "Amazon In-Stock Rate",
+    sb.average_number_of_sellers AS "Average Number of Sellers",
+    sb.average_price AS "Average Price",
+    sb.estimated_monthly_revenue AS "Estimated Monthly Revenue",
+    sb.estimated_monthly_units_sold AS "Estimated Monthly Units Sold",
+    sb.one_month_growth AS "1 Month Growth",
+    sb.twelve_month_growth AS "12 Month Growth",
+    sb.trailing_12_months AS "Trailing 12 Months",
+    sb.average_package_volume AS "Average Package Volume",
+    sb.average_rating AS "Average Rating",
+    sb.total_ratings_count AS "Total Ratings Count",
+    sb.average_number_of_fba_sellers AS "Average Number of FBA Sellers",
+    sb.total_product_count AS "Total Product Count",
+    sb.brand_score AS "Brand Score",
+    sb.storefront AS "Storefront",
+    sb.dominant_seller AS "Dominant Seller",
+    sb.dominant_seller_sales_percentage AS "Dominant Seller Sales %",
+    sb.dominant_seller_country AS "Dominant Seller Country",
+    lsm.match_method AS "Brand Match Method",
     lc.website AS "Website",
     lc.title AS "Title",
     lc.seniority AS "Seniority",
@@ -222,7 +281,9 @@ SELECT lc.apollo_company_name AS "Apollo Company Name",
     lc.amazon_storefront AS "Amazon Storefront",
     lc.lead_email
 FROM lc_with_domain lc
-LEFT JOIN leads l ON l.lead_email = lc.lead_email;
+LEFT JOIN leads l ON l.lead_email = lc.lead_email
+LEFT JOIN lead_smartscout_match lsm ON lsm.lead_email = lc.lead_email
+LEFT JOIN smartscout_brands sb ON sb.brand_norm = lsm.brand_norm;
 
 CREATE UNIQUE INDEX lead_status_mv_lead_email_idx ON lead_status_mv (lead_email);
 
@@ -238,14 +299,41 @@ SELECT
     "Last Name",
     "Emails",
     status,
-    status1,
-    status2,
-    status3,
-    status4,
+    "Status 1",
+    "Status 2",
+    "Status 3",
+    "Status 4",
     score,
     clients,
     campaigns,
     "More detail about status",
+    "Status 1 Reason",
+    "Status 1 Reply",
+    "Status 2 Reason",
+    "Status 2 Reply",
+    "Status 3 Reason",
+    "Status 3 Reply",
+    "Primary Category",
+    "Primary Subcategory",
+    "Amazon In-Stock Rate",
+    "Average Number of Sellers",
+    "Average Price",
+    "Estimated Monthly Revenue",
+    "Estimated Monthly Units Sold",
+    "1 Month Growth",
+    "12 Month Growth",
+    "Trailing 12 Months",
+    "Average Package Volume",
+    "Average Rating",
+    "Total Ratings Count",
+    "Average Number of FBA Sellers",
+    "Total Product Count",
+    "Brand Score",
+    "Storefront",
+    "Dominant Seller",
+    "Dominant Seller Sales %",
+    "Dominant Seller Country",
+    "Brand Match Method",
     "Website",
     "Title",
     "Seniority",

@@ -138,6 +138,10 @@ def to_db_row(src: dict, now_iso: str) -> dict | None:
             continue
         val = str(val).strip()
         out[col] = val if val else None
+    if not out.get("full_name"):
+        parts = [out.get("first_name") or "", out.get("last_name") or ""]
+        combined = " ".join(p for p in parts if p).strip()
+        out["full_name"] = combined or None
     return out
 
 
@@ -202,7 +206,18 @@ def main(file_arg: str) -> None:
 
     print(f"Done. {upserted} rows upserted into lead_contacts.")
 
-    print("Refreshing lead_status materialized view...")
+    # Auto-resolve SmartScout matches for any newly imported leads.
+    # Only touches rows missing from lead_smartscout_match (only_unresolved=True),
+    # so existing 'fuzzy' / 'llm' matches are preserved.
+    print("\nResolving SmartScout matches for new leads...")
+    try:
+        from smartscout_resolve import main as resolve_smartscout_main
+        resolve_smartscout_main(rerun=False)
+    except Exception as exc:
+        print(f"  SmartScout resolve skipped/failed: {type(exc).__name__}: {exc}")
+        print("  (Run `python run.py resolve-smartscout` manually if needed.)")
+
+    print("\nRefreshing lead_status materialized view...")
     from db import refresh_lead_status
     refresh_lead_status()
     print("Refreshed.")

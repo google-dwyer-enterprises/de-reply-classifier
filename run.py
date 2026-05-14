@@ -21,7 +21,13 @@ from backfill_tags import main as backfill_tags_main
 from excel_writer import export_fresh, export_writeback
 from lead_contacts_upload import main as upload_leads_main
 from leads_status_update import main as update_status_main
+from prospeo_sync import main as prospeo_main
+from prospeo_sync import enrich_mobile_for_accepted as prospeo_enrich_mobile
+from prospeo_sync import export_all_leads as prospeo_export_all
 from resolve_company_names import main as resolve_companies_main
+from smartscout_llm_resolve import main as llm_resolve_smartscout_main
+from smartscout_resolve import main as resolve_smartscout_main
+from smartscout_upload import main as upload_smartscout_main
 
 
 def run_script(script: str, *script_args: str) -> None:
@@ -138,6 +144,42 @@ def main() -> None:
     rc = sub.add_parser("resolve-companies", help="LLM-resolve ambiguous company names where apollo_company_name ≠ company_name")
     rc.add_argument("--limit", type=int, default=None, help="Cap number of rows (for dry-run)")
 
+    us = sub.add_parser("upload-smartscout", help="Upsert SmartScout brand market data CSV/xlsx into smartscout_brands")
+    us.add_argument("file", help="Path to .csv or .xlsx (extension optional)")
+
+    rs = sub.add_parser("resolve-smartscout", help="Fuzzy-match leads to SmartScout brands (LLM pass is separate: llm-resolve-smartscout)")
+    rs.add_argument("--rerun", action="store_true", help="Re-resolve all leads, not just unresolved")
+    rs.add_argument("--limit", type=int, default=None, help="Cap number of leads (testing)")
+
+    sl = sub.add_parser("scrape-leads",
+                        help="Pull decision-maker leads from Prospeo for each inclusion-list domain")
+    sl.add_argument("--domains", help="CSV path; defaults to domain_inclusion_list table")
+    sl.add_argument("--limit", type=int, default=None)
+    sl.add_argument("--dry-run", action="store_true")
+    sl.add_argument("--skip-llm", action="store_true", help="Skip Haiku grey-zone agency/brand classifier")
+    sl.add_argument("--with-mobile", action="store_true",
+                    help="Enrich accepted leads with mobile (10 credits each)")
+    sl.add_argument("--max-credits", type=int, default=None,
+                    help="Hard budget cap. Aborts run before spending past this.")
+
+    sub.add_parser("export-leads",
+                   help="Dump the full prospeo_new_leads table into a fresh CSV + XLSX")
+
+    em = sub.add_parser("enrich-mobile",
+                        help="Catch-up: add mobile numbers to all accepted leads in DB that don't have one yet")
+    em.add_argument("--limit", type=int, default=None, help="Cap number of leads to enrich")
+    em.add_argument("--dry-run", action="store_true",
+                    help="Show how many leads would be enriched and estimated cost; no API calls")
+
+    ll = sub.add_parser("llm-resolve-smartscout",
+                        help="LLM-only second pass on grey-zone leads (after resolve-smartscout --skip-llm)")
+    ll.add_argument("--min-score", type=float, default=85.0)
+    ll.add_argument("--max-score", type=float, default=92.0)
+    ll.add_argument("--limit", type=int, default=None)
+    ll.add_argument("--yes", action="store_true", help="Skip confirmation")
+    ll.add_argument("--dry-run", action="store_true",
+                    help="Print cost estimate and exit; no API calls or DB writes")
+
     args = parser.parse_args()
 
     if args.command == "export":
@@ -160,6 +202,22 @@ def main() -> None:
         cmd_refresh(args)
     elif args.command == "resolve-companies":
         resolve_companies_main(limit=args.limit)
+    elif args.command == "upload-smartscout":
+        upload_smartscout_main(args.file)
+    elif args.command == "resolve-smartscout":
+        resolve_smartscout_main(rerun=args.rerun, limit=args.limit)
+    elif args.command == "scrape-leads":
+        prospeo_main(domains_csv=args.domains, limit=args.limit,
+                     dry_run=args.dry_run, skip_llm=args.skip_llm,
+                     with_mobile=args.with_mobile,
+                     max_credits=args.max_credits)
+    elif args.command == "enrich-mobile":
+        prospeo_enrich_mobile(limit=args.limit, dry_run=args.dry_run)
+    elif args.command == "export-leads":
+        prospeo_export_all()
+    elif args.command == "llm-resolve-smartscout":
+        llm_resolve_smartscout_main(min_score=args.min_score, max_score=args.max_score,
+                                    limit=args.limit, yes=args.yes, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

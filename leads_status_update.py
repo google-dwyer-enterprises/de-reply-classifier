@@ -81,6 +81,12 @@ def main() -> None:
             "auto_status_updated_at": now_iso,
             "score": s.get("score"),
             "reason": s.get("reason") or None,
+            "reason1": s.get("reason1") or None,
+            "reason2": s.get("reason2") or None,
+            "reason3": s.get("reason3") or None,
+            "reply1_body": s.get("reply1_body") or None,
+            "reply2_body": s.get("reply2_body") or None,
+            "reply3_body": s.get("reply3_body") or None,
             "clients": s.get("clients") or None,
             "campaigns": s.get("campaigns") or None,
         })

@@ -130,6 +130,17 @@ def fetch_per_lead_summary(supabase) -> dict[str, dict]:
         status1, status2, status3 = (t[0] for t in top3)
         picked = top3[0][1]  # reply that produced status1
 
+        # Per-status reason + cleaned/truncated reply body. None if that slot is empty.
+        def _slot(item):
+            _label, reply = item
+            if reply is None:
+                return None, None
+            return (reply.get("_reason") or None), (clean_body(reply.get("body") or "")[:500] or None)
+
+        reason1, reply1_body = _slot(top3[0])
+        reason2, reply2_body = _slot(top3[1])
+        reason3, reply3_body = _slot(top3[2])
+
         # status4 = latest non-null Instantly lead_status across this lead's replies
         status4 = next(
             (r.get("lead_status") for r in rlist if r.get("lead_status")),
@@ -177,6 +188,12 @@ def fetch_per_lead_summary(supabase) -> dict[str, dict]:
             "status_confidence": confidence,
             "score": score,
             "reason": reason,
+            "reason1": reason1,
+            "reason2": reason2,
+            "reason3": reason3,
+            "reply1_body": reply1_body,
+            "reply2_body": reply2_body,
+            "reply3_body": reply3_body,
             "last_reply_date": last_reply_date,
             "total_replies": len(rlist),
             "thread_id": thread_id,

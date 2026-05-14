@@ -1,5 +1,51 @@
+# Secrets / local env
 .env
+.env.local
+*.pem
+*.key
+
+# Python
 venv/
+.venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / IDE
 .DS_Store
+Thumbs.db
+.claude/
+.vscode/
+.idea/
+
+# Data (PII — leads, replies, Apollo, Prospeo, SmartScout)
+original_data/
+test_data/
+exports/
+debug/
+nocodb_data/
+backfill_names/
+
+# Generated artifacts
+*.log
+*.xlsx
+*.csv
+*.tsv
+*.zip
+*.html
+
+# Local NocoDB / Node
+node_modules/
+*.db
+noco.db
+
+# Session / handoff scratch
+transcript.md
+SESSION_HANDOFF.*
+ARCHITECTURE*.html
+FILTERS.html
+PROSPEO.html

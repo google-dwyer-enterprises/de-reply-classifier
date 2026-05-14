@@ -344,11 +344,11 @@ def chunks(seq, n):
         yield seq[i : i + n]
 
 
-def call_haiku(anthropic_client, system_prompt: str, user_message: str) -> str:
+def call_haiku(anthropic_client, system_prompt: str, user_message: str, model: str = MODEL) -> str:
     for attempt in range(MAX_RETRIES):
         try:
             resp = anthropic_client.messages.create(
-                model=MODEL,
+                model=model,
                 max_tokens=MAX_TOKENS,
                 system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": user_message}],
@@ -377,11 +377,11 @@ def parse_response(text: str) -> list[dict]:
 # Classification loop
 # --------------------------------------------------------------------------- #
 
-def classify_batch(anthropic_client, supabase, system_prompt: str, batch: list[dict]) -> None:
+def classify_batch(anthropic_client, supabase, system_prompt: str, batch: list[dict], model: str = MODEL) -> None:
     user_message = format_batch_user_message(batch)
     raw = None
     try:
-        raw = call_haiku(anthropic_client, system_prompt, user_message)
+        raw = call_haiku(anthropic_client, system_prompt, user_message, model=model)
     except Exception as e:
         write_error(
             supabase,
@@ -454,7 +454,7 @@ def classify_batch(anthropic_client, supabase, system_prompt: str, batch: list[d
                 "lead_email": reply["lead_email"],
                 "label": label,
                 "confidence": item.get("confidence"),
-                "model": MODEL,
+                "model": model,
                 "prompt_version": PROMPT_VERSION,
                 "alternate_contact": item.get("alternate_contact"),
                 "reason": (str(item.get("reason"))[:500] if item.get("reason") else None),
@@ -516,6 +516,88 @@ def dry_run(supabase, system_prompt: str) -> None:
     print()
     print("=" * 72)
     print("No API call made (dry run).")
+
+
+# --------------------------------------------------------------------------- #
+# Cost estimator
+# --------------------------------------------------------------------------- #
+
+# Per 1M tokens. cache_write = 1.25× base input, cache_read = 0.1× base input.
+PRICING_PER_M = {
+    "claude-haiku-4-5":   {"input": 1.0, "cache_write": 1.25, "cache_read": 0.10, "output": 5.0},
+    "claude-sonnet-4-6":  {"input": 3.0, "cache_write": 3.75, "cache_read": 0.30, "output": 15.0},
+}
+CHARS_PER_TOKEN = 4   # rough English estimate
+OUTPUT_TOKENS_PER_REPLY = 40   # label + confidence + short reason JSON
+
+
+def cost_estimate(supabase, system_prompt: str, reclassify: bool = False) -> None:
+    if reclassify:
+        replies = _paginate_all(supabase.table("replies").select("*"))
+        scope = "ALL replies (reclassify)"
+    else:
+        replies = fetch_unclassified(supabase, limit=None)
+        scope = "UNCLASSIFIED replies only"
+    if not replies:
+        print("No replies. Nothing to estimate.")
+        return
+    print(f"Scope: {scope}")
+
+    promos = [
+        r for r in replies
+        if is_likely_promo(r.get("subject") or "", r.get("body") or "", r.get("lead_email") or "")
+    ]
+    promo_ids = {r["id"] for r in promos}
+    to_api = [r for r in replies if r["id"] not in promo_ids]
+
+    print("=" * 60)
+    print("CLASSIFY COST ESTIMATE")
+    print("=" * 60)
+    print(f"Unclassified replies:    {len(replies):,}")
+    print(f"  Promo (rule-based):    {len(promos):,}  (free, no API)")
+    print(f"  → going to API:        {len(to_api):,}")
+
+    if not to_api:
+        print("Nothing to send to API.")
+        return
+
+    sys_tokens = max(1, len(system_prompt) // CHARS_PER_TOKEN)
+
+    sample = to_api[: BATCH_SIZE * 5]
+    sample_batches = list(chunks(sample, BATCH_SIZE))
+    user_token_samples = [
+        len(format_batch_user_message(b)) // CHARS_PER_TOKEN for b in sample_batches
+    ]
+    avg_user_tokens = (sum(user_token_samples) / len(user_token_samples)) if user_token_samples else 1500
+
+    n_batches = (len(to_api) + BATCH_SIZE - 1) // BATCH_SIZE
+    output_tokens_per_batch = OUTPUT_TOKENS_PER_REPLY * BATCH_SIZE
+
+    print(f"Batches ({BATCH_SIZE}/batch):       {n_batches:,}")
+    print(f"System prompt tokens:    ~{sys_tokens:,}")
+    print(f"Avg user tokens/batch:   ~{avg_user_tokens:,.0f}")
+    print(f"Avg output tokens/batch: ~{output_tokens_per_batch:,}")
+    print()
+
+    for model_name, p in PRICING_PER_M.items():
+        # Assume 1 cache-write batch then (n-1) cache-read batches (cache TTL 5 min,
+        # batches run back-to-back so the assumption mostly holds).
+        cache_write = (sys_tokens / 1_000_000) * p["cache_write"]
+        cache_read  = (sys_tokens / 1_000_000) * p["cache_read"] * max(0, n_batches - 1)
+        user_cost   = (avg_user_tokens * n_batches / 1_000_000) * p["input"]
+        out_cost    = (output_tokens_per_batch * n_batches / 1_000_000) * p["output"]
+        total = cache_write + cache_read + user_cost + out_cost
+
+        marker = "  (current)" if model_name == MODEL else ""
+        print(f"=== {model_name}{marker} ===")
+        print(f"  Cache write (batch 1):     ${cache_write:.4f}")
+        print(f"  Cache read (batches 2..N): ${cache_read:.4f}")
+        print(f"  User messages:             ${user_cost:.4f}")
+        print(f"  Output:                    ${out_cost:.4f}")
+        print(f"  TOTAL:                     ${total:.2f}")
+        print()
+
+    print("Note: estimate uses ~4 chars/token. Real cost typically within ±15%.")
 
 
 # --------------------------------------------------------------------------- #
@@ -692,6 +774,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None, help="cap number of replies to classify")
     parser.add_argument("--dry-run", action="store_true", help="print the prompt for 3 replies; no API call")
+    parser.add_argument("--cost-estimate", action="store_true",
+                        help="estimate cost (Haiku vs Sonnet) for all unclassified replies; no API/DB writes")
+    parser.add_argument("--model", type=str, default=MODEL,
+                        help=f"override model (default {MODEL}). Try claude-sonnet-4-6 for higher accuracy.")
     parser.add_argument("--variety", action="store_true", help="pick a variety-balanced sample instead of chronological")
     parser.add_argument("--reclassify", action="store_true", help="include already-classified replies (keeps prior rows for diffing)")
     parser.add_argument("--diff-against", type=str, default=None, help="after run, diff current prompt_version against this one (e.g. v1)")
@@ -706,6 +792,10 @@ def main() -> None:
 
     if args.dry_run:
         dry_run(supabase, system_prompt)
+        return
+
+    if args.cost_estimate:
+        cost_estimate(supabase, system_prompt, reclassify=args.reclassify)
         return
 
     from anthropic import Anthropic
@@ -734,11 +824,13 @@ def main() -> None:
         classify_promos(supabase, promos)
         print(f"Wrote {len(promos)} rule-based promo classifications")
 
+    if args.model != MODEL:
+        print(f"Model override: using {args.model} (default is {MODEL})")
     for batch_num, batch in enumerate(chunks(to_haiku, BATCH_SIZE), 1):
         print(f"Batch {batch_num} ({len(batch)} replies)")
-        classify_batch(anthropic_client, supabase, system_prompt, batch)
+        classify_batch(anthropic_client, supabase, system_prompt, batch, model=args.model)
 
-    print(f"Done. Classified {len(replies)} replies (prompt_version={PROMPT_VERSION}).")
+    print(f"Done. Classified {len(replies)} replies (prompt_version={PROMPT_VERSION}, model={args.model}).")
     is_full_run = not (args.limit or args.dry_run or args.variety or args.reclassify)
     if is_full_run:
         print_total_count(supabase)
