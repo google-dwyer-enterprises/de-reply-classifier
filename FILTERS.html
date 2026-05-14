@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lead Scraper — Filters Reference</title>
+<style>
+  :root {
+    --fg: #1a1d23;
+    --muted: #5e6470;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e1e4e8;
+    --accent: #0550ae;
+    --accent-soft: #ddeefc;
+    --green: #1a7f37;
+    --green-soft: #dcf4e3;
+    --amber: #9a6700;
+    --amber-soft: #fff4cc;
+    --red: #cf222e;
+    --red-soft: #ffe3e3;
+    --pill-bg: #f0f4f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 28px 80px;
+  }
+  header {
+    text-align: center;
+    padding: 24px 0 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  header h1 {
+    font-size: 2.2em;
+    font-weight: 700;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+  }
+  header .tag { color: var(--muted); font-size: 1.05em; }
+
+  h2 {
+    font-size: 1.5em;
+    font-weight: 700;
+    margin: 44px 0 14px;
+    letter-spacing: -0.01em;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 36px;
+    font-size: 0.8em;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+  h3 { font-size: 1.1em; margin: 22px 0 8px; font-weight: 600; }
+  p { margin: 0.6em 0; }
+
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--pill-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.88em;
+  }
+  pre {
+    background: var(--pill-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.85em;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin: 14px 0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+
+  .filter-stage {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  .filter-stage h3 {
+    margin-top: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .filter-stage .stage-num {
+    background: var(--accent-soft);
+    color: var(--accent);
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.9em;
+  }
+  .filter-stage .when {
+    color: var(--muted);
+    font-size: 0.88em;
+    margin-bottom: 8px;
+  }
+
+  table {
+    border-collapse: collapse;
+    margin: 12px 0;
+    width: 100%;
+    font-size: 0.92em;
+    background: var(--card);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  th, td {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--pill-bg); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+
+  .pill {
+    display: inline-block;
+    background: var(--pill-bg);
+    border-radius: 999px;
+    padding: 3px 11px;
+    font-size: 0.85em;
+    color: var(--muted);
+    margin: 2px 3px;
+  }
+  .pill.title {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .pill.bad { background: var(--red-soft); color: var(--red); }
+  .pill.ok  { background: var(--green-soft); color: var(--green); }
+
+  .callout {
+    border-radius: 10px;
+    padding: 16px 22px;
+    margin: 14px 0;
+  }
+  .callout.why  { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.warn { background: var(--amber-soft); border-left: 4px solid #d4a72c; }
+  .callout h4 { margin-top: 0; font-size: 1em; }
+
+  .funnel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.9em;
+    white-space: pre;
+    overflow-x: auto;
+    line-height: 1.6;
+  }
+
+  ul { padding-left: 1.5em; }
+  li { margin: 0.3em 0; }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.88em;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔎 Filters Reference</h1>
+  <div class="tag">Every filter the lead scraper applies, in the order it fires</div>
+</header>
+
+<p>The scraper applies <strong>eight layers of filtering</strong>. Each layer removes the obvious junk so the next layer (which is more expensive) only sees high-quality candidates.</p>
+
+<!-- =================================================== -->
+<h2><span class="num">1</span>CSV cleanup — junk domains</h2>
+
+<div class="filter-stage">
+  <h3><span class="stage-num">1</span>Pre-processing — runs once on the raw CSV</h3>
+  <div class="when">When: before the bot ever starts · Script: <code>scripts/clean_inclusion.py</code></div>
+
+  <p>Looks at each row's <code>Website</code> and <code>Emails</code> column. Drops the row if either points to a junk domain.</p>
+
+  <table>
+    <thead><tr><th>Rule</th><th>Examples</th><th>Why drop</th></tr></thead>
+    <tbody>
+      <tr><td>Ends in <code>.org</code></td><td>redcross.org, wikipedia.org</td><td>Non-profits — not e-com brands</td></tr>
+      <tr><td>Ends in <code>.edu</code></td><td>harvard.edu, mit.edu</td><td>Universities</td></tr>
+      <tr><td>Ends in <code>.io</code></td><td>dagster.io, snowplow.io</td><td>Mostly tech/SaaS, not e-com</td></tr>
+      <tr><td>Exact match <code>gmail.com</code></td><td>john@gmail.com</td><td>Personal email, not a business</td></tr>
+      <tr><td>Exact match <code>yahoo.com</code></td><td>jane@yahoo.com</td><td>Personal email, not a business</td></tr>
+      <tr><td>Exact match <code>outlook.com</code></td><td>bob@outlook.com</td><td>Personal email, not a business</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Result on real data:</strong></p>
+  <ul>
+    <li>inclusion.csv: 130,127 → 99,809 rows (dropped 23%)</li>
+    <li>exclusion.csv: 82,675 → 76,678 rows (dropped 7%)</li>
+  </ul>
+</div>
+
+<div class="filter-stage" style="border-left-color: #d4a72c;">
+  <h3><span class="stage-num" style="background:#fff4cc;color:#9a6700;">1b</span>Mega-brand blocklist</h3>
+  <div class="when">When: same pre-processing pass · Script: <code>scripts/clean_inclusion.py</code> · Set: <code>MEGA_BRANDS</code></div>
+
+  <p>Drops rows pointing to ~80 Fortune-500-class domains. Two reasons:</p>
+  <ul>
+    <li><strong>They're not real targets.</strong> Adidas, Pfizer, Ford have in-house teams and don't buy from Amazon-agency outreach.</li>
+    <li><strong>They break Prospeo's batched filter.</strong> A single mega-brand in a 15-domain batch returns 100+ exec-titled rows, swamping the small brands in the batch and triggering our safety check. (This was a real bug — discovered after a 506-credit burn.)</li>
+  </ul>
+
+  <p>Examples blocked: <code>adidas.com</code>, <code>amazon.com</code>, <code>walmart.com</code>, <code>nestle.com</code>, <code>pg.com</code>, <code>pfizer.com</code>, <code>tesla.com</code>, <code>google.com</code>, and ~70 more. Also catches consumer brands owned by mega-corps (e.g. <code>cheetos.com</code> is blocked because its emails point to <code>pepsico.com</code>).</p>
+
+  <p><strong>Result:</strong> 74 unique mega-brand domains removed from <code>inclusion_clean.csv</code> → <code>inclusion_clean_v2.csv</code>.</p>
+</div>
+
+<!-- =================================================== -->
+<h2><span class="num">2</span>Dedupe filters — don't re-pay for what we have</h2>
+
+<div class="filter-stage">
+  <h3><span class="stage-num">2</span>Skip domains where we already have a decision-maker</h3>
+  <div class="when">When: bot startup, before any API call · Source: <code>lead_contacts</code> table</div>
+
+  <p>If our database already contains a Founder, CEO, Owner, President, CMO, or Head-of-anything at <code>brandX.com</code> — skip <code>brandX.com</code> entirely. No point asking Prospeo to find a CEO we already have.</p>
+</div>
+
+<div class="filter-stage">
+  <h3><span class="stage-num">3</span>Skip domains we've already scraped recently</h3>
+  <div class="when">When: bot startup · Source: <code>domain_inclusion_list.last_scraped_at</code> · Window: 30 days</div>
+
+  <p>Every batch the bot completes marks its 15 domains as scraped in <code>domain_inclusion_list</code>. The next run filters those out at load time — so re-runs only hit fresh domains, and a crashed run resumes automatically. After 30 days a domain becomes "stale" and eligible for re-scraping (brands change owners, new founders join).</p>
+</div>
+
+<div class="filter-stage">
+  <h3><span class="stage-num">4</span>Skip emails we already have anywhere</h3>
+  <div class="when">When: after Prospeo returns a person, before saving · Source: <code>lead_contacts</code> + <code>replies</code> + <code>prospeo_new_leads</code></div>
+
+  <p>Even if a new domain returns a fresh lead, we double-check the email against everywhere we've seen one before. If the email exists anywhere — drop it. Prevents contacting the same person via two different campaigns.</p>
+</div>
+
+<!-- =================================================== -->
+<h2><span class="num">3</span>Prospeo search filter — job titles only</h2>
+
+<div class="filter-stage">
+  <h3><span class="stage-num">5</span>Owner-level titles, server-side filtering</h3>
+  <div class="when">When: sent to Prospeo with every batch of 15 domains · Endpoint: <code>POST /search-person</code></div>
+
+  <p>This is the most important filter. Prospeo applies it on their side — we never even see leads that don't match a target title, so we don't pay credits to look at them.</p>
+
+  <div style="margin: 14px 0;">
+    <span class="pill title">CEO</span>
+    <span class="pill title">Chief Executive Officer</span>
+    <span class="pill title">Founder</span>
+    <span class="pill title">Owner</span>
+    <span class="pill title">Co-Owner</span>
+    <span class="pill title">President</span>
+    <span class="pill title">Founder and CEO</span>
+    <span class="pill title">Managing Director</span>
+    <span class="pill title">Chairman</span>
+  </div>
+
+  <p style="color: var(--muted); font-size: 0.95em;">Prospeo's <strong>Smart match</strong> mode also auto-expands these to close variants like <em>"Founding Partner"</em>, <em>"Co-CEO"</em>, <em>"Acting President"</em> — we don't have to list every spelling ourselves.</p>
+
+  <div class="callout why">
+    <h4>Why owner-level only?</h4>
+    <p>Looked at every classified reply in Dwyer's Supabase. Marketing-titled people (CMO, Marketing Director, Head of E-com) produced <strong>1 booking out of 15 replies</strong>. Founder/CEO/Owner/President produced <strong>22 positives out of ~60</strong>. Your data, not industry guesswork.</p>
+  </div>
+
+  <p>The actual API call looks like this:</p>
+  <pre><code>{
+  "filters": {
+    "company": { "websites": { "include": [<batch of 50 domains>] } },
+    "person_job_title": {
+      "include": ["CEO", "Founder", "Owner", "President", ...],
+      "match": "smart",
+      "match_strictness": "normal"
+    }
+  }
+}</code></pre>
+</div>
+
+<!-- =================================================== -->
+<h2><span class="num">4</span>Verified-email filter — protect deliverability</h2>
+
+<div class="filter-stage">
+  <h3><span class="stage-num">6</span>Only pay for verified emails</h3>
+  <div class="when">When: every enrich call · Endpoint: <code>POST /enrich-person</code></div>
+
+  <p>Tell Prospeo <code>only_verified_email: true</code>. If they don't have an independently-verified email for the person, they return 400/NO_MATCH and we skip silently. Zero credits spent.</p>
+
+  <div class="callout why">
+    <h4>Why this is non-negotiable</h4>
+    <p>Cold email lives or dies on sender reputation. A hard bounce in Instantly damages the sending domain across <em>all</em> campaigns — not just the one that bounced. Saving credits on unverified addresses is a bonus; deliverability is the real win.</p>
+  </div>
+</div>
+
+<!-- =================================================== -->
+<h2><span class="num">5</span>Agency / marketplace rules — fast & deterministic</h2>
+
+<div class="filter-stage">
+  <h3><span class="stage-num">7</span>Drop obvious agencies and marketplaces</h3>
+  <div class="when">When: after enrich, before LLM · Code: <code>rule_classify()</code></div>
+
+  <p>Some companies are obviously not brands. Two cheap rule checks catch the most common cases:</p>
+
+  <h3>6a · Marketplace rejection</h3>
+  <p>If the email domain or website is in our marketplace list, the lead is rejected as <code>marketplace</code>:</p>
+  <div style="margin: 8px 0;">
+    <span class="pill bad">amazon.com</span>
+    <span class="pill bad">walmart.com</span>
+    <span class="pill bad">etsy.com</span>
+    <span class="pill bad">ebay.com</span>
+    <span class="pill bad">faire.com</span>
+    <span class="pill bad">shopify.com</span>
+    <span class="pill bad">alibaba.com</span>
+    <span class="pill bad">aliexpress.com</span>
+  </div>
+
+  <h3>6b · Agency keyword rejection</h3>
+  <p>If the company name OR website contains any of these tokens, reject as <code>agency</code>:</p>
+  <div style="margin: 8px 0;">
+    <span class="pill bad">agency</span>
+    <span class="pill bad">marketing</span>
+    <span class="pill bad">consulting</span>
+    <span class="pill bad">consultancy</span>
+    <span class="pill bad">services</span>
+    <span class="pill bad">solutions</span>
+    <span class="pill bad">media</span>
+    <span class="pill bad">digital</span>
+    <span class="pill bad">growth</span>
+    <span class="pill bad">fulfillment</span>
+    <span class="pill bad">3pl</span>
+    <span class="pill bad">partners</span>
+    <span class="pill bad">advisors</span>
+    <span class="pill bad">advisory</span>
+  </div>
+
+  <p>If neither rule fires, the lead is <strong>grey-zone</strong> — uncertain enough that we send it to the LLM for a second opinion.</p>
+</div>
+
+<!-- =================================================== -->
+<h2><span class="num">6</span>LLM grey-zone — Claude Haiku decides</h2>
+
+<div class="filter-stage">
+  <h3><span class="stage-num">8</span>AI judgment on the borderline cases</h3>
+  <div class="when">When: leads that passed all rules but couldn't be classified · Model: Claude Haiku 4.5</div>
+
+  <p>For every lead the rules couldn't decide, Haiku reads the company's name, website, description, the person's title, and the email domain, then returns one of:</p>
+
+  <div style="margin: 10px 0;">
+    <span class="pill ok">brand</span> — real e-commerce company selling their own product (kept)<br>
+    <span class="pill bad">agency</span> — provides services to other companies<br>
+    <span class="pill bad">reseller</span> — sells products other brands own<br>
+    <span class="pill bad">marketplace</span> — multi-vendor platform<br>
+    <span class="pill bad">unknown</span> — Haiku couldn't tell with confidence
+  </div>
+
+  <p>Only <code>brand</code> is accepted for export. Everything else is saved to <code>prospeo_new_leads</code> with <code>rejected=true</code> for audit, but not exported to the CSV.</p>
+
+  <p><strong>Cost:</strong> ~$0.0001 per grey-zone lead. Negligible.</p>
+</div>
+
+<!-- =================================================== -->
+<h2><span class="num">7</span>The full funnel</h2>
+
+<div class="funnel">Raw inclusion CSV              130,127 rows
+       ↓  CSV cleanup (.org/.edu/.io/freemail dropped)
+                                 99,809 rows
+       ↓  mega-brand blocklist (~80 Fortune-500 domains dropped)
+                                 99,142 rows  (74 unique mega-brand domains removed)
+       ↓  dedupe on Website column
+                                 51,681 unique company domains (v2)
+       ↓  skip domains where we already have a decision-maker
+       ↓  skip domains already scraped in the last 30 days
+                                 ~remaining new domains queried
+       ↓  Prospeo title filter (owner-level only)
+                                 ~5–10% return matches
+       ↓  Prospeo verified-email filter
+                                 ~30–40% of matches have a verified email
+       ↓  marketplace / agency rules
+                                 obvious junk rejected
+       ↓  Haiku LLM grey-zone
+                                 subtler agencies rejected
+       ↓
+ACCEPTED BRAND LEADS              ~500–1,500 from a full run</div>
+
+<div class="callout warn">
+  <h4>Why so many filter layers?</h4>
+  <p>Each layer is cheaper than the next. CSV cleanup is free. Database dedupe is free. Prospeo's server-side filter is one credit per page. Email verification only charges if it works. The LLM only sees borderline cases. By the time we spend real money, we're confident the candidate is worth checking.</p>
+</div>
+
+<!-- =================================================== -->
+<h2><span class="num">8</span>Filters we considered but DON'T use</h2>
+
+<div class="card" style="border-left: 4px solid #d4a72c;">
+  <h3>⏳ Industry filter — being re-evaluated</h3>
+  <p>Originally rejected because Prospeo's taxonomy includes agencies and marketplaces in categories like "Retail Apparel." That reasoning still holds in principle, but our existing agency/marketplace LLM filter is designed to clean exactly that kind of pollution — so the question is whether it cleans <em>enough</em> at category-mode scale.</p>
+  <p><strong>Status:</strong> Victor flagged the 52k domain ceiling as a blocker for the 5,000-leads/week target. A side-by-side pilot (<code>scripts/prospeo_category_pilot.py</code>) is queued — it runs a Domain pass and a Category pass under the same downstream filter and compares brand-rate. Filter shape and the verified industry-string list have been empirically confirmed (<code>FINDINGS.html</code> §6). Awaiting authorization to spend ~$0.80 on the live pilot.</p>
+</div>
+
+<div class="card">
+  <h3>❌ Reseller-by-email-mismatch rule</h3>
+  <p>We tried flagging leads where the email domain differed from the company website (e.g. <code>@atd1.net</code> for <code>americantoolanddie.com</code>). Too many false positives — many real brands use legacy/short email domains. Removed.</p>
+</div>
+
+<div class="card">
+  <h3>❌ Seniority filter</h3>
+  <p>Earlier version used Prospeo's seniority buckets (<code>C-Suite</code>, <code>Vice President</code>, etc.). Too broad — "Vice President" includes VP of Engineering, Finance, Operations. Switched to specific job titles with Smart match.</p>
+</div>
+
+<div class="card">
+  <h3>❌ Employee count / revenue / country filters</h3>
+  <p>Available on Prospeo but not enabled — adding them narrows supply further on top of the strict title filter. We can enable later if the title filter alone overshoots quality.</p>
+</div>
+
+<footer>
+  Filters reference for Dwyer Enterprises lead scraper · 2026-05-13
+</footer>
+
+</body>
+</html>

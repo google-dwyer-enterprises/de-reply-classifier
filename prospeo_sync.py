@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Iterable
 
 import anthropic
+import psycopg2
 import requests
 from dotenv import load_dotenv
 from psycopg2.extras import execute_values
@@ -242,16 +243,46 @@ def fetch_existing_emails(conn) -> set[str]:
 
 def fetch_domains_with_decision_maker(conn) -> set[str]:
     """Domains where we already have at least one decision-maker contact —
-    skip these so we don't re-pay for emails we already have."""
+    skip these so we don't re-pay for emails we already have.
+
+    The 230k-row scan occasionally drops the Supabase pooler connection
+    ('SSL connection has been closed unexpectedly'). On failure we open a
+    fresh short-lived connection just for this read and retry up to 3 times.
+    The caller's conn is left alone so subsequent queries can use it.
+    """
     sql = """
       select distinct lower(split_part(lead_email, '@', 2)) as d
       from lead_contacts
       where lead_email is not null
         and lower(coalesce(title, '')) ~ '(ceo|founder|owner|president|chief|cmo|head of (marketing|e-?commerce))'
     """
-    with conn.cursor() as cur:
-        cur.execute(sql)
-        return {r[0] for r in cur.fetchall() if r[0]}
+    import time
+    last_exc: Exception | None = None
+    use_conn = conn
+    owns_conn = False
+    for attempt in range(3):
+        try:
+            with use_conn.cursor() as cur:
+                cur.execute(sql)
+                rows = {r[0] for r in cur.fetchall() if r[0]}
+            if owns_conn:
+                use_conn.close()
+            return rows
+        except psycopg2.OperationalError as exc:
+            last_exc = exc
+            print(f"  ! fetch_domains_with_decision_maker dropped "
+                  f"({type(exc).__name__}); retrying with fresh connection "
+                  f"({attempt + 1}/3)", file=sys.stderr)
+            if owns_conn:
+                try:
+                    use_conn.close()
+                except Exception:
+                    pass
+            time.sleep(2 * (attempt + 1))
+            from db import connect as _reconnect
+            use_conn = _reconnect()
+            owns_conn = True
+    raise last_exc  # type: ignore[misc]
 
 
 def fetch_recently_scraped_domains(conn, stale_days: int = 30) -> set[str]:

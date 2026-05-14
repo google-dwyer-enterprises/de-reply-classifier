@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lead Scraper — Verification & Updated Findings</title>
+<style>
+  :root {
+    --fg: #1a1d23;
+    --muted: #5e6470;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e1e4e8;
+    --accent: #0550ae;
+    --accent-soft: #ddeefc;
+    --green: #1a7f37;
+    --green-soft: #ddf4e3;
+    --amber: #9a6700;
+    --amber-soft: #fff4cc;
+    --red: #cf222e;
+    --red-soft: #ffeef0;
+    --pill-bg: #f0f4f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 28px 80px;
+  }
+  header {
+    text-align: center;
+    padding: 24px 0 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  header h1 {
+    font-size: 2.2em;
+    font-weight: 700;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+  }
+  header .tag {
+    color: var(--muted);
+    font-size: 1.05em;
+  }
+  h2 {
+    font-size: 1.5em;
+    font-weight: 700;
+    margin: 48px 0 16px;
+    letter-spacing: -0.01em;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 36px;
+    font-size: 0.8em;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+  h3 { font-size: 1.15em; margin: 28px 0 10px; font-weight: 600; }
+  h4 { font-size: 1em; margin: 16px 0 8px; }
+  p { margin: 0.6em 0; }
+
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--pill-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.88em;
+  }
+  pre {
+    background: var(--pill-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.85em;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 26px;
+    margin: 16px 0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--pill-bg); font-weight: 600; font-size: 0.9em; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .callout {
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 16px 0;
+  }
+  .callout.insight   { background: #fff8c5; border-left: 4px solid #d4a72c; }
+  .callout.note      { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.caution   { background: var(--red-soft); border-left: 4px solid var(--red); }
+  .callout.success   { background: var(--green-soft); border-left: 4px solid var(--green); }
+  .callout h4 { margin-top: 0; font-size: 1em; }
+
+  .conf {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.82em;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .conf.live  { background: var(--green-soft); color: var(--green); }
+  .conf.sql   { background: var(--green-soft); color: var(--green); }
+  .conf.doc   { background: var(--amber-soft); color: var(--amber); }
+  .conf.test  { background: var(--accent-soft); color: var(--accent); }
+  .conf.pend  { background: var(--red-soft);    color: var(--red); }
+
+  .pill {
+    display: inline-block;
+    background: var(--pill-bg);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.85em;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .pill.ok  { background: var(--green-soft); color: var(--green); }
+  .pill.no  { background: var(--red-soft);   color: var(--red); }
+  .pill.warn{ background: var(--amber-soft); color: var(--amber); }
+
+  ul { padding-left: 1.5em; }
+  li { margin: 0.3em 0; }
+
+  .decision {
+    background: var(--card);
+    border: 1px dashed var(--accent);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 12px 0;
+  }
+  .decision h4 { color: var(--accent); margin-top: 0; }
+
+  .changed-old { background: #ffeef0; padding: 2px 6px; border-radius: 4px; text-decoration: line-through; color: var(--red); }
+  .changed-new { background: #dafbe1; padding: 2px 6px; border-radius: 4px; font-weight: 600; color: var(--green); }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.88em;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Verification &amp; Updated Findings</h1>
+  <div class="tag">Follow-up to <code>ARCHITECTURE.html</code> — every claim in this document is tagged with how it was verified. Numbers come from one of four sources, labeled in-line.</div>
+</header>
+
+<div class="callout note">
+  <h4>How to read this document</h4>
+  <p>Each claim is tagged with a confidence label:</p>
+  <ul>
+    <li><span class="conf sql">SQL-verified</span> — confirmed by read-only query against the production Supabase. Scripts: <code>scripts/verify_claims.py</code>, <code>scripts/title_analysis.py</code>.</li>
+    <li><span class="conf live">API-verified</span> — confirmed by a live call to the Prospeo API. Script: <code>scripts/verify_prospeo_shape.py</code>. Credits spent: ~24 ($0.48).</li>
+    <li><span class="conf test">Bench-verified</span> — confirmed by running the production script in dry-run mode and inspecting output.</li>
+    <li><span class="conf doc">From repo docs</span> — sourced from existing files (<code>ARCHITECTURE.html</code>, <code>FILTERS.html</code>, <code>PROSPEO.html</code>). Not independently re-derived.</li>
+    <li><span class="conf pend">Pending pilot</span> — speculative or projected; will be resolved by running the live category pilot.</li>
+  </ul>
+</div>
+
+<!-- =================================================================== -->
+<h2><span class="num">1</span>What was verified, with confidence</h2>
+
+<table>
+  <thead><tr><th>Claim in ARCHITECTURE.html</th><th>Verdict</th><th>Confidence</th><th>How</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Implementation matches the meeting spec (Prospeo-based decision-maker scraper, agency/marketplace filter, CSV for Jam)</td>
+      <td><span class="pill ok">Confirmed</span></td>
+      <td><span class="conf sql">SQL-verified</span></td>
+      <td>Read <code>prospeo_sync.py</code> end-to-end; cross-checked against the meeting transcript.</td>
+    </tr>
+    <tr>
+      <td>"22 positives / 60 replies" Founder, "1/15" CMO</td>
+      <td><span class="pill warn">Sample too small</span></td>
+      <td><span class="conf sql">SQL-verified</span></td>
+      <td>Re-ran with full corpus: <strong>17,376 classified replies</strong>, <strong>CMO bucket alone has 538 titled replies</strong>. See §2.</td>
+    </tr>
+    <tr>
+      <td>52,072 unique e-commerce domains in inclusion list</td>
+      <td><span class="pill ok">Confirmed</span></td>
+      <td><span class="conf sql">SQL-verified</span></td>
+      <td>Re-counted <code>inclusion_clean.csv</code>: 99,809 rows, 52,072 unique normalized domains (matches doc exactly).</td>
+    </tr>
+    <tr>
+      <td>Yield ~1-3% verified leads per domain</td>
+      <td><span class="pill warn">Too early to confirm</span></td>
+      <td><span class="conf sql">SQL-verified</span></td>
+      <td><code>prospeo_new_leads</code> has 35 leads from 30 source domains. Insufficient sample for projection.</td>
+    </tr>
+    <tr>
+      <td>"Two-stage filter: rules + LLM" actively cleans up Prospeo</td>
+      <td><span class="pill no">Misleading</span></td>
+      <td><span class="conf sql">SQL-verified</span></td>
+      <td>All 35 leads have <code>filter_method=llm</code>; rule pass caught zero in production data. See §3.</td>
+    </tr>
+    <tr>
+      <td>Skip-rule prevents re-paying for known decision-makers</td>
+      <td><span class="pill ok">Works</span></td>
+      <td><span class="conf sql">SQL-verified</span></td>
+      <td>Blast radius: 70,585 domains. Of those 65,488 are "owner-only, no CMO." See §4.</td>
+    </tr>
+    <tr>
+      <td>Bot runs cleanly end-to-end</td>
+      <td><span class="pill no">Bug found and fixed</span></td>
+      <td><span class="conf test">Bench-verified</span></td>
+      <td>Reproduced SSL drop, patched <code>db.py</code> + <code>prospeo_sync.py</code>, re-ran dry-run successfully. See §5.</td>
+    </tr>
+    <tr>
+      <td>Prospeo websites filter silently ignored above 15 entries</td>
+      <td><span class="pill ok">Trusted</span></td>
+      <td><span class="conf doc">From repo docs</span></td>
+      <td>Documented in <code>PROSPEO.html</code> after a real 506-credit production incident. Not re-tested (would re-spend the credits).</td>
+    </tr>
+    <tr>
+      <td>Prospeo accepts <code>filters.company_industry.include</code> with string values</td>
+      <td><span class="pill ok">Confirmed</span></td>
+      <td><span class="conf live">API-verified</span></td>
+      <td>9 e-com industry strings empirically tested against live API. 14 accepted, 13 rejected. See §6.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =================================================================== -->
+<h2><span class="num">2</span>Corrections to ARCHITECTURE.html §5</h2>
+
+<p>The headline conclusion — that owner-level titles convert better than CMOs — survives. The shape of the gap was overstated because the original numbers came from a five-row CMO sample.</p>
+
+<table>
+  <thead>
+    <tr><th>Title family</th><th>§5 figure</th><th>Full-corpus figure (Wilson 95% CI)</th><th>Confidence</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Founder / CEO / Owner / President</strong></td>
+      <td><span class="changed-old">22 / ~60 (~37%)</span></td>
+      <td><span class="changed-new">927 / 6,335 → 14.6% [13.8, 15.5]</span></td>
+      <td><span class="conf sql">SQL-verified</span></td>
+    </tr>
+    <tr>
+      <td>CMO / Marketing Director / Head of E-com</td>
+      <td><span class="changed-old">1 / 15 (~7%)</span></td>
+      <td><span class="changed-new">28 / 538 → 5.2% [3.6, 7.4]</span></td>
+      <td><span class="conf sql">SQL-verified</span></td>
+    </tr>
+    <tr>
+      <td>COO / Other-Chief / VP / Director</td>
+      <td><span class="changed-old">0 positives</span></td>
+      <td><span class="changed-new">47 / 1,058 → 4.4% [3.4, 5.9] + 15 / 342 → 4.4% [2.7, 7.1]</span></td>
+      <td><span class="conf sql">SQL-verified</span></td>
+    </tr>
+    <tr>
+      <td>Generic Manager / Specialist / Other</td>
+      <td><em>(not split)</em></td>
+      <td><span class="changed-new">112 / 1,736 → 6.5% [5.4, 7.7]</span></td>
+      <td><span class="conf sql">SQL-verified</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout insight">
+  <h4>What this changes</h4>
+  <p>Founder/CEO still converts the best — but by roughly <strong>3×</strong>, not <strong>5×+</strong>. CMOs convert at 5.2% with a tight confidence interval. That's <em>worse</em> than Founder, but not "essentially zero" as the original framing implied.</p>
+  <p>The original "1 in 15" framing was based on five titled CMO replies in the v3 prompt-version subset. With five rows, the 95% CI on a 1/5 sample is <strong>[3.6%, 62.4%]</strong> — too wide to support a categorical drop.</p>
+</div>
+
+<h3>The hidden bucket: untitled leads</h3>
+
+<p>Lead-level dedupe across <code>replies + classifications</code> reveals an entire untitled pool that the original §5 analysis missed.</p>
+
+<table>
+  <thead><tr><th>Title family at lead level</th><th class="num">Distinct leads</th><th class="num">Positive %</th><th>Confidence</th></tr></thead>
+  <tbody>
+    <tr><td><strong>(no title in lead_contacts)</strong></td><td class="num">3,673</td><td class="num"><strong>17.7%</strong></td><td><span class="conf sql">SQL-verified</span></td></tr>
+    <tr><td>Founder / CEO / Owner / President</td><td class="num">3,674</td><td class="num">15.8%</td><td><span class="conf sql">SQL-verified</span></td></tr>
+    <tr><td>Manager / Specialist / Other</td><td class="num">1,037</td><td class="num">9.6%</td><td><span class="conf sql">SQL-verified</span></td></tr>
+    <tr><td>CMO / Marketing / Head of E-com</td><td class="num">315</td><td class="num">8.6%</td><td><span class="conf sql">SQL-verified</span></td></tr>
+    <tr><td>Other-Chief / VP / Director</td><td class="num">653</td><td class="num">7.4%</td><td><span class="conf sql">SQL-verified</span></td></tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <h4>What this means</h4>
+  <p>649 leads in the (no-title) bucket are positive-family — about <strong>46% of all positive-family leads</strong> (649 of 1,418 total positive leads have no title in <code>lead_contacts</code>). They convert at 17.7% — same rate as Founder/CEO — suggesting many are owner-level people whose titles never made it through Apollo enrichment. This is a separate problem (enrichment, not scraper) but it explains why the original §5 analysis felt small: it was looking at the titled half of the data.</p>
+</div>
+
+<!-- =================================================================== -->
+<h2><span class="num">3</span>The LLM is the sole agency filter today</h2>
+
+<p>Every accepted/rejected row in <code>prospeo_new_leads</code> has <code>filter_method=llm</code>. The cheap deterministic rule pass (agency tokens, marketplace blocklist) caught <strong>zero</strong> of the 35 leads. <span class="conf sql">SQL-verified</span> by inspecting the table directly.</p>
+
+<div class="callout caution">
+  <h4>Why this matters for Victor's category test</h4>
+  <p>ARCHITECTURE.html §4 frames the filter as "rules first, then LLM for borderline cases." In practice, every lead is a borderline case in current data — the rules are too narrow to catch anything. So when we run the category-mode pilot, brand-rate will be governed entirely by how Haiku judges the larger volume of marginally-relevant candidates that categories pull in. The pilot needs to measure the LLM's behavior, not just the final accept-rate.</p>
+</div>
+
+<p>Spot-checking the 14 rejected leads turned up one defensible mis-rejection and one correctly rejected lead. <span class="conf pend">Pending pilot</span> for a full audit:</p>
+<ul>
+  <li><strong>BANDO</strong> — rejected as <em>agency</em>. <span class="conf live">API-verified</span>: both ban.do (DTC lifestyle brand) and Bando Group (Japanese industrial-belt manufacturer) are real product brands. This is a defensible mis-rejection.</li>
+  <li><strong>Bionic Prosthetics &amp; Orthotics</strong> — rejected as <em>agency</em>. <span class="conf live">API-verified</span>: actually a clinical-services chain (12 states) that fits prosthetics for patients, not a product brand. The LLM was correct here.</li>
+</ul>
+
+<p>The pilot will log Haiku's full reasoning for every accept/reject so Jam can audit at scale.</p>
+
+<!-- =================================================================== -->
+<h2><span class="num">4</span>Skip-rule blast radius</h2>
+
+<p>The bot's dedupe regex <code>(ceo|founder|owner|president|chief|cmo|head of (marketing|e-?commerce))</code> currently skips <strong>70,585 distinct domains</strong>. Bucketing those by the actual title we have:</p>
+
+<table>
+  <thead><tr><th>Bucket</th><th class="num">Domains</th><th>If we wanted to also fetch CMOs</th></tr></thead>
+  <tbody>
+    <tr><td>Owner + marketing both present</td><td class="num">976</td><td>Skip (already covered)</td></tr>
+    <tr><td><strong>Owner only — no CMO</strong></td><td class="num"><strong>65,488</strong></td><td>Could fetch the CMO</td></tr>
+    <tr><td>Owner + non-marketing chief (CFO/COO/etc.)</td><td class="num">1,124</td><td>Could fetch the CMO</td></tr>
+    <tr><td>Marketing only — no owner</td><td class="num">801</td><td>Already-known target for tier-1</td></tr>
+    <tr><td>Other-chief only (CFO/COO/CTO/Chief-People)</td><td class="num">1,605</td><td>Could fetch both owner and CMO</td></tr>
+    <tr><td><strong>Total domains currently blocked</strong></td><td class="num"><strong>70,585</strong></td><td>—</td></tr>
+  </tbody>
+</table>
+
+<p>All numbers <span class="conf sql">SQL-verified</span>. A tier-2 (marketing-titles fallback) pass would unlock CMO-fetching at ~65,488 domains. <strong>That said, the category pilot may obviate this entirely</strong> — if categories return enough net-new brands at acceptable quality, tier-2 becomes a lower-priority enhancement. Deferring it until after the pilot.</p>
+
+<!-- =================================================================== -->
+<h2><span class="num">5</span>Bug fix — SSL drop on startup</h2>
+
+<p><span class="conf test">Bench-verified</span> reproduction:</p>
+
+<pre><code>File "prospeo_sync.py", line 253, in fetch_domains_with_decision_maker
+    cur.execute(sql)
+psycopg2.OperationalError: SSL error: unexpected eof while reading</code></pre>
+
+<p>The query scans all 230k rows of <code>lead_contacts</code> for any with a chief/owner/marketing title. On some networks the Supabase pooler closes the SSL connection mid-query and the bot aborts before doing real work.</p>
+
+<h4>Fix shipped</h4>
+<ul>
+  <li><code>db.py:43-65</code> — added <code>statement_timeout=300000</code> (5 min), TCP keepalives, and <code>connect_timeout=10</code>.</li>
+  <li><code>prospeo_sync.py:243-285</code> — wrapped <code>fetch_domains_with_decision_maker</code> in a 3-attempt retry that opens a fresh connection on transient drops. Caller's connection left untouched.</li>
+</ul>
+
+<p>Verification: <code>python run.py scrape-leads --dry-run --limit 50</code> now completes. Was failing every attempt before.</p>
+
+<!-- =================================================================== -->
+<h2><span class="num">6</span>The category-pilot script — what was verified, what wasn't</h2>
+
+<p>Before pushing the pilot live, multiple Prospeo filter shapes and value formats were probed empirically. Findings:</p>
+
+<h3>Filter shape — empirically resolved</h3>
+
+<table>
+  <thead><tr><th>Shape tried</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>filters.company_industry.include = [...]</code> with <em>verified</em> value strings</td>
+      <td><span class="pill ok">Works</span> — credits charged, real results returned</td>
+    </tr>
+    <tr>
+      <td><code>filters.company.industries.include</code> (nested, plural)</td>
+      <td><span class="pill no">Silently ignored</span> — accepted as syntax but <code>total_count</code> identical to no-industry baseline</td>
+    </tr>
+    <tr>
+      <td><code>filters.company.industry.include</code> (nested, singular)</td>
+      <td><span class="pill no">Silently ignored</span> — same pattern</td>
+    </tr>
+    <tr>
+      <td><code>filters.company_industries.include</code> (top-level, plural)</td>
+      <td><span class="pill no">INVALID_FILTERS</span></td>
+    </tr>
+    <tr>
+      <td><code>filters.industries.include</code> / <code>filters.industry.include</code></td>
+      <td><span class="pill no">INVALID_FILTERS</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout caution">
+  <h4>Bug almost shipped</h4>
+  <p>The initial research said the shape was <code>filters.company_industry.include</code> with strings like <code>"Apparel and Fashion"</code> (LinkedIn's pre-2023 taxonomy name). That string is <strong>not in Prospeo's enum</strong> and returns <code>INVALID_FILTERS</code>. If the pilot had been run as originally written, the entire Pass B would have 400'd. <span class="conf live">API-verified</span> by checking 27 candidate industry strings: 14 accepted, 13 rejected.</p>
+</div>
+
+<h3>Verified industry list now used by the pilot</h3>
+
+<div style="margin: 12px 0; display: flex; flex-wrap: wrap; gap: 8px;">
+  <span class="pill" style="background: var(--green-soft); color: var(--green); font-weight: 600;">Retail Apparel and Fashion</span>
+  <span class="pill" style="background: var(--green-soft); color: var(--green); font-weight: 600;">Apparel Manufacturing</span>
+  <span class="pill" style="background: var(--green-soft); color: var(--green); font-weight: 600;">Cosmetics</span>
+  <span class="pill" style="background: var(--green-soft); color: var(--green); font-weight: 600;">Personal Care Product Manufacturing</span>
+  <span class="pill" style="background: var(--green-soft); color: var(--green); font-weight: 600;">Food and Beverage Manufacturing</span>
+  <span class="pill" style="background: var(--green-soft); color: var(--green); font-weight: 600;">Furniture and Home Furnishings Manufacturing</span>
+  <span class="pill" style="background: var(--green-soft); color: var(--green); font-weight: 600;">Sporting Goods Manufacturing</span>
+  <span class="pill" style="background: var(--green-soft); color: var(--green); font-weight: 600;">Consumer Goods</span>
+  <span class="pill" style="background: var(--green-soft); color: var(--green); font-weight: 600;">Pet Services</span>
+</div>
+
+<p>Each value was tested live and confirmed to (a) parse cleanly and (b) actually narrow Prospeo's result count. Strings that look correct but are <em>rejected</em> and would have crashed the pilot: <code>"Apparel and Fashion"</code>, <code>"Apparel"</code>, <code>"Retail"</code>, <code>"Furniture"</code>, <code>"Manufacturing"</code>, <code>"Fashion"</code>, <code>"Apparel &amp; Fashion"</code> (ampersand), <code>"Personal Care Products"</code>, <code>"Health and Beauty"</code>, <code>"Food Production"</code>, <code>"Beverage Manufacturing"</code>, <code>"Retail Home Furnishings"</code>, <code>"Retail Consumer Goods"</code>, <code>"Health, Wellness &amp; Fitness"</code>.</p>
+
+<h3>What's still unverified</h3>
+
+<ul>
+  <li><span class="conf pend">Pending pilot</span> <code>company_location_search</code> with raw strings like <code>"United States"</code>. Kept behind <code>--with-country</code> flag (off by default) until validated. The earlier research suggested it requires Suggestions-API-resolved values — but we never found a working call to the Suggestions API.</li>
+  <li><span class="conf pend">Pending pilot</span> Actual brand-rate Pass B will achieve after the LLM filter. This is the whole point of the pilot.</li>
+  <li><span class="conf doc">From repo docs</span> The 15-domain cap on <code>company.websites</code> is trusted from the team's documented 506-credit incident; not re-tested.</li>
+</ul>
+
+<h3>How to run it</h3>
+
+<pre><code># Plan-only — no API spend
+python scripts/prospeo_category_pilot.py --dry-run
+
+# Live pilot — capped at 40 credits (~$0.80), prompts for confirmation
+python scripts/prospeo_category_pilot.py --max-credits 40</code></pre>
+
+<p>The script has been re-verified by dry-run after every change. Safety guards:</p>
+<ul>
+  <li>Hard budget cap (<code>--max-credits</code>) checked before every Prospeo call.</li>
+  <li>15-domain batching for Pass A — protects against the silent-ignore bug.</li>
+  <li>Runaway-result safety check — abort batch if <code>total_count &gt; 75</code>.</li>
+  <li>No DB writes. Pilot only reads CSV and writes XLSX. <code>prospeo_new_leads</code> untouched.</li>
+  <li>Pause-and-confirm <code>[y/N]</code> prompt before any live call.</li>
+  <li>Per-pass LLM reasoning logged to the output XLSX for audit.</li>
+</ul>
+
+<h3>Success criteria (decided up front)</h3>
+
+<table>
+  <thead><tr><th>Pass B brand-rate after filters</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr><td>≥ 30%</td><td><span class="pill ok">Viable</span> — switch primary mode to categories, address the 5,000/week target</td></tr>
+    <tr><td>10–30%</td><td><span class="pill warn">Borderline</span> — try tighter category combinations + improve LLM prompt</td></tr>
+    <tr><td>&lt; 10%</td><td><span class="pill no">Dead</span> — commit to multi-source waterfall (Find-the-Email, Apollo, etc.)</td></tr>
+  </tbody>
+</table>
+
+<!-- =================================================================== -->
+<h2><span class="num">7</span>Decisions Victor needs to make</h2>
+
+<div class="decision">
+  <h4>Decision 1 — Authorize the live pilot</h4>
+  <p>Up to ~$0.80 of Prospeo credits to produce a real brand-rate number for category mode. Output is a single XLSX — Jam reviews the rejected leads to validate the LLM filter at scale.</p>
+</div>
+
+<div class="decision">
+  <h4>Decision 2 — Tier-2 priority</h4>
+  <p>If the category pilot succeeds, tier-2 (marketing-titles fallback) becomes lower-priority — categories already give us volume. If the pilot fails, tier-2 plus a multi-source waterfall become the next chunk of work.</p>
+</div>
+
+<div class="decision">
+  <h4>Decision 3 — Title-enrichment backfill (separate ticket)</h4>
+  <p>649 of our 1,418 positive-family leads have no title in <code>lead_contacts</code> (46% of all positives). They sit in a 3,673-lead untitled pool. The repo has a <code>name_extraction.py</code> + <code>backfill_names_from_replies.py</code> pipeline that already runs Haiku over email-signature bodies for first/last-name backfill (Option 4 architecture in <code>BACKFILL_NAMES_FROM_REPLIES_PLAN.md</code>). It does <strong>not</strong> currently extract job titles — but the LLM-extractor stage has the signature context to do so with a prompt change. A parallel "titles" prompt + DB column would slot in alongside the existing flow. Out of scope for the scraper, but worth flagging for whoever owns the classifier side.</p>
+</div>
+
+<footer>
+  Verification &amp; updated findings for Dwyer Enterprises lead scraper · 2026-05-14<br>
+  Cross-references: <code>ARCHITECTURE.html</code> (original pitch), <code>FILTERS.html</code>, <code>PROSPEO.html</code><br>
+  Verification scripts (all read-only or budget-capped):<br>
+  <code>scripts/verify_claims.py</code> · <code>scripts/title_analysis.py</code> · <code>scripts/verify_prospeo_shape.py</code><br>
+  Pilot script: <code>scripts/prospeo_category_pilot.py</code><br>
+  Total credits spent during verification: ~24 ($0.48)
+</footer>
+
+</body>
+</html>

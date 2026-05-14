@@ -41,8 +41,26 @@ def _build_dsn() -> str:
 
 
 def connect():
-    """Return a psycopg2 connection. Caller must close()."""
-    return psycopg2.connect(_build_dsn())
+    """Return a psycopg2 connection with statement_timeout + TCP keepalives.
+
+    The Supabase pooler will drop idle/long-running connections silently,
+    surfacing as 'SSL connection has been closed unexpectedly' mid-query.
+    Setting a server-side statement_timeout makes the failure mode explicit,
+    and TCP keepalives stop the pooler from dropping us during quiet stretches.
+
+    statement_timeout is 5 min, matching the longest queries we run (the
+    materialized-view refresh sets its own autocommit + bypass via
+    refresh_lead_status, so this cap doesn't affect that path).
+    """
+    return psycopg2.connect(
+        _build_dsn(),
+        connect_timeout=10,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
+        options="-c statement_timeout=300000",
+    )
 
 
 def refresh_lead_status() -> None:

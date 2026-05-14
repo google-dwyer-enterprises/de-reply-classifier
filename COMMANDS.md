@@ -84,6 +84,36 @@ python run.py update-status       # 4. update leads table
 
 ---
 
+## Getting New Leads from Prospeo (the lead scraper)
+
+A separate pipeline that pulls **new** decision-maker leads from Prospeo for domains in our inclusion list, filters out agencies/resellers, and writes a CSV that Jam can load into Instantly. Doesn't touch the main classification flow above.
+
+```bash
+# Plan-only — see what would be queried, no API calls
+python run.py scrape-leads --domains inclusion_clean.csv --dry-run --limit 50
+
+# Live run with a safety cap (recommended) — about $0.04
+python run.py scrape-leads --domains inclusion_clean.csv --limit 50 --max-credits 5
+
+# Add mobile numbers later for accepted leads only (~$0.20 each)
+python run.py enrich-mobile --dry-run    # see cost first
+python run.py enrich-mobile              # do it for real
+
+# Dump the cumulative table to CSV + XLSX (no API cost)
+python run.py export-leads
+```
+
+**Pilot script** — used while we test whether Prospeo's category filter can replace the domain list. Output is a comparison XLSX, no DB writes:
+
+```bash
+python scripts/prospeo_category_pilot.py --dry-run                # no spend
+python scripts/prospeo_category_pilot.py --max-credits 40         # ~$0.80 cap
+```
+
+Always run with `--max-credits` to cap spend. See `FINDINGS.html` for what's been verified and what the pilot is testing.
+
+---
+
 ## Other Helpful Commands
 
 | Command | What it does |

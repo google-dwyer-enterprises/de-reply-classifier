@@ -472,6 +472,38 @@ python run.py export --mode fresh --output replied_YYYYMMDD.xlsx
 python run.py export --mode writeback --input sheet.xlsx --tab Sheet1 --header-row 1
 ```
 
+## Prospeo lead scraper (separate pipeline)
+
+The repo also contains a **separate** lead-acquisition pipeline that pulls new decision-maker leads from Prospeo for domains in our inclusion list. It doesn't interact with the classification flow above — it just produces a CSV/XLSX of fresh leads for Jam to load into Instantly.
+
+```bash
+# Plan-only — no API spend
+python run.py scrape-leads --domains inclusion_clean.csv --dry-run --limit 50
+
+# Live run with a hard budget cap (always use --max-credits)
+python run.py scrape-leads --domains inclusion_clean.csv --limit 1000 --max-credits 80
+
+# Add mobile numbers to accepted leads (10 credits per verified mobile)
+python run.py enrich-mobile --dry-run    # see cost
+python run.py enrich-mobile
+
+# Cumulative CSV/XLSX dump (no API cost)
+python run.py export-leads
+```
+
+Documentation:
+
+- `ARCHITECTURE.html` — design overview (the Victor-facing pitch)
+- `FILTERS.html` — every filter the scraper applies, in order
+- `PROSPEO.html` — implementation reference (HTTP endpoints, schema, gotchas)
+- `FINDINGS.html` — empirically verified facts: corrected conversion-rate numbers, the SSL-drop fix, the category-mode pilot design
+- `SESSION_HANDOFF.html` — historical record of the design session
+
+Environment needs an extra var:
+```
+PROSPEO_API_KEY=...
+```
+
 ## Failure modes & recovery
 
 - **Sync fails partway** — idempotent. Just rerun `python run.py sync`.

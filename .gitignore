@@ -36,16 +36,14 @@ backfill_names/
 *.csv
 *.tsv
 *.zip
-*.html
+
 
 # Local NocoDB / Node
 node_modules/
 *.db
 noco.db
 
-# Session / handoff scratch
+# Session / handoff scratch (kept local — historical record of the
+# original design session, intentionally not version-controlled)
 transcript.md
 SESSION_HANDOFF.*
-ARCHITECTURE*.html
-FILTERS.html
-PROSPEO.html
