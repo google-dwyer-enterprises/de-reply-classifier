@@ -4,3 +4,4 @@ supabase>=2.5
 anthropic>=0.40
 openpyxl>=3.1
 rapidfuzz>=3.6
+psycopg2-binary>=2.9

@@ -94,6 +94,36 @@ python run.py update-status       # 4. update leads table
 
 ---
 
+## Scraping New Leads (Prospeo)
+
+Pull decision-maker leads from Prospeo for each domain in the inclusion list:
+
+```bash
+python run.py scrape-leads --dry-run            # see what would happen, no API spend
+python run.py scrape-leads --limit 50           # cap the run (testing)
+python run.py scrape-leads                      # full run
+python run.py scrape-leads --with-mobile        # also enrich mobile (+10 credits/lead)
+python run.py scrape-leads --max-credits 5000   # hard budget cap (aborts before overspend)
+python run.py scrape-leads --skip-llm           # skip the Haiku agency/brand grey-zone classifier
+python run.py scrape-leads --domains my.csv     # use a CSV instead of the domain_inclusion_list table
+```
+
+Catch up by adding mobile numbers to accepted leads that don't have one yet:
+
+```bash
+python run.py enrich-mobile --dry-run           # show count + estimated cost
+python run.py enrich-mobile --limit 100         # cap the run
+python run.py enrich-mobile                     # full catch-up
+```
+
+Dump the full `prospeo_new_leads` table to CSV + XLSX in `exports/`:
+
+```bash
+python run.py export-leads
+```
+
+---
+
 ## Typical Workflows
 
 ### Most days
