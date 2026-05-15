@@ -69,12 +69,20 @@ PILOT_INDUSTRIES = [
     "Sporting Goods Manufacturing",
     "Consumer Goods",
     "Pet Services",
+    "Retail Groceries",  # added 2026-05-15 after probe on ecom_industries sheet
+    "Alternative Medicine",  # added 2026-05-15 (gaps probe, total_count=128K)
+    "Retail Health and Personal Care Products",  # added 2026-05-15 (gaps probe, total_count=141K)
 ]
 
-# Owner-level titles only (same as production tier-1).
+# Mirrors PROSPEO_TITLES in prospeo_sync.py (two-tier: owner + marketing/e-com).
 PILOT_TITLES = [
-    "CEO", "Chief Executive Officer", "Founder", "Owner", "Co-Owner",
-    "President", "Founder and CEO", "Managing Director", "Chairman",
+    # Tier 1: owner (15.8% lead-level conversion)
+    "CEO", "Chief Executive Officer", "Founder", "Co-Founder", "Owner",
+    "Co-Owner", "President", "Founder and CEO", "CEO and Founder",
+    "Managing Director", "Chairman",
+    # Tier 2: marketing/e-com (8.6% lead-level conversion)
+    "CMO", "Chief Marketing Officer", "Head of Marketing", "VP Marketing",
+    "Head of E-commerce", "Director of E-commerce",
 ]
 
 DOMAIN_SAMPLE_SIZE = 60   # Oversample so we still hit 30 enriched results
@@ -88,7 +96,7 @@ PROSPEO_BATCH_DOMAINS = 15
 # ignored — abort the batch to prevent runaway credit spend.
 PROSPEO_MAX_RESULTS_PER_BATCH = PROSPEO_BATCH_DOMAINS * 5
 
-INCLUSION_CSV = Path(__file__).resolve().parent.parent / "inclusion_clean.csv"
+INCLUSION_CSV = Path(__file__).resolve().parent.parent / "original_data" / "inclusion_clean.csv"
 
 
 # ---------- Prospeo HTTP ----------
@@ -208,7 +216,8 @@ def _build_domain_filter(domains: list[str]) -> dict:
     }
 
 
-def _build_category_filter(industries: list[str], with_country: bool = False) -> dict:
+def _build_category_filter(industries: list[str],
+                            with_country: bool | list[str] = False) -> dict:
     """Empirically-verified shape (scripts/verify_prospeo_shape.py, 2026-05-14):
       - Industry key is `company_industry` (SINGULAR, top-level)
       - Values are LinkedIn-2023-style strings drawn verbatim from Prospeo's
@@ -230,7 +239,8 @@ def _build_category_filter(industries: list[str], with_country: bool = False) ->
         },
     }
     if with_country:
-        f["company_location_search"] = {"include": ["United States"]}
+        countries = with_country if isinstance(with_country, list) else ["United States"]
+        f["company_location_search"] = {"include": countries}
     return f
 
 
@@ -364,7 +374,7 @@ def run_domain_pass(domains: list[str], api_key: str,
 def run_category_pass(industries: list[str], api_key: str,
                       llm_client: anthropic.Anthropic | None, llm_prompt: str | None,
                       max_credits: int, credits_already_spent: int,
-                      target_results: int, with_country: bool = False
+                      target_results: int, with_country: bool | list[str] = False
                       ) -> tuple[list[dict], int]:
     """Category mode — single filter, paginate until target_results hit or budget cap."""
     filters = _build_category_filter(industries, with_country=with_country)
@@ -466,10 +476,23 @@ def main() -> None:
                     help="Don't instantiate Anthropic client (rule-only filter)")
     ap.add_argument("--yes", action="store_true",
                     help="Skip the confirmation prompt before live API calls")
-    ap.add_argument("--with-country", action="store_true",
-                    help="Add company_location_search=[\"United States\"] to category filter "
-                         "(off by default — Prospeo may reject raw strings as INVALID_FILTERS)")
+    ap.add_argument("--skip-domain", action="store_true",
+                    help="Skip Pass A (domain mode) entirely. Runs only Pass B "
+                         "(category mode). Useful once category mode is the "
+                         "primary path and you only want a category sample.")
+    ap.add_argument("--with-country", nargs="?", const="United States", default=None,
+                    metavar="LIST",
+                    help="Add company_location_search to category filter. "
+                         "Pass alone for United States only, or with a comma-separated "
+                         "list (e.g. --with-country 'United States,Canada'). "
+                         "Off by default — Prospeo may reject raw country strings.")
     args = ap.parse_args()
+
+    # Normalize --with-country to a list (or False if not passed)
+    if args.with_country is None:
+        args.with_country = False
+    else:
+        args.with_country = [c.strip() for c in args.with_country.split(",") if c.strip()]
 
     load_dotenv()
     api_key = os.environ.get("PROSPEO_API_KEY", "").strip()
@@ -485,7 +508,7 @@ def main() -> None:
     print(f"  Category list:        {len(PILOT_INDUSTRIES)} industries")
     for ind in PILOT_INDUSTRIES:
         print(f"      - {ind}")
-    print(f"  Title filter (tier 1): {len(PILOT_TITLES)} owner-level titles")
+    print(f"  Title filter:         {len(PILOT_TITLES)} titles (owner + marketing/e-com)")
     print(f"  Target results / pass: {args.target_results}")
     print(f"  Max credits:          {args.max_credits} (~=${args.max_credits * 0.02:.2f})")
     print()
@@ -527,12 +550,17 @@ def main() -> None:
         llm_prompt = AGENCY_FILTER_PROMPT.read_text(encoding="utf-8")
 
     spent = 0
-    domain_rows, c1 = run_domain_pass(
-        sample_domains, api_key, llm_client, llm_prompt,
-        args.max_credits, spent, args.target_results,
-    )
-    spent += c1
-    print(f"  Pass A used {c1} credits; total now {spent}/{args.max_credits}")
+    if args.skip_domain:
+        domain_rows: list[dict] = []
+        c1 = 0
+        print("  Pass A (Domain) skipped via --skip-domain.")
+    else:
+        domain_rows, c1 = run_domain_pass(
+            sample_domains, api_key, llm_client, llm_prompt,
+            args.max_credits, spent, args.target_results,
+        )
+        spent += c1
+        print(f"  Pass A used {c1} credits; total now {spent}/{args.max_credits}")
 
     category_rows: list[dict] = []
     c2 = 0

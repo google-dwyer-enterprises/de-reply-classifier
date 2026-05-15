@@ -60,15 +60,25 @@ PROSPEO_MAX_RESULTS_PER_BATCH = PROSPEO_BATCH_DOMAINS * 5
 # Founder/CEO/Owner/President generated all real positive outcomes.
 # At small/mid DTC brands the owner IS the buyer for agency services.
 PROSPEO_TITLES = [
+    # Tier 1: owner (15.8% lead-level conversion per title_analysis 2026-05-15)
     "CEO",
     "Chief Executive Officer",
     "Founder",
+    "Co-Founder",
     "Owner",
     "Co-Owner",
     "President",
     "Founder and CEO",
+    "CEO and Founder",
     "Managing Director",
     "Chairman",
+    # Tier 2: marketing/e-com (8.6% lead-level conversion, n=315)
+    "CMO",
+    "Chief Marketing Officer",
+    "Head of Marketing",
+    "VP Marketing",
+    "Head of E-commerce",
+    "Director of E-commerce",
 ]
 
 # Reference: previous broader list (kept for re-tuning runs).
