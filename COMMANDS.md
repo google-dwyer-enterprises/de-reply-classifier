@@ -86,7 +86,18 @@ python run.py update-status       # 4. update leads table
 
 ## Getting New Leads from Prospeo (the lead scraper)
 
-A separate pipeline that pulls **new** decision-maker leads from Prospeo for domains in our inclusion list, filters out agencies/resellers, and writes a CSV that Jam can load into Instantly. Doesn't touch the main classification flow above.
+A separate pipeline that pulls **new** decision-maker leads from Prospeo, filters out agencies/resellers, and writes a CSV that Jam can load into Instantly. Doesn't touch the main classification flow above.
+
+Two modes — pick one per run via `--mode`:
+
+| Mode | Asks Prospeo for | Dedup is by | Best when |
+|---|---|---|---|
+| `domain` (default) | "people at THESE 52k inclusion-list domains" | Domain (already in `lead_contacts` / `replies` / `prospeo_new_leads`) | You have a hand-curated target list and want full coverage of those exact companies. |
+| `category` | "people in THESE 12 verified industries, in THESE countries" | Email (already in DB) + per-industry pagination cursor | You want to *discover* new DTC brands beyond the curated list. Higher brand rate (~70% pilot-measured vs ~21% domain). |
+
+Both modes share the same downstream filter (rule + Haiku LLM agency check), DB schema (`prospeo_new_leads`), and export shape (Accepted + Rejected XLSX sheets).
+
+### Domain mode (today's behavior — unchanged)
 
 ```bash
 # Plan-only — see what would be queried, no API calls
@@ -95,22 +106,59 @@ python run.py scrape-leads --domains inclusion_clean.csv --dry-run --limit 50
 # Live run with a safety cap (recommended) — about $0.04
 python run.py scrape-leads --domains inclusion_clean.csv --limit 50 --max-credits 5
 
+# Full weekly drop (input defaults to domain_inclusion_list table)
+python run.py scrape-leads --max-credits 500
+```
+
+### Category mode (NEW — added 2026-05-18)
+
+```bash
+# Plan-only — show the filter that would go to Prospeo, no spend
+python run.py scrape-leads --mode category --dry-run --country "United States,Canada"
+
+# $0.20 sanity check — 5 leads
+python run.py scrape-leads --mode category --target-leads 5 --max-credits 10 \
+    --country "United States,Canada"
+
+# Real weekly run — 100 brand leads target, $4 hard cap
+python run.py scrape-leads --mode category --target-leads 100 --max-credits 200 \
+    --country "United States,Canada"
+```
+
+Category mode is **resumable across runs** via `category_scrape_state`. The 2nd run picks up where the 1st stopped — same pagination cursor per industry — so weekly cron just keeps growing the pool.
+
+**If Prospeo runs out of credits mid-run:** the script aborts with `Prospeo INSUFFICIENT_CREDITS — top up and re-run`. The pagination cursor is **not** touched. Just top up at `prospeo.io/dashboard` and re-run the same command — it resumes cleanly. No SQL cleanup needed.
+
+### Common to both modes
+
+```bash
 # Add mobile numbers later for accepted leads only (~$0.20 each)
 python run.py enrich-mobile --dry-run    # see cost first
 python run.py enrich-mobile              # do it for real
 
-# Dump the cumulative table to CSV + XLSX (no API cost)
+# Dump the cumulative table to CSV + XLSX (no API cost).
+# XLSX shows scrape_mode + source_industry so you can audit which path
+# produced each row.
 python run.py export-leads
 ```
 
-**Pilot script** — used while we test whether Prospeo's category filter can replace the domain list. Output is a comparison XLSX, no DB writes:
+**Flags reference:**
 
-```bash
-python scripts/prospeo_category_pilot.py --dry-run                # no spend
-python scripts/prospeo_category_pilot.py --max-credits 40         # ~$0.80 cap
-```
+| Flag | Mode | Effect |
+|---|---|---|
+| `--mode {domain,category}` | both | Default `domain`. |
+| `--domains <csv>` | domain | Input CSV. Defaults to `domain_inclusion_list` table. |
+| `--limit N` | domain | Cap number of input domains. |
+| `--target-leads N` | category | Stop after this many accepted leads. Default unlimited. |
+| `--country "X,Y"` | category | Comma-separated country list for `company_location_search`. Verified: `"United States,Canada"`. |
+| `--max-credits N` | both | **Hard budget cap.** Use it every time. |
+| `--skip-llm` | both | Rule-only filter (no Haiku grey-zone). |
+| `--with-mobile` | both | Mobile enrich on accepted leads (10 credits each). |
+| `--dry-run` | both | Print filter + exit. No spend. |
 
-Always run with `--max-credits` to cap spend. See `FINDINGS.html` for what's been verified and what the pilot is testing.
+**Pilot script** — `scripts/prospeo_category_pilot.py` still exists for ad-hoc analysis (e.g. compare modes side-by-side, probe new industry strings). Production category-mode runs should use `run.py scrape-leads --mode category` instead since it dedupes and writes to DB.
+
+Always run with `--max-credits` to cap spend. See `PROSPEO.html` "Category mode" section for the design + state-table details.
 
 ---
 

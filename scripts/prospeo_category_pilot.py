@@ -47,32 +47,13 @@ from openpyxl.styles import Font, PatternFill
 
 from prospeo_sync import (
     _norm_domain, AGENCY_TOKENS, MARKETPLACE_DOMAINS, AGENCY_FILTER_MODEL,
-    AGENCY_FILTER_PROMPT, PROSPEO_TIMEOUT, PROSPEO_BASE,
+    AGENCY_FILTER_PROMPT, PROSPEO_TIMEOUT, PROSPEO_BASE, PROSPEO_INDUSTRIES,
 )
 
 
-# E-commerce-relevant industry strings — EMPIRICALLY VERIFIED against
-# Prospeo's live API on 2026-05-14 via scripts/verify_prospeo_shape.py.
-# Each was confirmed to (1) parse without INVALID_FILTERS and (2) reduce
-# the global total_count when applied alongside the title filter.
-# Note: Prospeo uses LinkedIn's POST-2023 taxonomy. Common pitfalls that
-# DO NOT work: "Apparel and Fashion" (rejected), "Retail" (rejected),
-# "Furniture" (rejected), "Manufacturing" (rejected), "Apparel & Fashion"
-# with ampersand (rejected).
-PILOT_INDUSTRIES = [
-    "Retail Apparel and Fashion",
-    "Apparel Manufacturing",
-    "Cosmetics",
-    "Personal Care Product Manufacturing",
-    "Food and Beverage Manufacturing",
-    "Furniture and Home Furnishings Manufacturing",
-    "Sporting Goods Manufacturing",
-    "Consumer Goods",
-    "Pet Services",
-    "Retail Groceries",  # added 2026-05-15 after probe on ecom_industries sheet
-    "Alternative Medicine",  # added 2026-05-15 (gaps probe, total_count=128K)
-    "Retail Health and Personal Care Products",  # added 2026-05-15 (gaps probe, total_count=141K)
-]
+# Industry list is now the single source of truth in prospeo_sync.py.
+# Keep PILOT_INDUSTRIES as an alias so older references continue to work.
+PILOT_INDUSTRIES = PROSPEO_INDUSTRIES
 
 # Mirrors PROSPEO_TITLES in prospeo_sync.py (two-tier: owner + marketing/e-com).
 PILOT_TITLES = [
@@ -406,7 +387,7 @@ def run_category_pass(industries: list[str], api_key: str,
 # ---------- Output ----------
 
 XLSX_COLS = [
-    "filter_result", "filter_method", "accepted", "email",
+    "mode", "filter_result", "filter_method", "accepted", "email",
     "first_name", "last_name", "title", "company_name", "company_website",
     "company_description", "enriched_with_email", "filter_reason",
 ]
@@ -434,10 +415,17 @@ def write_xlsx(domain_rows: list[dict], category_rows: list[dict],
             ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = \
                 min(max(len(col_name), max_len) + 2, 60)
 
-    ws_a = wb.active
-    fill(ws_a, "Pass A — Domain", domain_rows)
-    ws_b = wb.create_sheet("Pass B — Category")
-    fill(ws_b, "Pass B — Category", category_rows)
+    combined = (
+        [{**r, "mode": "domain"} for r in domain_rows]
+        + [{**r, "mode": "category"} for r in category_rows]
+    )
+    accepted_rows = [r for r in combined if r.get("accepted")]
+    rejected_rows = [r for r in combined if not r.get("accepted")]
+
+    ws_acc = wb.active
+    fill(ws_acc, "Accepted", accepted_rows)
+    ws_rej = wb.create_sheet("Rejected")
+    fill(ws_rej, "Rejected", rejected_rows)
 
     ws_s = wb.create_sheet("Summary")
     ws_s.append(["metric", "value"])
@@ -499,12 +487,15 @@ def main() -> None:
     if not api_key and not args.dry_run:
         sys.exit("PROSPEO_API_KEY not set in .env")
 
-    sample_domains = load_sample_domains(DOMAIN_SAMPLE_SIZE)
+    sample_domains: list[str] = [] if args.skip_domain else load_sample_domains(DOMAIN_SAMPLE_SIZE)
 
     print("=" * 70)
     print("PROSPEO CATEGORY-vs-DOMAIN PILOT")
     print("=" * 70)
-    print(f"  Domain sample size:   {len(sample_domains)} (from inclusion_clean.csv)")
+    if args.skip_domain:
+        print("  Domain pass:          SKIPPED (--skip-domain)")
+    else:
+        print(f"  Domain sample size:   {len(sample_domains)} (from inclusion_clean.csv)")
     print(f"  Category list:        {len(PILOT_INDUSTRIES)} industries")
     for ind in PILOT_INDUSTRIES:
         print(f"      - {ind}")
@@ -512,27 +503,31 @@ def main() -> None:
     print(f"  Target results / pass: {args.target_results}")
     print(f"  Max credits:          {args.max_credits} (~=${args.max_credits * 0.02:.2f})")
     print()
-    print("  First 5 sample domains for Pass A:")
-    for d in sample_domains[:5]:
-        print(f"    - {d}")
-    print()
+    if not args.skip_domain:
+        print("  First 5 sample domains for Pass A:")
+        for d in sample_domains[:5]:
+            print(f"    - {d}")
+        print()
 
     if args.dry_run:
         print("=== DRY RUN -- no API calls made ===")
         print()
-        n_batches = (len(sample_domains) + PROSPEO_BATCH_DOMAINS - 1) // PROSPEO_BATCH_DOMAINS
-        print(f"Pass A (Domain): {len(sample_domains)} domains -> "
-              f"{n_batches} batch(es) of {PROSPEO_BATCH_DOMAINS} max")
-        print("First batch filter:")
-        ex_domains = sample_domains[:PROSPEO_BATCH_DOMAINS]
-        ex_filter = {
-            "company": {"websites": {"include": ex_domains}},
-            "person_job_title": {
-                "include": PILOT_TITLES, "match": "smart", "match_strictness": "normal",
-            },
-        }
-        print(f"  {json.dumps(ex_filter, indent=2)}")
-        print()
+        if args.skip_domain:
+            print("Pass A (Domain): SKIPPED")
+        else:
+            n_batches = (len(sample_domains) + PROSPEO_BATCH_DOMAINS - 1) // PROSPEO_BATCH_DOMAINS
+            print(f"Pass A (Domain): {len(sample_domains)} domains -> "
+                  f"{n_batches} batch(es) of {PROSPEO_BATCH_DOMAINS} max")
+            print("First batch filter:")
+            ex_domains = sample_domains[:PROSPEO_BATCH_DOMAINS]
+            ex_filter = {
+                "company": {"websites": {"include": ex_domains}},
+                "person_job_title": {
+                    "include": PILOT_TITLES, "match": "smart", "match_strictness": "normal",
+                },
+            }
+            print(f"  {json.dumps(ex_filter, indent=2)}")
+            print()
         print("Pass B (Category) filter:")
         print(f"  {json.dumps(_build_category_filter(PILOT_INDUSTRIES, with_country=args.with_country), indent=2)}")
         return

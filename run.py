@@ -152,9 +152,20 @@ def main() -> None:
     rs.add_argument("--limit", type=int, default=None, help="Cap number of leads (testing)")
 
     sl = sub.add_parser("scrape-leads",
-                        help="Pull decision-maker leads from Prospeo for each inclusion-list domain")
-    sl.add_argument("--domains", help="CSV path; defaults to domain_inclusion_list table")
-    sl.add_argument("--limit", type=int, default=None)
+                        help="Pull decision-maker leads from Prospeo (domain or category mode)")
+    sl.add_argument("--mode", choices=["domain", "category"], default="domain",
+                    help="domain=query Prospeo per inclusion-list domain (default). "
+                         "category=query Prospeo by industry, paginate per industry "
+                         "with state in category_scrape_state.")
+    sl.add_argument("--domains", help="[domain mode] CSV path; defaults to domain_inclusion_list table")
+    sl.add_argument("--limit", type=int, default=None,
+                    help="[domain mode] Cap number of input domains")
+    sl.add_argument("--target-leads", type=int, default=None,
+                    help="[category mode] Stop after this many accepted leads. "
+                         "Default: unlimited (until budget cap or all industries exhausted).")
+    sl.add_argument("--country", default=None,
+                    help="[category mode] Comma-separated countries for company_location_search. "
+                         "e.g. \"United States,Canada\". Default: no location filter (global).")
     sl.add_argument("--dry-run", action="store_true")
     sl.add_argument("--skip-llm", action="store_true", help="Skip Haiku grey-zone agency/brand classifier")
     sl.add_argument("--with-mobile", action="store_true",
@@ -207,7 +218,13 @@ def main() -> None:
     elif args.command == "resolve-smartscout":
         resolve_smartscout_main(rerun=args.rerun, limit=args.limit)
     elif args.command == "scrape-leads":
-        prospeo_main(domains_csv=args.domains, limit=args.limit,
+        country_list = (
+            [c.strip() for c in args.country.split(",") if c.strip()]
+            if args.country else None
+        )
+        prospeo_main(mode=args.mode,
+                     domains_csv=args.domains, limit=args.limit,
+                     target_leads=args.target_leads, country=country_list,
                      dry_run=args.dry_run, skip_llm=args.skip_llm,
                      with_mobile=args.with_mobile,
                      max_credits=args.max_credits)

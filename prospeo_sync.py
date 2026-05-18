@@ -90,6 +90,36 @@ _PROSPEO_TITLES_BROAD_REF = [
     "VP of E-commerce", "Director of E-commerce",
 ]
 
+# E-commerce-relevant industry strings — EMPIRICALLY VERIFIED against
+# Prospeo's live API on 2026-05-14 + 2026-05-15 via
+# scripts/verify_prospeo_shape.py. Each was confirmed to (1) parse without
+# INVALID_FILTERS and (2) reduce the global total_count when applied
+# alongside the title filter.
+#
+# Prospeo uses LinkedIn's POST-2023 taxonomy. Common pitfalls that DO NOT
+# work (verified rejected): "Apparel and Fashion", "Retail", "Furniture",
+# "Manufacturing", "Apparel & Fashion" (ampersand), "Personal Care Products",
+# "Health and Beauty", "Food Production", "Beverage Manufacturing".
+#
+# Used by scripts/prospeo_category_pilot.py and (Step 4 onward) by
+# prospeo_sync.run() under --mode category.
+PROSPEO_INDUSTRIES = [
+    # Verified 2026-05-14 (initial 9)
+    "Retail Apparel and Fashion",
+    "Apparel Manufacturing",
+    "Cosmetics",
+    "Personal Care Product Manufacturing",
+    "Food and Beverage Manufacturing",
+    "Furniture and Home Furnishings Manufacturing",
+    "Sporting Goods Manufacturing",
+    "Consumer Goods",
+    "Pet Services",
+    # Verified 2026-05-15 (3 additions from ecom + gaps probes)
+    "Retail Groceries",                          # probe on ecom_industries sheet
+    "Alternative Medicine",                      # gaps probe, total_count=128K
+    "Retail Health and Personal Care Products",  # gaps probe, total_count=141K
+]
+
 DECISION_MAKER_TITLES = {
     # exact-match (lowercased) keywords; we check substring containment
     "ceo", "chief executive",
@@ -322,6 +352,61 @@ def mark_domains_scraped(conn, domains: list[str]) -> None:
     conn.commit()
 
 
+def fetch_category_state(conn) -> dict[str, dict]:
+    """Read category_scrape_state. Returns {industry: state_dict}.
+
+    Industries with no row yet are simply absent — caller treats absence
+    as 'last_page_consumed=0, exhausted=False'.
+    """
+    sql = """
+      select industry, countries, last_page_consumed, total_pages,
+             exhausted, last_scraped_at, total_credits_spent
+      from category_scrape_state
+    """
+    out: dict[str, dict] = {}
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        for row in cur.fetchall():
+            ind, countries, last_page, total_pages, exhausted, last_scraped, credits = row
+            out[ind] = {
+                "countries": list(countries or []),
+                "last_page_consumed": last_page or 0,
+                "total_pages": total_pages,
+                "exhausted": bool(exhausted),
+                "last_scraped_at": last_scraped,
+                "total_credits_spent": credits or 0,
+            }
+    return out
+
+
+def upsert_category_state(conn, industry: str, countries: list[str],
+                           last_page_consumed: int, total_pages: int | None,
+                           exhausted: bool, credits_added: int) -> None:
+    """Insert or update the state row for one industry. Idempotent.
+
+    credits_added is added to total_credits_spent (cumulative across runs).
+    last_scraped_at is always set to now().
+    """
+    sql = """
+      insert into category_scrape_state (
+        industry, countries, last_page_consumed, total_pages,
+        exhausted, last_scraped_at, total_credits_spent
+      )
+      values (%s, %s, %s, %s, %s, now(), %s)
+      on conflict (industry) do update set
+        countries = excluded.countries,
+        last_page_consumed = excluded.last_page_consumed,
+        total_pages = excluded.total_pages,
+        exhausted = excluded.exhausted,
+        last_scraped_at = excluded.last_scraped_at,
+        total_credits_spent = category_scrape_state.total_credits_spent + %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (industry, countries, last_page_consumed, total_pages,
+                          exhausted, credits_added, credits_added))
+    conn.commit()
+
+
 # --- Prospeo API (stub) -----------------------------------------------------
 
 def _post(path: str, body: dict, api_key: str) -> dict:
@@ -404,6 +489,100 @@ def _search_people(domains: list[str], api_key: str) -> tuple[list[dict], int]:
             break
         page += 1
     return out, credits_used
+
+
+class InsufficientCreditsError(Exception):
+    """Prospeo returned INSUFFICIENT_CREDITS — top up your account.
+
+    Caller should abort the run immediately. Retrying inside the same run
+    will just produce more INSUFFICIENT_CREDITS responses (zero progress
+    means the next call has the same problem). State is intentionally not
+    touched on this error so that after top-up the run resumes cleanly.
+    """
+    pass
+
+
+def _search_people_by_industry(industry: str, countries: list[str],
+                                page: int, api_key: str
+                                ) -> tuple[list[dict], int, int]:
+    """Single-page Search-Person filtered by industry + titles + country.
+
+    Returns (results, total_pages, credits_used).
+
+    Cost: 1 credit per page fetched. Prospeo's 400/NO_RESULTS is treated as
+    an empty result set with zero credits charged (matches _search_people).
+
+    Unlike domain mode, category mode is paginated per industry across runs.
+    The caller is responsible for tracking `last_page_consumed` in
+    category_scrape_state and passing `page = last_page_consumed + 1`.
+    """
+    filters: dict = {
+        "company_industry": {"include": [industry]},
+        "person_job_title": {
+            "include": PROSPEO_TITLES,
+            "match": "smart",
+            "match_strictness": "normal",
+        },
+    }
+    if countries:
+        filters["company_location_search"] = {"include": list(countries)}
+
+    url = f"{PROSPEO_BASE}/search-person"
+    headers = {"X-KEY": api_key, "Content-Type": "application/json"}
+    body = {"filters": filters, "page": page}
+
+    resp = requests.post(url, json=body, headers=headers, timeout=PROSPEO_TIMEOUT)
+    if resp.status_code == 429:
+        import time; time.sleep(5)
+        resp = requests.post(url, json=body, headers=headers, timeout=PROSPEO_TIMEOUT)
+
+    # Distinguish three distinct 400s:
+    #   NO_RESULTS         -> valid empty result, page IS consumed (state advances)
+    #   INSUFFICIENT_CREDITS -> hard abort, do NOT advance state (so resume works
+    #                          cleanly after top-up)
+    #   anything else      -> transient error, propagate to caller's retry path
+    if resp.status_code == 400:
+        try:
+            payload = resp.json()
+        except ValueError:
+            payload = {}
+        error_code = payload.get("error_code")
+        if error_code == "NO_RESULTS":
+            return ([], 0, 0)
+        if error_code == "INSUFFICIENT_CREDITS":
+            raise InsufficientCreditsError(
+                f"Prospeo returned INSUFFICIENT_CREDITS (industry={industry!r}, "
+                "page={page}). Top up your account at https://prospeo.io/dashboard "
+                "and re-run — state is unchanged."
+            )
+        # Other 400s (INVALID_FILTERS, etc.) — raise so caller's
+        # RequestException handler retries next cycle without touching state.
+        print(f"  ! search-person 400 (industry={industry!r}): {resp.text[:200]}",
+              file=sys.stderr)
+        resp.raise_for_status()
+
+    resp.raise_for_status()
+    data = resp.json() or {}
+    if data.get("error"):
+        print(f"  ! search-person error (industry={industry!r}): {data}", file=sys.stderr)
+        return ([], 0, 0)
+
+    pagination = data.get("pagination") or {}
+    total_pages = pagination.get("total_page") or 1
+    out: list[dict] = []
+    for r in data.get("results") or []:
+        p = r.get("person") or {}
+        c = r.get("company") or {}
+        out.append({
+            "person_id": p.get("person_id"),
+            "first_name": p.get("first_name"),
+            "last_name": p.get("last_name"),
+            "title": p.get("current_job_title"),
+            "company_name": c.get("name") or c.get("company_name"),
+            "company_website": c.get("website") or c.get("url"),
+            "company_description": c.get("description"),
+        })
+    return out, total_pages, 1
 
 
 def _enrich_mobile(person_id: str, api_key: str) -> dict:
@@ -599,7 +778,7 @@ def llm_classify_batch(client: anthropic.Anthropic, system: str,
 INSERT_SQL = """
 insert into prospeo_new_leads
   (email, first_name, last_name, title, company_name, company_domain,
-   company_website, source_domain, prospeo_raw,
+   company_website, source_domain, source_industry, scrape_mode, prospeo_raw,
    agency_filter_result, agency_filter_method, agency_filter_reason, rejected,
    mobile, mobile_status)
 values %s
@@ -615,6 +794,7 @@ def write_leads(conn, rows: list[dict]) -> int:
             r["email"], r.get("first_name"), r.get("last_name"), r.get("title"),
             r.get("company_name"), r.get("company_domain"),
             r.get("company_website"), r.get("source_domain"),
+            r.get("source_industry"), r.get("scrape_mode") or "domain",
             json.dumps(r.get("prospeo_raw") or {}),
             r["agency_filter_result"], r["agency_filter_method"],
             r["agency_filter_reason"], r["rejected"],
@@ -631,7 +811,10 @@ def write_leads(conn, rows: list[dict]) -> int:
 CSV_COLS = ["email", "mobile", "first_name", "last_name", "title", "company_name",
             "company_website", "source_domain", "agency_filter_result"]
 
-XLSX_COLS = CSV_COLS + ["mobile_status", "agency_filter_method", "agency_filter_reason"]
+# XLSX adds audit columns: mobile_status, filter method/reason, and the new
+# mode + source_industry so audits can slice by which path produced each row.
+XLSX_COLS = CSV_COLS + ["mobile_status", "agency_filter_method", "agency_filter_reason",
+                        "scrape_mode", "source_industry"]
 
 
 def write_csv(rows: list[dict], path: str) -> None:
@@ -677,15 +860,58 @@ def write_xlsx(accepted: list[dict], rejected: list[dict], path: str) -> None:
 
 # --- main -------------------------------------------------------------------
 
-def run(domains_csv: str | None, limit: int | None,
-        dry_run: bool, skip_llm: bool, with_mobile: bool = False,
+def run(mode: str = "domain", *,
+        domains_csv: str | None = None, limit: int | None = None,
+        target_leads: int | None = None,
+        country: list[str] | None = None,
+        dry_run: bool = False, skip_llm: bool = False,
+        with_mobile: bool = False,
         max_credits: int | None = None) -> None:
+    """Dispatch to the appropriate scraper based on mode.
+
+    mode='domain'   -> _run_domain (today's behavior — query Prospeo per
+                       inclusion-list domain, batch in groups of 15,
+                       dedup by domain + email).
+    mode='category' -> _run_category (Step 4 — query Prospeo by industry,
+                       paginate per industry with state in
+                       category_scrape_state, dedup by email only).
+
+    target_leads + country are only used by category mode.
+    domains_csv + limit are only used by domain mode.
+    """
     load_dotenv()
     api_key = os.environ.get("PROSPEO_API_KEY", "").strip()
     if not api_key and not dry_run:
         sys.exit("PROSPEO_API_KEY not set in .env")
 
     conn = connect()
+    try:
+        if mode == "domain":
+            _run_domain(conn, api_key,
+                        domains_csv=domains_csv, limit=limit,
+                        dry_run=dry_run, skip_llm=skip_llm,
+                        with_mobile=with_mobile, max_credits=max_credits)
+        elif mode == "category":
+            _run_category(conn, api_key,
+                          target_leads=target_leads, country=country,
+                          dry_run=dry_run, skip_llm=skip_llm,
+                          with_mobile=with_mobile, max_credits=max_credits)
+        else:
+            sys.exit(f"Unknown mode: {mode!r}. Expected 'domain' or 'category'.")
+    finally:
+        conn.close()
+
+
+def _run_domain(conn, api_key: str, *,
+                domains_csv: str | None, limit: int | None,
+                dry_run: bool, skip_llm: bool, with_mobile: bool,
+                max_credits: int | None) -> None:
+    """Domain mode: query Prospeo per inclusion-list domain, batched in 15s.
+
+    Pre-Step-3 this was the body of run(). Lifted as-is into its own
+    function; behavior identical. conn + api_key are passed in by the
+    new run() dispatcher (which also owns the connection lifecycle).
+    """
     try:
         if domains_csv:
             domains = load_domains_from_csv(domains_csv)
@@ -857,42 +1083,12 @@ def run(domains_csv: str | None, limit: int | None,
         if aborted_reason:
             print(f"\n!!! Run aborted: {aborted_reason}", file=sys.stderr)
 
-        # Optional: mobile enrichment for accepted leads only (10 credits per verified mobile)
-        mobile_found = 0
-        if with_mobile and accepted and not aborted_reason:
-            print(f"\nEnriching mobile for {len(accepted)} accepted leads (~10 credits each)...")
-            for lead in accepted:
-                if max_credits is not None and credits_spent >= max_credits:
-                    print(f"  ! budget cap hit during mobile enrichment ({credits_spent}/{max_credits})")
-                    break
-                pid = lead.get("person_id")
-                if not pid:
-                    continue
-                try:
-                    m = _enrich_mobile(pid, api_key)
-                except requests.RequestException as e:
-                    print(f"  ! enrich-mobile {pid}: {e}", file=sys.stderr)
-                    continue
-                credits_spent += m.get("_credits", 0)
-                if m.get("mobile"):
-                    lead["mobile"] = m["mobile"]
-                    lead["mobile_status"] = m.get("mobile_status")
-                    # Update DB row with mobile (checkpoint)
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            "update prospeo_new_leads set mobile=%s, mobile_status=%s where email=%s",
-                            (m["mobile"], m.get("mobile_status"), lead["email"]),
-                        )
-                    conn.commit()
-                    mobile_found += 1
-            print(f"  mobile found: {mobile_found}/{len(accepted)} (credits now: {credits_spent})")
-
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        os.makedirs("exports", exist_ok=True)
-        out_path = f"exports/prospeo_new_leads_{stamp}.csv"
-        xlsx_path = f"exports/prospeo_new_leads_{stamp}.xlsx"
-        write_csv(accepted, out_path)
-        write_xlsx(accepted, rejected, xlsx_path)
+        credits_spent, _mobile_found, csv_path, xlsx_path = _finalize_and_export(
+            conn, api_key,
+            accepted=accepted, rejected=rejected,
+            credits_spent=credits_spent, aborted_reason=aborted_reason,
+            with_mobile=with_mobile, max_credits=max_credits,
+        )
 
         print(f"\n=== summary ===")
         if aborted_reason:
@@ -904,10 +1100,309 @@ def run(domains_csv: str | None, limit: int | None,
         print(f"  accepted (brand):     {len(accepted)}")
         print(f"  rejected:             {len(rejected)}")
         print(f"  total credits spent:  {credits_spent}  (~${credits_spent * 0.02:.2f})")
-        print(f"  CSV (accepted):       {out_path}")
+        print(f"  CSV (accepted):       {csv_path}")
         print(f"  XLSX (both sheets):   {xlsx_path}")
     finally:
-        conn.close()
+        # conn lifecycle (close) is now owned by the run() dispatcher.
+        pass
+
+
+def _finalize_and_export(conn, api_key: str, *,
+                          accepted: list[dict], rejected: list[dict],
+                          credits_spent: int, aborted_reason: str | None,
+                          with_mobile: bool, max_credits: int | None
+                          ) -> tuple[int, int, str, str]:
+    """Shared post-pass for both modes.
+
+    Steps:
+      1. Optional mobile enrichment on accepted leads (10 credits per verified
+         mobile; skipped if run was aborted).
+      2. Write CSV (accepted only — what Jam loads into Instantly).
+      3. Write XLSX (Accepted + Rejected sheets — for audit).
+
+    Returns (credits_spent_after_mobile, mobile_found, csv_path, xlsx_path).
+    Caller prints its own mode-specific summary using these values.
+    """
+    mobile_found = 0
+    if with_mobile and accepted and not aborted_reason:
+        print(f"\nEnriching mobile for {len(accepted)} accepted leads (~10 credits each)...")
+        for lead in accepted:
+            if max_credits is not None and credits_spent >= max_credits:
+                print(f"  ! budget cap hit during mobile enrichment "
+                      f"({credits_spent}/{max_credits})")
+                break
+            pid = lead.get("person_id")
+            if not pid:
+                continue
+            try:
+                m = _enrich_mobile(pid, api_key)
+            except requests.RequestException as e:
+                print(f"  ! enrich-mobile {pid}: {e}", file=sys.stderr)
+                continue
+            credits_spent += m.get("_credits", 0)
+            if m.get("mobile"):
+                lead["mobile"] = m["mobile"]
+                lead["mobile_status"] = m.get("mobile_status")
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update prospeo_new_leads set mobile=%s, mobile_status=%s where email=%s",
+                        (m["mobile"], m.get("mobile_status"), lead["email"]),
+                    )
+                conn.commit()
+                mobile_found += 1
+        print(f"  mobile found: {mobile_found}/{len(accepted)} (credits now: {credits_spent})")
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    os.makedirs("exports", exist_ok=True)
+    csv_path = f"exports/prospeo_new_leads_{stamp}.csv"
+    xlsx_path = f"exports/prospeo_new_leads_{stamp}.xlsx"
+    write_csv(accepted, csv_path)
+    write_xlsx(accepted, rejected, xlsx_path)
+    return credits_spent, mobile_found, csv_path, xlsx_path
+
+
+def _run_category(conn, api_key: str, *,
+                   target_leads: int | None,
+                   country: list[str] | None,
+                   dry_run: bool, skip_llm: bool, with_mobile: bool,
+                   max_credits: int | None) -> None:
+    """Category mode: query Prospeo by industry, paginate per industry.
+
+    For each industry in PROSPEO_INDUSTRIES, round-robin one page at a time,
+    enriching results and applying the same rule+LLM filter as domain mode.
+    Pagination cursor is persisted in category_scrape_state so subsequent
+    runs resume where the last one left off.
+
+    Stops when any of these is true:
+      - accepted-lead count reaches target_leads (default: no target → keep
+        going until budget or all industries exhausted)
+      - credits_spent reaches max_credits
+      - all industries are exhausted (last_page_consumed >= total_pages)
+    """
+    countries = list(country or [])
+
+    if dry_run:
+        print(f"Dry run — category mode")
+        print(f"  industries: {len(PROSPEO_INDUSTRIES)}")
+        for ind in PROSPEO_INDUSTRIES:
+            print(f"    - {ind}")
+        print(f"  titles:     {len(PROSPEO_TITLES)} (two-tier: owner + marketing/e-com)")
+        print(f"  countries:  {countries or '(none — global)'}")
+        print(f"  target_leads: {target_leads or '(unlimited)'}")
+        print(f"  max_credits:  {max_credits or '(uncapped)'}")
+        return
+
+    state = fetch_category_state(conn)
+    existing_emails = fetch_existing_emails(conn)
+
+    # Build the round-robin queue: industries not yet exhausted.
+    queue: list[str] = []
+    for ind in PROSPEO_INDUSTRIES:
+        s = state.get(ind, {})
+        if s.get("exhausted"):
+            print(f"  [skip] {ind!r} exhausted "
+                  f"(page {s.get('last_page_consumed')}/{s.get('total_pages')})")
+            continue
+        queue.append(ind)
+
+    if not queue:
+        print("All industries exhausted. Run "
+              "`update category_scrape_state set exhausted=false, last_page_consumed=0` "
+              "to re-scan from the top.")
+        return
+
+    print(f"category mode — {len(queue)} industries to scan, "
+          f"countries={countries or '(global)'}")
+
+    accepted: list[dict] = []
+    rejected: list[dict] = []
+    credits_spent = 0
+    enriched_with_email = 0
+    enriched_without_email = 0
+    aborted_reason: str | None = None
+    llm_client = None
+    llm_system = None
+    pages_credits_added: dict[str, int] = {ind: 0 for ind in queue}
+
+    # Round-robin: one page per industry per cycle. Stop when budget/target hit
+    # or when all remaining industries became exhausted this run.
+    while queue:
+        if target_leads is not None and len(accepted) >= target_leads:
+            aborted_reason = f"target_leads reached ({len(accepted)}/{target_leads})"
+            break
+        if max_credits is not None and credits_spent >= max_credits:
+            aborted_reason = f"budget cap hit ({credits_spent}/{max_credits} credits)"
+            break
+
+        next_queue: list[str] = []
+        for ind in queue:
+            if target_leads is not None and len(accepted) >= target_leads:
+                aborted_reason = f"target_leads reached ({len(accepted)}/{target_leads})"
+                break
+            if max_credits is not None and credits_spent >= max_credits:
+                aborted_reason = f"budget cap hit ({credits_spent}/{max_credits} credits)"
+                break
+
+            s = state.get(ind, {})
+            next_page = (s.get("last_page_consumed") or 0) + 1
+
+            try:
+                results, total_pages, page_credits = _search_people_by_industry(
+                    ind, countries, next_page, api_key)
+            except InsufficientCreditsError as e:
+                # Hard abort — don't retry, don't touch state.
+                print(f"\n!!! {e}", file=sys.stderr)
+                aborted_reason = "Prospeo INSUFFICIENT_CREDITS — top up and re-run"
+                break
+            except requests.RequestException as e:
+                print(f"  ! search-person {ind!r} page {next_page}: {e}", file=sys.stderr)
+                next_queue.append(ind)  # try again next cycle
+                continue
+
+            credits_spent += page_credits
+            pages_credits_added[ind] = pages_credits_added.get(ind, 0) + page_credits
+
+            batch_accepted: list[dict] = []
+            batch_rejected: list[dict] = []
+            batch_grey: list[dict] = []
+
+            for h in results:
+                if max_credits is not None and credits_spent >= max_credits:
+                    aborted_reason = f"budget cap hit ({credits_spent}/{max_credits} credits)"
+                    break
+
+                pid = h.get("person_id")
+                if not pid:
+                    continue
+                try:
+                    en = _enrich_person(pid, api_key)
+                except requests.RequestException as e:
+                    print(f"  ! enrich-person {pid}: {e}", file=sys.stderr)
+                    continue
+                credits_spent += en.get("_credits", 0)
+                pages_credits_added[ind] = pages_credits_added.get(ind, 0) + en.get("_credits", 0)
+
+                email = (en.get("email") or "").lower().strip()
+                if not email:
+                    enriched_without_email += 1
+                    continue
+                if email in existing_emails:
+                    continue
+                enriched_with_email += 1
+                existing_emails.add(email)
+
+                lead = {
+                    "email": email,
+                    "first_name": en.get("first_name") or h.get("first_name"),
+                    "last_name": en.get("last_name") or h.get("last_name"),
+                    "title": en.get("title") or h.get("title"),
+                    "company_name": en.get("company_name") or h.get("company_name"),
+                    "company_domain": en.get("company_domain"),
+                    "company_website": en.get("company_website") or h.get("company_website"),
+                    "company_description": en.get("company_description") or h.get("company_description"),
+                    "source_domain": None,
+                    "source_industry": ind,
+                    "scrape_mode": "category",
+                    "person_id": pid,
+                    "mobile": None,
+                    "mobile_status": None,
+                    "prospeo_raw": {"search": h,
+                                    "enrich": {k: v for k, v in en.items()
+                                               if k not in ("company_description", "_credits")}},
+                }
+
+                rule = rule_classify(lead)
+                if rule:
+                    result, method, reason = rule
+                    lead.update(agency_filter_result=result,
+                                agency_filter_method=method,
+                                agency_filter_reason=reason,
+                                rejected=result != "brand")
+                    (batch_rejected if lead["rejected"] else batch_accepted).append(lead)
+                else:
+                    batch_grey.append(lead)
+
+            # LLM grey-zone for this page
+            if batch_grey:
+                if not skip_llm:
+                    if llm_client is None:
+                        llm_client = anthropic.Anthropic()
+                        llm_system = AGENCY_FILTER_PROMPT.read_text(encoding="utf-8")
+                    outcomes = llm_classify_batch(llm_client, llm_system, batch_grey)
+                    for lead, (result, reason) in zip(batch_grey, outcomes):
+                        lead.update(agency_filter_result=result,
+                                    agency_filter_method="llm",
+                                    agency_filter_reason=reason,
+                                    rejected=result != "brand")
+                        (batch_rejected if lead["rejected"] else batch_accepted).append(lead)
+                else:
+                    for lead in batch_grey:
+                        lead.update(agency_filter_result="unknown",
+                                    agency_filter_method="none",
+                                    agency_filter_reason="llm skipped",
+                                    rejected=False)
+                        batch_accepted.append(lead)
+
+            # CHECKPOINT: persist this page's leads + update state row
+            if batch_accepted or batch_rejected:
+                write_leads(conn, batch_accepted + batch_rejected)
+                accepted.extend(batch_accepted)
+                rejected.extend(batch_rejected)
+
+            exhausted = next_page >= (total_pages or 1)
+            upsert_category_state(
+                conn, industry=ind, countries=countries,
+                last_page_consumed=next_page, total_pages=total_pages or None,
+                exhausted=exhausted, credits_added=pages_credits_added.get(ind, 0),
+            )
+            pages_credits_added[ind] = 0  # reset, already persisted
+            state[ind] = {
+                "countries": countries, "last_page_consumed": next_page,
+                "total_pages": total_pages, "exhausted": exhausted,
+                "last_scraped_at": None, "total_credits_spent": 0,
+            }
+
+            print(f"  [{ind}] page {next_page}/{total_pages or '?'}: "
+                  f"+{len(batch_accepted)} accepted / +{len(batch_rejected)} rejected "
+                  f"(credits: {credits_spent}{f'/{max_credits}' if max_credits else ''})")
+
+            if not exhausted:
+                next_queue.append(ind)
+
+            if aborted_reason:
+                break
+
+        if aborted_reason:
+            break
+        queue = next_queue
+
+    if aborted_reason:
+        print(f"\n!!! Run aborted: {aborted_reason}", file=sys.stderr)
+
+    credits_spent, _mobile_found, csv_path, xlsx_path = _finalize_and_export(
+        conn, api_key,
+        accepted=accepted, rejected=rejected,
+        credits_spent=credits_spent, aborted_reason=aborted_reason,
+        with_mobile=with_mobile, max_credits=max_credits,
+    )
+
+    # Per-industry pages-consumed summary
+    print(f"\n=== summary ===")
+    if aborted_reason:
+        print(f"  ABORTED:                {aborted_reason}")
+    print(f"  countries:              {countries or '(global)'}")
+    print(f"  industries scanned:     {len(PROSPEO_INDUSTRIES)}")
+    exhausted_count = sum(1 for ind in PROSPEO_INDUSTRIES
+                          if state.get(ind, {}).get("exhausted"))
+    print(f"    exhausted (cumulative): {exhausted_count}")
+    print(f"  decision-makers found:  {enriched_with_email + enriched_without_email}")
+    print(f"    with email:           {enriched_with_email}")
+    print(f"    no email available:   {enriched_without_email}")
+    print(f"  accepted (brand):       {len(accepted)}")
+    print(f"  rejected:               {len(rejected)}")
+    print(f"  total credits spent:    {credits_spent}  (~${credits_spent * 0.02:.2f})")
+    print(f"  CSV (accepted):         {csv_path}")
+    print(f"  XLSX (both sheets):     {xlsx_path}")
 
 
 def export_all_leads(out_dir: str = "exports") -> tuple[str, str]:
@@ -1024,8 +1519,20 @@ def enrich_mobile_for_accepted(limit: int | None = None,
 
 def main(domains_csv: str | None = None, limit: int | None = None,
          dry_run: bool = False, skip_llm: bool = False,
-         with_mobile: bool = False, max_credits: int | None = None) -> None:
-    run(domains_csv, limit, dry_run, skip_llm, with_mobile, max_credits)
+         with_mobile: bool = False, max_credits: int | None = None,
+         mode: str = "domain",
+         target_leads: int | None = None,
+         country: list[str] | None = None) -> None:
+    """Entry point called by run.py.
+
+    Keeps the original positional/keyword arg surface intact for backward
+    compatibility. New mode-related kwargs default to domain-mode behavior.
+    """
+    run(mode=mode,
+        domains_csv=domains_csv, limit=limit,
+        target_leads=target_leads, country=country,
+        dry_run=dry_run, skip_llm=skip_llm,
+        with_mobile=with_mobile, max_credits=max_credits)
 
 
 if __name__ == "__main__":

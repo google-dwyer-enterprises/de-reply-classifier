@@ -160,3 +160,40 @@ create table if not exists domain_inclusion_list (
   last_scraped_at timestamptz,
   notes text
 );
+
+-- =========================================================================
+-- Category-mode scraping support (scrape-leads --mode category)
+-- =========================================================================
+-- See PROSPEO.html "Category mode" section for design rationale.
+--
+-- Two parts:
+--   1. category_scrape_state — pagination cursor per industry (12 rows total)
+--   2. prospeo_new_leads gains source_industry + scrape_mode columns
+--      so each row records which mode + which industry produced it.
+
+-- Pagination cursor: one row per Prospeo industry string in PROSPEO_INDUSTRIES.
+-- Updated at the end of each page read in a category-mode run.
+-- Rows are created lazily by the scraper on first sighting of an industry —
+-- no need to pre-seed.
+create table if not exists category_scrape_state (
+  industry text primary key,                       -- e.g. "Retail Apparel and Fashion"
+  countries text[] not null default '{}',          -- last-used location filter, e.g. {"United States","Canada"}
+  last_page_consumed int not null default 0,       -- 0 = nothing consumed; next run starts at page 1
+  total_pages int,                                 -- as reported by Prospeo's pagination on last call
+  exhausted boolean not null default false,        -- last_page_consumed >= total_pages
+  last_scraped_at timestamptz,
+  total_credits_spent int not null default 0      -- cumulative across runs
+);
+
+-- Existing rows in prospeo_new_leads are all domain-mode by definition,
+-- so default scrape_mode to 'domain'. source_industry stays NULL for them.
+alter table prospeo_new_leads
+  add column if not exists source_industry text;
+alter table prospeo_new_leads
+  add column if not exists scrape_mode text not null default 'domain'
+    check (scrape_mode in ('domain', 'category'));
+create index if not exists prospeo_new_leads_mode_idx
+  on prospeo_new_leads (scrape_mode, rejected);
+create index if not exists prospeo_new_leads_industry_idx
+  on prospeo_new_leads (source_industry)
+  where source_industry is not null;
