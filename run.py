@@ -173,8 +173,11 @@ def main() -> None:
     sl.add_argument("--max-credits", type=int, default=None,
                     help="Hard budget cap. Aborts run before spending past this.")
 
-    sub.add_parser("export-leads",
-                   help="Dump the full prospeo_new_leads table into a fresh CSV + XLSX")
+    el = sub.add_parser("export-leads",
+                        help="Dump prospeo_new_leads into a fresh CSV + XLSX")
+    el.add_argument("--mode", choices=["domain", "category"], default=None,
+                    help="Filter export to one scrape_mode. "
+                         "Omit to export both modes together (default).")
 
     em = sub.add_parser("enrich-mobile",
                         help="Catch-up: add mobile numbers to all accepted leads in DB that don't have one yet")
@@ -231,7 +234,7 @@ def main() -> None:
     elif args.command == "enrich-mobile":
         prospeo_enrich_mobile(limit=args.limit, dry_run=args.dry_run)
     elif args.command == "export-leads":
-        prospeo_export_all()
+        prospeo_export_all(mode=args.mode)
     elif args.command == "llm-resolve-smartscout":
         llm_resolve_smartscout_main(min_score=args.min_score, max_score=args.max_score,
                                     limit=args.limit, yes=args.yes, dry_run=args.dry_run)

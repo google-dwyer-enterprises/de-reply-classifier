@@ -200,10 +200,16 @@ python run.py enrich-mobile --limit 50</code></pre>
 
 <p>Per-run CSV/XLSX files only contain that run's results. Use this to dump the entire <code>prospeo_new_leads</code> table at any time. No API calls, no cost.</p>
 
-<pre><code># Generate a fresh cumulative file pair
-python run.py export-leads</code></pre>
+<pre><code># Both modes combined (default)
+python run.py export-leads
 
-<p>Writes <code>exports/cumulative_&lt;timestamp&gt;.csv</code> (accepted brands only) and <code>exports/cumulative_&lt;timestamp&gt;.xlsx</code> (Accepted + Rejected sheets, with filter reasoning). Run after each scrape if you want a single up-to-date file to hand to Jam.</p>
+# Filter by mode — useful when handing different files to different reviewers
+python run.py export-leads --mode domain
+python run.py export-leads --mode category</code></pre>
+
+<p>Writes <code>exports/cumulative&lt;_mode&gt;_&lt;timestamp&gt;.csv</code> (accepted brands only) and a matching <code>.xlsx</code> (Accepted + Rejected sheets, with filter reasoning + <code>scrape_mode</code> + <code>source_industry</code> columns for audit). Filename embeds the mode filter (<code>cumulative_domain_…</code>, <code>cumulative_category_…</code>, or no suffix for combined).</p>
+
+<p>Run after each scrape if you want a single up-to-date file to hand to Jam.</p>
 
 <h2>Category mode</h2>
 

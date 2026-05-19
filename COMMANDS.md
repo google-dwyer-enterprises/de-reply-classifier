@@ -139,8 +139,12 @@ python run.py enrich-mobile              # do it for real
 # Dump the cumulative table to CSV + XLSX (no API cost).
 # XLSX shows scrape_mode + source_industry so you can audit which path
 # produced each row.
-python run.py export-leads
+python run.py export-leads                    # both modes combined
+python run.py export-leads --mode domain      # domain-mode rows only
+python run.py export-leads --mode category    # category-mode rows only
 ```
+
+Filename reflects the filter: `cumulative_<ts>.xlsx` for combined, `cumulative_domain_<ts>.xlsx` or `cumulative_category_<ts>.xlsx` for filtered.
 
 **Flags reference:**
 

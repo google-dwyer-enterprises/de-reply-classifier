@@ -1405,27 +1405,42 @@ def _run_category(conn, api_key: str, *,
     print(f"  XLSX (both sheets):     {xlsx_path}")
 
 
-def export_all_leads(out_dir: str = "exports") -> tuple[str, str]:
-    """Dump the full prospeo_new_leads table into a fresh CSV + XLSX.
+def export_all_leads(out_dir: str = "exports",
+                      mode: str | None = None) -> tuple[str, str]:
+    """Dump prospeo_new_leads into a fresh CSV + XLSX.
 
     The CSV contains only accepted brands (what Jam loads into Instantly).
     The XLSX has two sheets — Accepted + Rejected (with filter reasons) —
-    for review/audit.
+    for review/audit. Both include scrape_mode + source_industry columns
+    so downstream audits can slice by which path produced each row.
+
+    mode: None  → export everything (default, both domain + category)
+          "domain"   → only scrape_mode = 'domain'
+          "category" → only scrape_mode = 'category'
 
     Returns the (csv_path, xlsx_path) pair.
     """
+    if mode not in (None, "domain", "category"):
+        raise ValueError(f"mode must be None, 'domain', or 'category' (got {mode!r})")
+
     conn = connect()
     accepted: list[dict] = []
     rejected: list[dict] = []
     try:
         with conn.cursor() as cur:
-            cur.execute("""
+            sql = """
               select email, mobile, first_name, last_name, title, company_name,
                      company_website, source_domain, agency_filter_result,
-                     mobile_status, agency_filter_method, agency_filter_reason, rejected
+                     mobile_status, agency_filter_method, agency_filter_reason,
+                     scrape_mode, source_industry, rejected
               from prospeo_new_leads
-              order by rejected, scraped_at desc
-            """)
+            """
+            params: tuple = ()
+            if mode is not None:
+                sql += " where scrape_mode = %s"
+                params = (mode,)
+            sql += " order by rejected, scraped_at desc"
+            cur.execute(sql, params)
             for r in cur.fetchall():
                 lead = {
                     "email": r[0], "mobile": r[1],
@@ -1434,8 +1449,9 @@ def export_all_leads(out_dir: str = "exports") -> tuple[str, str]:
                     "source_domain": r[7], "agency_filter_result": r[8],
                     "mobile_status": r[9], "agency_filter_method": r[10],
                     "agency_filter_reason": r[11],
+                    "scrape_mode": r[12], "source_industry": r[13],
                 }
-                if r[12]:
+                if r[14]:
                     rejected.append(lead)
                 else:
                     accepted.append(lead)
@@ -1444,12 +1460,15 @@ def export_all_leads(out_dir: str = "exports") -> tuple[str, str]:
 
     os.makedirs(out_dir, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    csv_path = f"{out_dir}/cumulative_{stamp}.csv"
-    xlsx_path = f"{out_dir}/cumulative_{stamp}.xlsx"
+    # Filename reflects the filter so files don't get confused.
+    suffix = f"_{mode}" if mode else ""
+    csv_path = f"{out_dir}/cumulative{suffix}_{stamp}.csv"
+    xlsx_path = f"{out_dir}/cumulative{suffix}_{stamp}.xlsx"
     write_csv(accepted, csv_path)
     write_xlsx(accepted, rejected, xlsx_path)
 
-    print(f"Exported {len(accepted)} accepted brand(s) + {len(rejected)} rejected:")
+    scope = f" [{mode}-mode only]" if mode else ""
+    print(f"Exported {len(accepted)} accepted brand(s) + {len(rejected)} rejected{scope}:")
     print(f"  CSV  : {csv_path}")
     print(f"  XLSX : {xlsx_path}")
     return csv_path, xlsx_path
