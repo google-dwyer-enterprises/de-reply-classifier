@@ -19,6 +19,8 @@ import sys
 from backfill_lead_status import main as backfill_lead_status_main
 from backfill_tags import main as backfill_tags_main
 from excel_writer import export_fresh, export_writeback
+from followup_tracker_upload import main as followup_tracker_upload_main
+from select_winning_replies import main as select_winning_replies_main
 from lead_contacts_upload import main as upload_leads_main
 from leads_status_update import main as update_status_main
 from prospeo_sync import main as prospeo_main
@@ -41,10 +43,17 @@ def run_script(script: str, *script_args: str) -> None:
 
 
 def cmd_sync(args) -> None:
+    """Run both inbound (received) and outbound (sent) syncs.
+
+    Per FOLLOWUP_ANALYSIS_PLAN.md Phase 2 Edit D — outbound pass
+    introduced for the follow-up tracker MV. Inbound pass is the existing
+    behavior. Each pass uses its own sync_state cursor when --days is omitted.
+    """
     extra = []
     if args.days is not None:
         extra += ["--days", str(args.days)]
-    run_script("instantly_sync.py", *extra)
+    run_script("instantly_sync.py", "--type", "received", *extra)
+    run_script("instantly_sync.py", "--type", "sent", *extra)
 
 
 def cmd_classify(_args) -> None:
@@ -61,6 +70,9 @@ def cmd_refresh(args) -> None:
     cmd_classify(args)
     print("\n>>> update-status\n")
     update_status_main()
+    # followup_tracker_mv / followup_messages_mv are regular views now (converted
+    # for NocoDB compatibility), so they auto-recompute on query — no refresh
+    # needed here.
 
 
 def _prompt(question: str, default: str | None = None) -> str:
@@ -122,6 +134,17 @@ def main() -> None:
 
     up = sub.add_parser("upload-leads", help="Upsert Apollo enrichment CSV/xlsx into lead_contacts")
     up.add_argument("file", help="Path to .csv or .xlsx (extension optional)")
+
+    ut = sub.add_parser("upload-followup-tracker",
+                        help="One-time ingest of Jam's manual follow-up tracker CSV into lead_outcomes")
+    ut.add_argument("file", help="Path to followup_tracker_*.csv (typically in original_data/)")
+
+    sw = sub.add_parser("select-winning-replies",
+                        help="Identify winning follow-up per booked lead (Option D + D2)")
+    sw.add_argument("--dry-run", action="store_true",
+                    help="Print selections without writing to DB")
+    sw.add_argument("--limit", type=int, default=None,
+                    help="Process only N booked leads (for testing)")
 
     sub.add_parser("update-status", help="Materialize auto_status onto leads table from latest non-oof classification")
 
@@ -200,6 +223,10 @@ def main() -> None:
         cmd_export(args)
     elif args.command == "upload-leads":
         upload_leads_main(args.file)
+    elif args.command == "upload-followup-tracker":
+        followup_tracker_upload_main(args.file)
+    elif args.command == "select-winning-replies":
+        select_winning_replies_main(dry_run=args.dry_run, limit=args.limit)
     elif args.command == "update-status":
         update_status_main()
     elif args.command == "sync":

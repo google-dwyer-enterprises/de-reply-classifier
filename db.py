@@ -72,3 +72,10 @@ def refresh_lead_status() -> None:
             cur.execute("refresh materialized view concurrently lead_status_mv;")
     finally:
         conn.close()
+
+
+# Note: followup_tracker_mv / followup_messages_mv were converted from
+# materialized views to regular views for NocoDB v2026 schema-sync
+# compatibility (it doesn't auto-detect MVs). Regular views recompute on
+# every query, so no refresh is needed — the old refresh helper was removed
+# because `refresh materialized view ...` errors on a regular view.

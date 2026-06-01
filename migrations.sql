@@ -197,3 +197,178 @@ create index if not exists prospeo_new_leads_mode_idx
 create index if not exists prospeo_new_leads_industry_idx
   on prospeo_new_leads (source_industry)
   where source_industry is not null;
+
+-- =========================================================================
+-- Follow-up Tracker (FOLLOWUP_ANALYSIS_PLAN.md)
+-- =========================================================================
+-- Replaces Jam's manual "DE Email Master Sheet → Follow Up Tracker"
+-- spreadsheet. Phases 1.1 + 1.2 of v3 — additive schema only. The wide
+-- materialized view (Phase 1.3) is added in a separate migration after
+-- Phase 2 (sync) has populated sent_messages and Phase 3 (CSV ingest)
+-- has populated lead_outcomes.
+--
+-- Phase 0.6 finding (2026-05-20, scripts/probe_in_reply_to.py): Instantly's
+-- /v2/emails API does NOT expose `in_reply_to_id` on inbound emails
+-- (0/26 inbound messages had it populated). Hence no in_reply_to_id column
+-- below — v1/v2 of the plan assumed it existed; v3 sidesteps the question.
+
+-- 1.1 — Extend sent_messages with classification fields from Instantly.
+--
+-- `send_kind` is a STORED generated column. Postgres derives it from
+-- ue_type + step on insert; application code MUST NOT send a value for it.
+--
+-- EMPIRICAL ASSUMPTION (verified, not contractually guaranteed):
+-- Instantly populates `step` for campaign-automated sends and leaves it
+-- NULL for Unibox manual replies. All 537 rows observed across Phase 0
+-- + 0.5 probes had step IS NULL ⟺ ue_type = 3. Re-verify quarterly.
+alter table sent_messages add column if not exists ue_type smallint;
+alter table sent_messages add column if not exists step text;
+alter table sent_messages add column if not exists send_kind text
+  generated always as (case
+    when step is null then 'unibox_manual'
+    when ue_type = 1 then 'campaign_auto'
+    else 'unknown'
+  end) stored;
+alter table sent_messages add column if not exists thread_id text;
+create index if not exists sent_messages_send_kind_idx on sent_messages (send_kind);
+create index if not exists sent_messages_thread_id_idx on sent_messages (thread_id);
+
+-- 1.2 — lead_outcomes table for fields the API can't give us.
+-- Holds Status, Qualified, NOTE (JOYCE), Call ffup, Leadlist Source — the
+-- columns that come from Jam's manual tracker CSV. Phase 3 ingests
+-- original_data/followup_tracker_2026-05-19.csv into this table (one-time).
+-- After Phase 3, this table is updated only when new leads need manual
+-- Status/Qualified/NOTE entries that the existing classifier can't derive.
+create table if not exists lead_outcomes (
+  lead_email text not null,
+  client text not null,
+  campaign text not null default '',   -- CSV has campaign for every row; empty-string default for PK compat
+  leadlist_source text,                -- CSV "Leadlist Source"
+  status_raw text,                     -- CSV "Status" verbatim (e.g. "Booked", "Asking for Proposal")
+  qualified text,                      -- 'Qualified' | 'No' | 'Pending'
+  note text,                           -- CSV "NOTE (JOYCE)"
+  call_ffup text,                      -- CSV "Call ffup"
+  source text not null default 'manual_tracker_csv',
+  updated_at timestamptz default now(),
+  primary key (lead_email, client, campaign)
+);
+create index if not exists lead_outcomes_lead_idx on lead_outcomes (lead_email);
+
+-- 1.3 — followup_tracker_mv : the wide-pivot MV NocoDB renders.
+--
+-- One row per (lead_email, client, campaign) — Jam's spreadsheet shape:
+--   Client | Email Address | Campaign | Leadlist Source | Status | Qualified
+--   | Initial Reply Date  | What was their initial reply
+--   | Email ffup 1 Date   | Email FF 1 what we sent
+--   | Email ffup 2 Date   | Sent ff 2
+--   | ... (up to ffup 10)
+--   | Call ffup | NOTE (JOYCE)
+--   | Last Reply At  | Last reply from Instantly   <-- NEW v3 column
+--
+-- Calendar invites (notifications@calendly.com, etc.) come into `replies` with
+-- their bot email as `lead_email`, so they're orphaned from real leads and
+-- never get joined here. No special tagging needed.
+drop materialized view if exists followup_tracker_mv;
+create materialized view followup_tracker_mv as
+with first_reply as (
+  -- The lead's first inbound reply (the one that put them in the tracker)
+  select distinct on (lead_email)
+    lead_email, reply_timestamp, body
+  from replies
+  order by lead_email, reply_timestamp asc
+),
+last_reply as (
+  -- The lead's most recent inbound reply (powers the NEW v3 column)
+  select distinct on (lead_email)
+    lead_email, reply_timestamp, body
+  from replies
+  order by lead_email, reply_timestamp desc
+),
+ranked_outbounds as (
+  -- Manual outbounds (Jam's typed follow-ups) ranked chronologically per lead
+  select
+    s.lead_email,
+    s.sent_timestamp,
+    s.body,
+    row_number() over (
+      partition by s.lead_email
+      order by s.sent_timestamp asc
+    ) as ffup_n
+  from sent_messages s
+  where s.send_kind = 'unibox_manual'
+)
+select
+  lo.client                                                  as "Client",
+  lo.lead_email                                              as "Email Address",
+  lo.campaign                                                as "Campaign",
+  lo.leadlist_source                                         as "Leadlist Source",
+  coalesce(lo.status_raw, l.auto_status)                     as "Status",
+  lo.qualified                                               as "Qualified",
+  fr.reply_timestamp                                         as "Initial Reply Date",
+  fr.body                                                    as "What was their initial reply",
+  max(case when ro.ffup_n = 1  then ro.sent_timestamp end)   as "Email ffup 1 Date",
+  max(case when ro.ffup_n = 1  then ro.body end)             as "Email FF 1 what we sent",
+  max(case when ro.ffup_n = 2  then ro.sent_timestamp end)   as "Email ffup 2 Date",
+  max(case when ro.ffup_n = 2  then ro.body end)             as "Sent ff 2",
+  max(case when ro.ffup_n = 3  then ro.sent_timestamp end)   as "Email ffup 3 Date",
+  max(case when ro.ffup_n = 3  then ro.body end)             as "Sent ff 3",
+  max(case when ro.ffup_n = 4  then ro.sent_timestamp end)   as "Email ffup 4 Date",
+  max(case when ro.ffup_n = 4  then ro.body end)             as "Sent ff 4",
+  max(case when ro.ffup_n = 5  then ro.sent_timestamp end)   as "Email ffup 5 Date",
+  max(case when ro.ffup_n = 5  then ro.body end)             as "Sent ff 5",
+  max(case when ro.ffup_n = 6  then ro.sent_timestamp end)   as "Email ffup 6 Date",
+  max(case when ro.ffup_n = 6  then ro.body end)             as "Sent ff 6",
+  max(case when ro.ffup_n = 7  then ro.sent_timestamp end)   as "Email ffup 7 Date",
+  max(case when ro.ffup_n = 7  then ro.body end)             as "Sent ff 7",
+  max(case when ro.ffup_n = 8  then ro.sent_timestamp end)   as "Email ffup 8 Date",
+  max(case when ro.ffup_n = 8  then ro.body end)             as "Sent ff 8",
+  lo.call_ffup                                               as "Call ffup",
+  max(case when ro.ffup_n = 9  then ro.sent_timestamp end)   as "Email ffup 9",
+  max(case when ro.ffup_n = 10 then ro.sent_timestamp end)   as "Email ffup 10",
+  lo.note                                                    as "NOTE (JOYCE)",
+  lr.reply_timestamp                                         as "Last Reply At",
+  left(lr.body, 500)                                         as "Last reply from Instantly"
+from lead_outcomes lo
+left join leads l                  on l.lead_email = lo.lead_email
+left join first_reply fr           on fr.lead_email = lo.lead_email
+left join last_reply lr            on lr.lead_email = lo.lead_email
+left join ranked_outbounds ro      on ro.lead_email = lo.lead_email
+group by
+  lo.client, lo.lead_email, lo.campaign, lo.leadlist_source,
+  lo.status_raw, l.auto_status, lo.qualified,
+  fr.reply_timestamp, fr.body,
+  lo.call_ffup, lo.note,
+  lr.reply_timestamp, lr.body;
+
+-- Required for `refresh materialized view concurrently`.
+-- (lead_email, client, campaign) is lead_outcomes' PK and the join key —
+-- guaranteed unique here.
+create unique index if not exists followup_tracker_mv_pk
+  on followup_tracker_mv ("Email Address", "Client", "Campaign");
+
+-- =========================================================================
+-- Winning-reply selection (Option D + D2 — see FOLLOWUP_ANALYSIS_PLAN.md Phase 5)
+-- =========================================================================
+-- For each booked lead, identifies which manual outbound the lead's
+-- commitment reply was responding to. Uses the classifications table as
+-- the anchor (the reply already classified 'booked') and Haiku as the
+-- judge over 2-3 candidate outbounds.
+--
+-- NOT YET APPLIED — staged here for when the 90-day sent backfill completes
+-- and the selection script is ready to run.
+
+-- 1.4 — followup_winning_selection table
+create table if not exists followup_winning_selection (
+  lead_email text not null,
+  winning_sent_message_id bigint not null references sent_messages(id),
+  booking_reply_id bigint not null references replies(id),
+  candidate_message_ids bigint[] not null,   -- the 2-3 IDs considered (for audit)
+  confidence text not null,                  -- 'high'|'medium'|'low'|'fallback'
+  rationale text,
+  model text not null,                       -- e.g. 'claude-haiku-4-5'
+  prompt_version text not null,
+  selected_at timestamptz default now(),
+  primary key (lead_email, prompt_version)
+);
+create index if not exists followup_winning_selection_lead_idx
+  on followup_winning_selection (lead_email);

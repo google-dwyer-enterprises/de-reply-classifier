@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 
+import httpx
 import requests
 from dotenv import load_dotenv
 from supabase import create_client
@@ -37,6 +38,12 @@ PAGE_LIMIT = 100
 INSERT_BATCH = 200
 FLUSH_EVERY_PAGES = 5
 DEBUG_DIR = Path(__file__).parent / "debug"
+
+# Email-type dispatch (FOLLOWUP_ANALYSIS_PLAN.md Phase 2 Edit A).
+# Inbound goes to `replies`, outbound to `sent_messages`. Their timestamp
+# columns are differently named.
+TABLE_BY_TYPE = {"received": "replies", "sent": "sent_messages"}
+TS_COL_BY_TYPE = {"received": "reply_timestamp", "sent": "sent_timestamp"}
 
 
 # --------------------------------------------------------------------------- #
@@ -78,9 +85,34 @@ def request_with_backoff(
     params: dict,
     limiter: RateLimiter,
 ) -> requests.Response:
+    """GET with retry on:
+      - HTTP 429 (rate-limited) — back off per retry-after or exponential
+      - HTTP 5xx                 — exponential backoff
+      - transport errors         — ConnectionError, Timeout, ChunkedEncodingError
+        (SSL handshake reset, socket reset, DNS hiccup, etc.) — exponential
+
+    The transport-error branch is necessary because long syncs against the
+    Instantly API occasionally hit WinError 10054 ("connection forcibly closed
+    by the remote host") on SSL handshake. Without retry, one transient
+    socket reset kills the whole backfill.
+    """
+    # Instantly's first-page response on wide windows (e.g. 90 days) routinely
+    # exceeds 30s — known issue. Use a longer per-request timeout for the
+    # paginated endpoints.
+    REQUEST_TIMEOUT_S = 120
     for attempt in range(MAX_RETRIES):
         limiter.wait()
-        resp = session.get(url, params=params, timeout=30)
+        try:
+            resp = session.get(url, params=params, timeout=REQUEST_TIMEOUT_S)
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ChunkedEncodingError) as e:
+            sleep_s = min(60.0, (2 ** attempt) + random.random())
+            print(f"  {type(e).__name__} ({str(e)[:120]}); "
+                  f"retry {attempt + 1}/{MAX_RETRIES} in {sleep_s:.1f}s",
+                  file=sys.stderr)
+            time.sleep(sleep_s)
+            continue
         limiter.update_from_headers(resp.headers)
 
         if resp.status_code == 429:
@@ -116,13 +148,15 @@ def get_env(name: str) -> str:
     return val
 
 
-def verify_supabase(client) -> None:
+def verify_supabase(client, email_type: str = "received") -> None:
+    """Reachability check for the destination table for this sync's email_type."""
+    table = TABLE_BY_TYPE[email_type]
     try:
-        resp = client.table("replies").select("*", count="exact", head=True).execute()
+        resp = client.table(table).select("*", count="exact", head=True).execute()
     except Exception as e:
-        sys.exit(f"FATAL: cannot access Supabase 'replies' table: {e}")
+        sys.exit(f"FATAL: cannot access Supabase '{table}' table: {e}")
     count = resp.count if resp.count is not None else "?"
-    print(f"Supabase OK — replies table reachable (current rowcount={count})")
+    print(f"Supabase OK — {table} table reachable (current rowcount={count})")
 
 
 def make_session(api_key: str) -> requests.Session:
@@ -306,10 +340,22 @@ def parse_email(
     campaigns_map: dict[str, str],
     tags_map: dict[str, list[str]],
     lead_labels: dict[int, str],
+    email_type: str = "received",
 ) -> dict:
-    raw_from = email.get("from_address_email") or ""
-    lead_email = raw_from.strip().lower()
+    """Build a DB row from an Instantly email object.
 
+    Direction-specific fields (per FOLLOWUP_ANALYSIS_PLAN.md Phase 2 Edit B):
+      - received: lead_email <- from_address_email, timestamp <- reply_timestamp
+      - sent:     lead_email <- email["lead"],     timestamp <- sent_timestamp
+                  + outbound-only ue_type, step, in addition to thread_id
+
+    Note: `send_kind` is a STORED generated column on sent_messages (Postgres
+    derives it from ue_type + step). Do NOT include it here.
+
+    Note: `in_reply_to_id` was in v1/v2 of the plan. Removed per Phase 0.6
+    finding — Instantly's /v2/emails does not expose this field.
+    """
+    raw_from = email.get("from_address_email") or ""
     campaign_id = email.get("campaign_id")
     campaign_name = campaigns_map.get(campaign_id, "UNKNOWN") if campaign_id else "UNKNOWN"
 
@@ -318,20 +364,36 @@ def parse_email(
     if not body_text:
         body_text = html_to_text(body_obj.get("html") or "")
 
-    return {
-        "lead_email": lead_email,
-        "campaign_id": campaign_id,
-        "campaign_name": campaign_name,
-        "client": extract_client(campaign_name),
-        "reply_timestamp": email.get("timestamp_email"),
-        "subject": email.get("subject"),
-        "body": body_text,
+    # Direction-specific identity + timestamp column name
+    if email_type == "received":
+        lead_email = raw_from.strip().lower()
+        ts_col = "reply_timestamp"
+    else:  # sent
+        lead_email = (email.get("lead") or "").strip().lower()
+        ts_col = "sent_timestamp"
+
+    row = {
+        "lead_email":           lead_email,
+        "campaign_id":          campaign_id,
+        "campaign_name":        campaign_name,
+        "client":               extract_client(campaign_name),
+        ts_col:                 email.get("timestamp_email"),
+        "subject":              email.get("subject"),
+        "body":                 body_text,
         "instantly_message_id": email.get("id"),
-        "thread_id": email.get("thread_id"),
-        "tags": tags_map.get(campaign_id, []) if campaign_id else [],
-        "lead_status_code": email.get("i_status"),
-        "lead_status": lead_labels.get(email.get("i_status")) if email.get("i_status") is not None else None,
+        "thread_id":            email.get("thread_id"),
+        "tags":                 tags_map.get(campaign_id, []) if campaign_id else [],
+        "lead_status_code":     email.get("i_status"),
+        "lead_status":          lead_labels.get(email.get("i_status"))
+                                if email.get("i_status") is not None else None,
     }
+
+    # Outbound-only fields (sent_messages has these columns; replies doesn't)
+    if email_type == "sent":
+        row["ue_type"] = email.get("ue_type")
+        row["step"]    = email.get("step")
+
+    return row
 
 
 # --------------------------------------------------------------------------- #
@@ -343,16 +405,58 @@ def chunk(seq, n):
         yield seq[i:i + n]
 
 
-def upsert_replies(supabase, rows: list[dict]) -> int:
-    """Returns count of newly inserted rows (duplicates skipped via ignore_duplicates)."""
+UPSERT_MAX_RETRIES = 6
+
+
+def _upsert_batch_with_retry(supabase, table: str, batch: list[dict]) -> int:
+    """Single batch upsert with exponential backoff on transient HTTP errors.
+
+    Supabase's HTTP/2 pooler can reset streams mid-flight under load —
+    seen as `httpx.RemoteProtocolError: <StreamReset ...>`. Without retry,
+    one stream reset kills the whole sync (lost in-flight batch + lost
+    progress on subsequent pages). Mirror the Instantly-side retry pattern.
+    """
+    for attempt in range(UPSERT_MAX_RETRIES):
+        try:
+            resp = (
+                supabase.table(table)
+                .upsert(batch, on_conflict="instantly_message_id",
+                        ignore_duplicates=True)
+                .execute()
+            )
+            return len(resp.data or [])
+        except (httpx.HTTPError, ConnectionError, OSError) as e:
+            if attempt == UPSERT_MAX_RETRIES - 1:
+                print(f"  ! upsert {table} batch FAILED after "
+                      f"{UPSERT_MAX_RETRIES} retries ({type(e).__name__}: {e}); "
+                      f"dropping {len(batch)} rows and continuing",
+                      file=sys.stderr)
+                return 0
+            sleep_s = min(60.0, (2 ** attempt) + random.random())
+            print(f"  ! upsert {table} {type(e).__name__}; "
+                  f"retry {attempt + 1}/{UPSERT_MAX_RETRIES} in {sleep_s:.1f}s",
+                  file=sys.stderr)
+            time.sleep(sleep_s)
+    return 0
+
+
+def upsert_rows(supabase, rows: list[dict], email_type: str) -> int:
+    """Returns count of newly inserted rows (duplicates skipped via ignore_duplicates).
+
+    Dispatches to the right table based on email_type:
+      - received -> replies
+      - sent     -> sent_messages
+    Both tables have `instantly_message_id` as the unique conflict key.
+
+    Each batch is retried independently on transient HTTP errors so one
+    stream reset doesn't kill the whole sync.
+    """
+    if not rows:
+        return 0
+    table = TABLE_BY_TYPE[email_type]
     new_count = 0
     for batch in chunk(rows, INSERT_BATCH):
-        resp = (
-            supabase.table("replies")
-            .upsert(batch, on_conflict="instantly_message_id", ignore_duplicates=True)
-            .execute()
-        )
-        new_count += len(resp.data or [])
+        new_count += _upsert_batch_with_retry(supabase, table, batch)
     return new_count
 
 
@@ -367,12 +471,18 @@ def main() -> None:
         pass
 
     parser = argparse.ArgumentParser(prog="instantly_sync.py")
-    parser.add_argument("--days", type=int, default=LOOKBACK_DAYS,
-                        help=f"Lookback window in days (default {LOOKBACK_DAYS})")
+    parser.add_argument("--days", type=int, default=None,
+                        help=f"Lookback window in days. If omitted, uses sync_state "
+                             f"cursor (or {LOOKBACK_DAYS}-day default on first run).")
     parser.add_argument("--type", dest="email_type", choices=["received", "sent"],
                         default="received", help="Email type to fetch (default received)")
     parser.add_argument("--starting-after", default=None,
                         help="Resume pagination from this cursor")
+    parser.add_argument("--sort", choices=["asc", "desc"], default="asc",
+                        help="Pagination sort order. For wide backfills, use "
+                             "'desc' — page 1 starts at 'now' instead of N days "
+                             "ago, avoiding Instantly's first-page slowness on "
+                             "wide windows.")
     args = parser.parse_args()
 
     load_dotenv()
@@ -381,7 +491,7 @@ def main() -> None:
     supabase_key = get_env("SUPABASE_KEY")
 
     supabase = create_client(supabase_url, supabase_key)
-    verify_supabase(supabase)
+    verify_supabase(supabase, args.email_type)
 
     session = make_session(instantly_key)
     limiter = RateLimiter(DEFAULT_MIN_INTERVAL_S)
@@ -396,8 +506,37 @@ def main() -> None:
     lead_labels = fetch_lead_labels(session, limiter)
     print(f"Fetched {len(lead_labels)} lead labels")
 
-    min_ts = (datetime.now(timezone.utc) - timedelta(days=args.days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"Pulling {args.email_type} emails since {min_ts} ({args.days}-day window)")
+    # Lookback window precedence (FOLLOWUP_ANALYSIS_PLAN.md Phase 2 Edit C):
+    #   1. --starting-after cursor -> paginator drives, no min_ts needed
+    #   2. --days N (manual override)
+    #   3. sync_state.last_synced_at for this email_type (incremental)
+    #   4. LOOKBACK_DAYS default (first-ever run for this type)
+    if args.starting_after:
+        min_ts = None
+        print(f"Resuming from cursor {args.starting_after} (--starting-after override)")
+    elif args.days is not None:
+        min_ts = (datetime.now(timezone.utc)
+                  - timedelta(days=args.days)
+                 ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        print(f"Pulling {args.email_type} emails since {min_ts} ({args.days}-day window, --days override)")
+    else:
+        try:
+            cursor_resp = (supabase.table("sync_state")
+                           .select("last_synced_at")
+                           .eq("message_type", args.email_type)
+                           .maybe_single().execute())
+        except Exception as e:
+            print(f"  ! sync_state lookup failed ({e}); falling back to {LOOKBACK_DAYS}-day default")
+            cursor_resp = None
+        last_ts = (cursor_resp.data or {}).get("last_synced_at") if cursor_resp else None
+        if last_ts:
+            min_ts = last_ts
+            print(f"Pulling {args.email_type} emails since {min_ts} (sync_state cursor)")
+        else:
+            min_ts = (datetime.now(timezone.utc)
+                      - timedelta(days=LOOKBACK_DAYS)
+                     ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            print(f"Pulling {args.email_type} emails since {min_ts} ({LOOKBACK_DAYS}-day default — sync_state was null)")
 
     all_rows: list[dict] = []
     pending: list[dict] = []
@@ -408,13 +547,16 @@ def main() -> None:
 
     email_params = {
         "email_type": args.email_type,
-        "min_timestamp_created": min_ts,
-        "sort_order": "asc",
+        "sort_order": args.sort,
     }
+    if min_ts:
+        email_params["min_timestamp_created"] = min_ts
     last_cursor: str | None = args.starting_after
 
     DEBUG_DIR.mkdir(exist_ok=True)
     cursor_file = DEBUG_DIR / f"last_cursor_{args.email_type}.txt"
+
+    ts_col = TS_COL_BY_TYPE[args.email_type]
 
     try:
         for page, cur, nxt, items in paginate(
@@ -422,7 +564,7 @@ def main() -> None:
             start_cursor=args.starting_after,
         ):
             for email in items:
-                row = parse_email(email, campaigns_map, tags_map, lead_labels)
+                row = parse_email(email, campaigns_map, tags_map, lead_labels, args.email_type)
                 if not row["instantly_message_id"]:
                     skipped_missing_id += 1
                     continue
@@ -438,7 +580,7 @@ def main() -> None:
                 last_cursor = nxt
 
             if page % FLUSH_EVERY_PAGES == 0 and pending:
-                new_in_flush = upsert_replies(supabase, pending)
+                new_in_flush = upsert_rows(supabase, pending, args.email_type)
                 total_new += new_in_flush
                 print(f"  flushed page {page}: {len(pending)} rows ({new_in_flush} new); running total = {len(all_rows)}")
                 pending = []
@@ -446,7 +588,7 @@ def main() -> None:
                     cursor_file.write_text(last_cursor, encoding="utf-8")
     except SystemExit:
         if pending:
-            total_new += upsert_replies(supabase, pending)
+            total_new += upsert_rows(supabase, pending, args.email_type)
             pending = []
         if last_cursor:
             cursor_file.write_text(last_cursor, encoding="utf-8")
@@ -455,13 +597,29 @@ def main() -> None:
         raise
 
     if pending:
-        total_new += upsert_replies(supabase, pending)
+        total_new += upsert_rows(supabase, pending, args.email_type)
 
     (DEBUG_DIR / "parsed_sample.json").write_text(
         json.dumps(all_rows[:3], indent=2, default=str), encoding="utf-8"
     )
     if cursor_file.exists():
         cursor_file.unlink()
+
+    # Advance sync_state cursor for this email_type (Phase 2 Edit C).
+    # Skip when --days or --starting-after was explicitly passed (those are
+    # manual overrides; touching the cursor in those cases would surprise
+    # subsequent incremental runs).
+    if not args.starting_after and args.days is None and all_rows:
+        max_seen = max((r.get(ts_col) for r in all_rows if r.get(ts_col)),
+                       default=None)
+        if max_seen:
+            try:
+                supabase.table("sync_state").update(
+                    {"last_synced_at": max_seen}
+                ).eq("message_type", args.email_type).execute()
+                print(f"Cursor advanced: sync_state.{args.email_type}.last_synced_at = {max_seen}")
+            except Exception as e:
+                print(f"  ! failed to advance sync_state cursor: {e}", file=sys.stderr)
 
     total_fetched = len(all_rows)
     dup_count = total_fetched - total_new
@@ -477,7 +635,7 @@ def main() -> None:
 
     by_month: Counter = Counter()
     for r in all_rows:
-        ts = r.get("reply_timestamp") or ""
+        ts = r.get(ts_col) or ""
         if len(ts) >= 7:
             by_month[ts[:7]] += 1
     if by_month:
@@ -485,6 +643,23 @@ def main() -> None:
         print(f"{args.email_type.capitalize()} count per month (fetched this run):")
         for ym in sorted(by_month):
             print(f"  {ym}  {by_month[ym]}")
+
+    # Outbound-only summary: send_kind split for the rows we just processed.
+    if args.email_type == "sent" and all_rows:
+        send_kind_counts: Counter = Counter()
+        for r in all_rows:
+            step = r.get("step")
+            ue = r.get("ue_type")
+            if step is None:
+                send_kind_counts["unibox_manual"] += 1
+            elif ue == 1:
+                send_kind_counts["campaign_auto"] += 1
+            else:
+                send_kind_counts["unknown"] += 1
+        print()
+        print("Send-kind split for this run:")
+        for k, v in send_kind_counts.most_common():
+            print(f"  {k}: {v}")
 
 
 if __name__ == "__main__":
