@@ -201,7 +201,7 @@
   <div class="tag">Every filter the lead scraper applies, in the order it fires</div>
 </header>
 
-<p>The scraper applies <strong>eight layers of filtering</strong>. Each layer removes the obvious junk so the next layer (which is more expensive) only sees high-quality candidates.</p>
+<p>The scraper applies <strong>nine layers of filtering</strong>. Each layer removes the obvious junk so the next layer (which is more expensive) only sees high-quality candidates.</p>
 
 <!-- =================================================== -->
 <h2><span class="num">1</span>CSV cleanup — junk domains</h2>
@@ -302,6 +302,7 @@
   <pre><code>{
   "filters": {
     "company": { "websites": { "include": [<batch of 50 domains>] } },
+    "company_revenue": { "min": "500K" },
     "person_job_title": {
       "include": ["CEO", "Founder", "Owner", "President", ...],
       "match": "smart",
@@ -309,6 +310,25 @@
     }
   }
 }</code></pre>
+</div>
+
+<div class="filter-stage">
+  <h3><span class="stage-num">5b</span>Minimum annual revenue — $500K floor</h3>
+  <div class="when">When: sent to Prospeo alongside the title filter · Endpoint: <code>POST /search-person</code> · Constant: <code>PROSPEO_MIN_REVENUE</code></div>
+
+  <p>Drops companies whose annual revenue Prospeo estimates below <strong>$500,000</strong>. Server-side — we never see (or pay for) the smaller brands.</p>
+
+  <div class="callout why">
+    <h4>Why a revenue floor?</h4>
+    <p>Sub-$500K brands rarely have the budget to engage a paid agency. Filtering them out at the Prospeo layer means fewer credits spent on enrich-person calls for prospects we wouldn't pursue anyway. Applied to both domain and category modes.</p>
+  </div>
+
+  <div class="callout warn">
+    <h4>The value format took empirical work</h4>
+    <p>Prospeo accepts a string shorthand under <code>company_revenue.min</code> — <code>"500K"</code>, <code>"1M"</code>, <code>"10M"</code>. Numeric ints (<code>500000</code>), dollar-prefixed strings (<code>"$1M"</code>), comparator strings (<code>"$1M+"</code>), and bucket-list <code>.include</code> shapes either 400 with <code>INVALID_FILTERS</code> or silently no-op (return unchanged total_count). Verified 2026-05-21 via <code>scripts/probe_revenue_filter.py</code> — about $0.30 of credits to pin down.</p>
+  </div>
+
+  <p>Bench check: on a Cosmetics + owner-titles baseline of 4,024 candidates, the <code>500K</code> floor reduces the search to 612 — an ~85% cut before we spend a single enrich credit.</p>
 </div>
 
 <!-- =================================================== -->
@@ -407,6 +427,8 @@
                                  ~remaining new domains queried
        ↓  Prospeo title filter (owner-level only)
                                  ~5–10% return matches
+       ↓  Prospeo revenue floor ($500K minimum)
+                                 ~85% of title matches survive (sub-$500K dropped)
        ↓  Prospeo verified-email filter
                                  ~30–40% of matches have a verified email
        ↓  marketplace / agency rules
@@ -441,8 +463,8 @@ ACCEPTED BRAND LEADS              ~500–1,500 from a full run</div>
 </div>
 
 <div class="card">
-  <h3>❌ Employee count / revenue / country filters</h3>
-  <p>Available on Prospeo but not enabled — adding them narrows supply further on top of the strict title filter. We can enable later if the title filter alone overshoots quality.</p>
+  <h3>❌ Employee count filter</h3>
+  <p>Available on Prospeo but not enabled — would narrow supply further on top of the strict title + revenue filters. Can enable later if quality still overshoots. (Country is exposed via the <code>--country</code> flag in category mode; the <strong>$500K revenue floor</strong> is now active — see stage 5b above.)</p>
 </div>
 
 <footer>

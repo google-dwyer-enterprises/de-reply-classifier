@@ -189,6 +189,11 @@ def main() -> None:
     sl.add_argument("--country", default=None,
                     help="[category mode] Comma-separated countries for company_location_search. "
                          "e.g. \"United States,Canada\". Default: no location filter (global).")
+    sl.add_argument("--skip-industries", default=None,
+                    help="[category mode] Comma-separated industry names to skip this run. "
+                         "Useful when an industry has high dupe rate from prior runs. "
+                         "Names must match PROSPEO_INDUSTRIES exactly. "
+                         "State for skipped industries is preserved untouched.")
     sl.add_argument("--dry-run", action="store_true")
     sl.add_argument("--skip-llm", action="store_true", help="Skip Haiku grey-zone agency/brand classifier")
     sl.add_argument("--with-mobile", action="store_true",
@@ -252,9 +257,14 @@ def main() -> None:
             [c.strip() for c in args.country.split(",") if c.strip()]
             if args.country else None
         )
+        skip_list = (
+            [s.strip() for s in args.skip_industries.split(",") if s.strip()]
+            if args.skip_industries else None
+        )
         prospeo_main(mode=args.mode,
                      domains_csv=args.domains, limit=args.limit,
                      target_leads=args.target_leads, country=country_list,
+                     skip_industries=skip_list,
                      dry_run=args.dry_run, skip_llm=args.skip_llm,
                      with_mobile=args.with_mobile,
                      max_credits=args.max_credits)

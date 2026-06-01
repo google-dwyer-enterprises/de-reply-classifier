@@ -22,6 +22,7 @@ import csv
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -119,6 +120,20 @@ PROSPEO_INDUSTRIES = [
     "Alternative Medicine",                      # gaps probe, total_count=128K
     "Retail Health and Personal Care Products",  # gaps probe, total_count=141K
 ]
+
+# Minimum company annual revenue applied to every Prospeo search.
+#
+# Empirically verified 2026-05-21 via scripts/probe_revenue_filter.py:
+# the field is `company_revenue` (top-level, singular, matching Prospeo's
+# existing `company_industry` / `company_location_search` naming). The
+# value must be a string shorthand like "500K" / "1M" / "10M" — numeric
+# ints, "$"-prefixed strings, comparator strings ("$1M+"), and bucket-list
+# `.include` shapes all 400 or silently no-op. On a Cosmetics+owner-titles
+# baseline of 4024, "500K" reduced to 612 (~85% filter rate).
+#
+# To change the floor, edit this string only — both _search_people (domain
+# mode) and _search_people_by_industry (category mode) read it.
+PROSPEO_MIN_REVENUE = "500K"
 
 DECISION_MAKER_TITLES = {
     # exact-match (lowercased) keywords; we check substring containment
@@ -430,6 +445,7 @@ def _search_people(domains: list[str], api_key: str) -> tuple[list[dict], int]:
     """
     filters = {
         "company": {"websites": {"include": domains}},
+        "company_revenue": {"min": PROSPEO_MIN_REVENUE},
         "person_job_title": {
             "include": PROSPEO_TITLES,
             "match": "smart",
@@ -518,6 +534,7 @@ def _search_people_by_industry(industry: str, countries: list[str],
     """
     filters: dict = {
         "company_industry": {"include": [industry]},
+        "company_revenue": {"min": PROSPEO_MIN_REVENUE},
         "person_job_title": {
             "include": PROSPEO_TITLES,
             "match": "smart",
@@ -864,6 +881,7 @@ def run(mode: str = "domain", *,
         domains_csv: str | None = None, limit: int | None = None,
         target_leads: int | None = None,
         country: list[str] | None = None,
+        skip_industries: list[str] | None = None,
         dry_run: bool = False, skip_llm: bool = False,
         with_mobile: bool = False,
         max_credits: int | None = None) -> None:
@@ -876,7 +894,7 @@ def run(mode: str = "domain", *,
                        paginate per industry with state in
                        category_scrape_state, dedup by email only).
 
-    target_leads + country are only used by category mode.
+    target_leads + country + skip_industries are only used by category mode.
     domains_csv + limit are only used by domain mode.
     """
     load_dotenv()
@@ -894,6 +912,7 @@ def run(mode: str = "domain", *,
         elif mode == "category":
             _run_category(conn, api_key,
                           target_leads=target_leads, country=country,
+                          skip_industries=skip_industries,
                           dry_run=dry_run, skip_llm=skip_llm,
                           with_mobile=with_mobile, max_credits=max_credits)
         else:
@@ -1164,6 +1183,7 @@ def _finalize_and_export(conn, api_key: str, *,
 def _run_category(conn, api_key: str, *,
                    target_leads: int | None,
                    country: list[str] | None,
+                   skip_industries: list[str] | None = None,
                    dry_run: bool, skip_llm: bool, with_mobile: bool,
                    max_credits: int | None) -> None:
     """Category mode: query Prospeo by industry, paginate per industry.
@@ -1180,12 +1200,21 @@ def _run_category(conn, api_key: str, *,
       - all industries are exhausted (last_page_consumed >= total_pages)
     """
     countries = list(country or [])
+    skip_set = {s.strip() for s in (skip_industries or []) if s.strip()}
+
+    # Fail fast on typos: every skip entry must exist in PROSPEO_INDUSTRIES.
+    if skip_set:
+        unknown = skip_set - set(PROSPEO_INDUSTRIES)
+        if unknown:
+            sys.exit(f"--skip-industries: unknown industry name(s) {sorted(unknown)!r}. "
+                     f"Valid names: {PROSPEO_INDUSTRIES!r}")
 
     if dry_run:
         print(f"Dry run — category mode")
         print(f"  industries: {len(PROSPEO_INDUSTRIES)}")
         for ind in PROSPEO_INDUSTRIES:
-            print(f"    - {ind}")
+            tag = "  [SKIP]" if ind in skip_set else ""
+            print(f"    - {ind}{tag}")
         print(f"  titles:     {len(PROSPEO_TITLES)} (two-tier: owner + marketing/e-com)")
         print(f"  countries:  {countries or '(none — global)'}")
         print(f"  target_leads: {target_leads or '(unlimited)'}")
@@ -1195,9 +1224,13 @@ def _run_category(conn, api_key: str, *,
     state = fetch_category_state(conn)
     existing_emails = fetch_existing_emails(conn)
 
-    # Build the round-robin queue: industries not yet exhausted.
+    # Build the round-robin queue: industries not yet exhausted and not
+    # explicitly skipped for this run.
     queue: list[str] = []
     for ind in PROSPEO_INDUSTRIES:
+        if ind in skip_set:
+            print(f"  [skip] {ind!r} (--skip-industries)")
+            continue
         s = state.get(ind, {})
         if s.get("exhausted"):
             print(f"  [skip] {ind!r} exhausted "
@@ -1223,6 +1256,16 @@ def _run_category(conn, api_key: str, *,
     llm_client = None
     llm_system = None
     pages_credits_added: dict[str, int] = {ind: 0 for ind in queue}
+    # Per-industry consecutive transport-failure counter (SSL drops, timeouts,
+    # connection resets). Reset on every successful search-person call. If an
+    # industry exceeds MAX_CONSEC_FAILURES, drop it for this run (next batch
+    # will pick it back up via category_scrape_state, which is untouched on
+    # transport errors). Prevents the round-robin from infinite-spinning when
+    # the API is unreachable or rate-limited.
+    consec_failures: dict[str, int] = {ind: 0 for ind in queue}
+    MAX_CONSEC_FAILURES = 5
+    CYCLE_SLEEP_ALL_FAIL_S = 30   # sleep when EVERY industry failed this cycle
+    CYCLE_SLEEP_SOME_FAIL_S = 2   # brief pause when SOME industries failed
 
     # Round-robin: one page per industry per cycle. Stop when budget/target hit
     # or when all remaining industries became exhausted this run.
@@ -1234,6 +1277,8 @@ def _run_category(conn, api_key: str, *,
             aborted_reason = f"budget cap hit ({credits_spent}/{max_credits} credits)"
             break
 
+        cycle_failed = 0
+        cycle_attempted = 0
         next_queue: list[str] = []
         for ind in queue:
             if target_leads is not None and len(accepted) >= target_leads:
@@ -1246,6 +1291,7 @@ def _run_category(conn, api_key: str, *,
             s = state.get(ind, {})
             next_page = (s.get("last_page_consumed") or 0) + 1
 
+            cycle_attempted += 1
             try:
                 results, total_pages, page_credits = _search_people_by_industry(
                     ind, countries, next_page, api_key)
@@ -1255,10 +1301,21 @@ def _run_category(conn, api_key: str, *,
                 aborted_reason = "Prospeo INSUFFICIENT_CREDITS — top up and re-run"
                 break
             except requests.RequestException as e:
-                print(f"  ! search-person {ind!r} page {next_page}: {e}", file=sys.stderr)
-                next_queue.append(ind)  # try again next cycle
+                consec_failures[ind] = consec_failures.get(ind, 0) + 1
+                cycle_failed += 1
+                if consec_failures[ind] >= MAX_CONSEC_FAILURES:
+                    print(f"  ! search-person {ind!r} page {next_page}: {e} "
+                          f"[dropping after {MAX_CONSEC_FAILURES} consecutive failures; "
+                          f"will resume next batch]", file=sys.stderr)
+                    # Drop from queue for this run — state cursor untouched, so
+                    # the next batch picks back up at the same page.
+                    continue
+                print(f"  ! search-person {ind!r} page {next_page}: {e} "
+                      f"[{consec_failures[ind]}/{MAX_CONSEC_FAILURES}]", file=sys.stderr)
+                next_queue.append(ind)
                 continue
 
+            consec_failures[ind] = 0
             credits_spent += page_credits
             pages_credits_added[ind] = pages_credits_added.get(ind, 0) + page_credits
 
@@ -1375,6 +1432,16 @@ def _run_category(conn, api_key: str, *,
         if aborted_reason:
             break
         queue = next_queue
+
+        # Backoff if this cycle had transport failures. If EVERY attempted
+        # industry failed, sleep long (likely network outage or rate-limit);
+        # if only some failed, brief pause so we don't tight-loop.
+        if cycle_attempted > 0 and cycle_failed == cycle_attempted:
+            print(f"  [pause] all {cycle_attempted} industries failed this cycle, "
+                  f"sleeping {CYCLE_SLEEP_ALL_FAIL_S}s before retry", file=sys.stderr)
+            time.sleep(CYCLE_SLEEP_ALL_FAIL_S)
+        elif cycle_failed > 0:
+            time.sleep(CYCLE_SLEEP_SOME_FAIL_S)
 
     if aborted_reason:
         print(f"\n!!! Run aborted: {aborted_reason}", file=sys.stderr)
@@ -1541,7 +1608,8 @@ def main(domains_csv: str | None = None, limit: int | None = None,
          with_mobile: bool = False, max_credits: int | None = None,
          mode: str = "domain",
          target_leads: int | None = None,
-         country: list[str] | None = None) -> None:
+         country: list[str] | None = None,
+         skip_industries: list[str] | None = None) -> None:
     """Entry point called by run.py.
 
     Keeps the original positional/keyword arg surface intact for backward
@@ -1550,6 +1618,7 @@ def main(domains_csv: str | None = None, limit: int | None = None,
     run(mode=mode,
         domains_csv=domains_csv, limit=limit,
         target_leads=target_leads, country=country,
+        skip_industries=skip_industries,
         dry_run=dry_run, skip_llm=skip_llm,
         with_mobile=with_mobile, max_credits=max_credits)
 
