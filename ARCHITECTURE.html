@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lead Scraper — Architecture & Approach</title>
+<style>
+  :root {
+    --fg: #1a1d23;
+    --muted: #5e6470;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e1e4e8;
+    --accent: #0550ae;
+    --accent-soft: #ddeefc;
+    --green: #1a7f37;
+    --amber: #9a6700;
+    --red: #cf222e;
+    --pill-bg: #f0f4f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 28px 80px;
+  }
+  header {
+    text-align: center;
+    padding: 24px 0 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  header h1 {
+    font-size: 2.2em;
+    font-weight: 700;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+  }
+  header .tag {
+    color: var(--muted);
+    font-size: 1.05em;
+  }
+  h2 {
+    font-size: 1.5em;
+    font-weight: 700;
+    margin: 48px 0 16px;
+    letter-spacing: -0.01em;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 36px;
+    font-size: 0.8em;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+  h3 { font-size: 1.15em; margin: 28px 0 10px; font-weight: 600; }
+  p { margin: 0.6em 0; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 26px;
+    margin: 16px 0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  /* Step flow */
+  .flow {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 16px 0;
+  }
+  .step {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    padding: 16px 20px;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  .step-num {
+    background: var(--accent-soft);
+    color: var(--accent);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.95em;
+  }
+  .step-body { flex: 1; }
+  .step-title { font-weight: 600; font-size: 1.05em; margin-bottom: 4px; }
+  .step-desc { color: var(--muted); font-size: 0.95em; }
+  .arrow {
+    text-align: center;
+    color: var(--muted);
+    font-size: 1.4em;
+    line-height: 1;
+    margin: -2px 0;
+  }
+
+  /* Big stat */
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    text-align: center;
+  }
+  .stat .num { font-size: 2em; font-weight: 700; color: var(--accent); line-height: 1; }
+  .stat .lbl { color: var(--muted); font-size: 0.9em; margin-top: 6px; }
+
+  /* Comparison */
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 14px 0;
+  }
+  .compare > div {
+    border-radius: 10px;
+    padding: 18px 22px;
+  }
+  .before { background: #fff8f6; border: 1px solid #ffc8b8; }
+  .after  { background: #f0f9f1; border: 1px solid #b6e0bd; }
+  .before h4, .after h4 {
+    margin: 0 0 8px;
+    font-size: 0.9em;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .before h4 { color: var(--red); }
+  .after  h4 { color: var(--green); }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--pill-bg); font-weight: 600; font-size: 0.9em; }
+  tr:last-child td { border-bottom: none; }
+
+  /* Callout */
+  .callout {
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 16px 0;
+  }
+  .callout.insight   { background: #fff8c5; border-left: 4px solid #d4a72c; }
+  .callout.note      { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.caution   { background: #ffeef0; border-left: 4px solid var(--red); }
+  .callout h4 { margin-top: 0; font-size: 1em; }
+
+  /* Pill */
+  .pill {
+    display: inline-block;
+    background: var(--pill-bg);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.85em;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .pill.ok  { background: #ddf4e3; color: var(--green); }
+  .pill.no  { background: #ffeef0; color: var(--red); }
+
+  ul { padding-left: 1.5em; }
+  li { margin: 0.3em 0; }
+
+  .decision {
+    background: var(--card);
+    border: 1px dashed var(--accent);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 12px 0;
+  }
+  .decision h4 { color: var(--accent); margin-top: 0; }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.88em;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>The Lead Scraper</h1>
+  <div class="tag">How it works, why this approach, and what it'll cost — for Victor's review</div>
+</header>
+
+<div class="callout note" style="margin-bottom: 24px;">
+  <h4>Updates since this doc shipped</h4>
+  <p>Some numbers in §5 ("the big finding") are based on a smaller subset of the reply corpus than the full data supports. After Victor's category-filter feedback, every claim in this doc was re-verified against the live database. See <a href="FINDINGS.html"><strong>FINDINGS.html</strong></a> for the corrected numbers, the SSL-drop fix, and the design of the category-mode pilot.</p>
+</div>
+
+<!-- ============================================== -->
+<h2><span class="num">1</span>The problem we're solving</h2>
+
+<div class="compare">
+  <div class="before">
+    <h4>Today</h4>
+    <p>Jam manually pulls leads from Prospeo's website. Filters by hand. Reviews one at a time. Loads into Instantly.</p>
+    <p><strong>Cycle time:</strong> ~3 weeks per drop. We can't keep the pipeline full.</p>
+  </div>
+  <div class="after">
+    <h4>With the bot</h4>
+    <p>One command pulls thousands of decision-maker leads per week. Filters out agencies/resellers automatically. Hands Jam a clean CSV ready to load.</p>
+    <p><strong>Target:</strong> 5,000 verified leads / week.</p>
+  </div>
+</div>
+
+<div class="callout note">
+  <h4>What Cold IQ does (our competitor)</h4>
+  <p>Cold IQ runs the same pipeline as a service — they charge clients for it. We're building our own version so we own the process and the data.</p>
+</div>
+
+<!-- ============================================== -->
+<h2><span class="num">2</span>Preparing the lists — how we cleaned the data</h2>
+
+<p>Before the bot ever talks to Prospeo, we ran the inclusion and exclusion CSVs through a one-time cleanup script. It removes rows where the company website or email belongs to a domain we don't want to target.</p>
+
+<h3>What gets thrown out</h3>
+
+<table>
+  <thead><tr><th>Type</th><th>Examples</th><th>Why drop</th></tr></thead>
+  <tbody>
+    <tr><td><code>.org</code> domains</td><td><code>redcross.org</code>, <code>wikipedia.org</code></td><td>Non-profits — not e-commerce brands.</td></tr>
+    <tr><td><code>.edu</code> domains</td><td><code>harvard.edu</code>, <code>mit.edu</code></td><td>Universities.</td></tr>
+    <tr><td><code>.io</code> domains</td><td><code>dagster.io</code>, <code>snowplow.io</code></td><td>Mostly tech/SaaS, not our market.</td></tr>
+    <tr><td>Free email providers</td><td><code>gmail.com</code>, <code>yahoo.com</code>, <code>outlook.com</code></td><td>Personal addresses, not businesses.</td></tr>
+  </tbody>
+</table>
+
+<h3>How a single row gets checked</h3>
+
+<p>Take this row from the raw file:</p>
+
+<div class="card" style="font-family: ui-monospace, Consolas, monospace; font-size: 0.9em;">
+Company: Red Cross<br>
+Website: <code>https://www.redcross.org/about-us</code><br>
+Emails: <code>info@redcross.org</code>
+</div>
+
+<p>The script strips it down step by step:</p>
+
+<ol>
+  <li>Start with <code>https://www.redcross.org/about-us</code></li>
+  <li>Strip <code>https://</code> → <code>www.redcross.org/about-us</code></li>
+  <li>Strip everything after <code>/</code> → <code>www.redcross.org</code></li>
+  <li>Strip <code>www.</code> → <code>redcross.org</code></li>
+  <li>Check: ends in <code>.org</code>? <strong>Yes → drop the row.</strong></li>
+</ol>
+
+<p>Even if the Emails column was clean, one blocked field is enough. Both columns are checked.</p>
+
+<h3>Real results</h3>
+
+<table>
+  <thead><tr><th>File</th><th>Input rows</th><th>Dropped</th><th>Kept</th></tr></thead>
+  <tbody>
+    <tr><td>inclusion.csv</td><td>130,127</td><td>30,318 <span class="pill">23%</span></td><td><strong>99,809 rows</strong></td></tr>
+    <tr><td>exclusion.csv</td><td>82,675</td><td>5,997 <span class="pill">7%</span></td><td><strong>76,678 rows</strong></td></tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <h4>Why inclusion is dirtier than exclusion</h4>
+  <p>The inclusion list was scraped from multiple sources over time — lots of junk slipped in (23%). The exclusion list is much cleaner (7%) because it's people we've already <em>successfully emailed</em> through Instantly. Bad addresses got filtered out naturally on the way in.</p>
+</div>
+
+<h3>Why 99,809 rows becomes 52,072 domains</h3>
+
+<p>Two counts measure two different things:</p>
+
+<table>
+  <thead><tr><th>Count</th><th>What it represents</th></tr></thead>
+  <tbody>
+    <tr><td><strong>99,809 rows</strong></td><td>Number of <em>people</em> in the cleaned CSV (name, title, email per row).</td></tr>
+    <tr><td><strong>52,072 unique domains</strong></td><td>Number of <em>companies</em> — what you get when you collapse rows by their Website column.</td></tr>
+  </tbody>
+</table>
+
+<p>The CSV has multiple rows per company. Example:</p>
+
+<div class="card" style="font-family: ui-monospace, Consolas, monospace; font-size: 0.88em; padding: 14px 18px;">
+1byone, , ushelp@1byone.com,    https://1byone.com/...<br>
+1byone, Aaron Hu, aaron@1byone.com, https://1byone.com/...
+</div>
+
+<p>Same website (<code>1byone.com</code>), two rows. The bot loads only the <strong>Website</strong> column, normalizes it (<code>https://1byone.com/...</code> → <code>1byone.com</code>), and removes duplicates. Both rows collapse into one domain to query.</p>
+
+<div class="callout note">
+  <h4>Why the bot only needs domains</h4>
+  <p>Prospeo's API works at the <em>company</em> level. We ask "Who are the decision-makers at <code>1byone.com</code>?" — not "Tell me about Aaron Hu." Asking the same domain twice wastes credits. So 99k rows of people → 52k unique companies → that's what we actually pay to scrape.</p>
+</div>
+
+<p>The pipeline from cleaned file to API call:</p>
+
+<div class="pipeline" style="background: var(--bg-alt); border: 1px solid var(--border); padding: 16px 20px; border-radius: 6px; font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; white-space: pre; overflow-x: auto; line-height: 1.5;">99,809 rows in inclusion_clean.csv
+        ↓  (deduplicate on Website column)
+52,072 unique company domains
+        ↓  (subtract domains where we already have a Founder/CEO/etc.)
+~50,000 domains the bot actually queries</div>
+
+<h3>What it does NOT do</h3>
+<ul>
+  <li>Doesn't deduplicate — the bot itself deduplicates downstream.</li>
+  <li>Doesn't validate that emails actually work — Prospeo's verified-email check handles that.</li>
+  <li>Doesn't modify the original file — writes a new <code>_clean.csv</code> alongside, so we can always re-run with different rules.</li>
+</ul>
+
+<p>The script is one tiny file (<code>scripts/clean_inclusion.py</code>, ~40 lines) and runs in a few seconds on both files combined.</p>
+
+<!-- ============================================== -->
+<h2><span class="num">3</span>How the bot works — five steps</h2>
+
+<div class="flow">
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <div class="step-title">Start with our 52,000 known e-commerce brand domains</div>
+      <div class="step-desc">
+        This is the cleaned inclusion list — every brand Jam has identified as a real target.
+        We removed <code>.org</code>, <code>.edu</code>, <code>.io</code>, gmail, yahoo, outlook (junk).
+        <span class="pill ok">52,072 unique domains ready</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <div class="step-title">Skip brands where we already have the decision-maker</div>
+      <div class="step-desc">
+        Don't pay to re-find people we already have. The bot checks Supabase and skips any domain
+        where we already have a Founder/CEO/Owner/President in <code>lead_contacts</code>.
+      </div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <div class="step-title">Ask Prospeo: "Who are the decision-makers at these companies?"</div>
+      <div class="step-desc">
+        Send 50 domains at a time to Prospeo's <em>Search Person</em> API. Prospeo returns a list of matched
+        people whose job title is in our target list (see Section 5 for why we chose these specifically):
+        <div style="margin:10px 0 8px; display:flex; flex-wrap:wrap; gap:6px;">
+          <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600;">CEO</span>
+          <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600;">Chief Executive Officer</span>
+          <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600;">Founder</span>
+          <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600;">Owner</span>
+          <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600;">Co-Owner</span>
+          <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600;">President</span>
+          <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600;">Founder and CEO</span>
+          <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600;">Managing Director</span>
+          <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600;">Chairman</span>
+        </div>
+        Prospeo's "Smart match" also picks up close variants automatically (e.g. <em>"Founding Partner"</em>, <em>"Co-CEO"</em>).
+        <span class="pill">Cost: 1 credit per 25 results</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-body">
+      <div class="step-title">Get verified emails — only pay for the verified ones</div>
+      <div class="step-desc">
+        For each person, ask Prospeo for the verified email. If they don't have a verified email, we skip — <em>free</em>.
+        This protects sender reputation (no bounces in Instantly).
+        <span class="pill">Cost: 1 credit per verified email</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-body">
+      <div class="step-title">Filter out agencies and resellers</div>
+      <div class="step-desc">
+        Two-stage check. First a rules pass (drops anything called "Marketing Agency", "Consulting Services", etc.).
+        Then Claude Haiku looks at the company description for the borderline cases and decides:
+        is this a real <strong>brand</strong>, or a service company hiding in our list?
+        Only real brands land in the CSV Jam loads. <span class="pill">Cost: $0.0001 per lead</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="step" style="border-left-color: var(--amber);">
+    <div class="step-num" style="background:#fff4cc;color:var(--amber);">5b</div>
+    <div class="step-body">
+      <div class="step-title">Optional: also grab the mobile number — for accepted brands only</div>
+      <div class="step-desc">
+        If we want Atlas to cold-call these leads later, we can ask Prospeo for the verified mobile number. To keep costs sane, we <strong>only do this for brands that already passed every filter</strong> — never for rejected leads.
+        <ul style="margin: 8px 0 4px;">
+          <li>Each verified mobile costs <strong>10 credits</strong> (10x the email price). Free if Prospeo doesn't have one for that person.</li>
+          <li>Roughly 30–50% of accepted leads actually have a verified mobile on file.</li>
+          <li>Can be done in the same run (<code>--with-mobile</code> flag) or later as a separate catch-up command, after Jam has reviewed the accepted list.</li>
+        </ul>
+        <span class="pill">Cost: ~10 credits per mobile (≈ $0.20)</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="step" style="border-left-color: var(--green);">
+    <div class="step-num" style="background:#ddf4e3;color:var(--green);">✓</div>
+    <div class="step-body">
+      <div class="step-title">Hand Jam two files — one to send, one to review</div>
+      <div class="step-desc">
+        Final output is verified-email, owner-level contacts at real e-commerce brands. Everything she'd produce manually — minus the three weeks. Saved in <code>exports/</code> as two files:
+        <ul style="margin: 8px 0 4px;">
+          <li><strong>CSV</strong> — only the accepted brands. Ready to load straight into Instantly.</li>
+          <li><strong>XLSX</strong> — two sheets:
+            <span class="pill ok" style="margin: 0 2px;">Accepted</span> (same brands as the CSV) and
+            <span class="pill" style="background: #ffe3e3; color: #cf222e; margin: 0 2px;">Rejected</span>
+            (every lead the agency/marketplace filter dropped, with the reason in plain English). The Rejected sheet is the audit trail — Jam can spot-check whether the bot made the right calls.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============================================== -->
+<h2><span class="num">4</span>Why this approach</h2>
+
+<div class="card">
+  <h3>Decision 1: Use our domain list instead of Prospeo's industry filter</h3>
+  <p>Jam manually picks "Retail Apparel and Fashion" in Prospeo's UI. But that category pulls in apparel <em>agencies</em>, <em>fulfillment centers</em>, and <em>marketplaces</em> — junk we have to filter out anyway.</p>
+  <p><strong>Our 52k domain list is already curated by Jam.</strong> Every domain on it is a real brand. Starting there is faster and cleaner.</p>
+</div>
+
+<div class="card">
+  <h3>Decision 2: Verified emails only</h3>
+  <p>Cold email lives or dies on sender reputation. Hard bounces destroy it. Prospeo lets us toggle "only verified" — we use it. The credits we save are a bonus; the real win is deliverability across all our Instantly campaigns.</p>
+</div>
+
+<div class="card">
+  <h3>Decision 3: Auto-filter agencies and resellers</h3>
+  <p>Even within our curated list, the bot finds the occasional agency or service company that snuck in. Claude Haiku reads the company description and decides — costs nothing meaningful, catches what rules miss.</p>
+</div>
+
+<!-- ============================================== -->
+<h2><span class="num">5</span>The big finding — we trust your data over textbook advice</h2>
+
+<div class="callout insight">
+  <h4>🧠 What the textbook says</h4>
+  <p>Generic lead-gen wisdom: target CEOs <strong>AND</strong> CMOs, Marketing Directors, Heads of E-commerce. Mix of authority and specialty.</p>
+  <h4 style="margin-top:14px;">📊 What your reply data actually shows</h4>
+  <p>We looked at every reply you've classified in Supabase — all 17,376 of them, with Wilson 95% confidence intervals so we know which differences are real. <strong>Marketing-titled people convert about 3× worse than Founder-level.</strong></p>
+</div>
+
+<table>
+  <thead>
+    <tr><th>Title group</th><th>Positive replies</th><th>95% CI</th><th>Pattern</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Founder / CEO / Owner / President</strong></td>
+      <td><span class="pill ok">927 / 6,335 → 14.6%</span></td>
+      <td>[13.8, 15.5]</td>
+      <td>Where the great majority of bookings and "interested" replies come from.</td>
+    </tr>
+    <tr>
+      <td>CMO / Marketing Director / Head of E-com</td>
+      <td><span class="pill warn">28 / 538 → 5.2%</span></td>
+      <td>[3.6, 7.4]</td>
+      <td>Still profitable but ~3× lower; lots of "wrong person", "no longer there", out-of-office. They forward to the Founder.</td>
+    </tr>
+    <tr>
+      <td>COO / Other-Chief / VP / Director</td>
+      <td><span class="pill no">47 / 1,058 → 4.4%</span></td>
+      <td>[3.4, 5.9]</td>
+      <td>Wrong audience.</td>
+    </tr>
+    <tr>
+      <td>Generic Manager / Specialist / Other</td>
+      <td><span class="pill no">112 / 1,736 → 6.5%</span></td>
+      <td>[5.4, 7.7]</td>
+      <td>Surprisingly competitive with CMOs, but still well below owners.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <h4>Why this matters</h4>
+  <p>Your clients are mostly small/mid DTC brands. <strong>The Owner IS the marketing decision-maker.</strong> Even at bigger brands, the CMO often doesn't have agency-spend authority — they forward to the Founder anyway. That's why marketing-titled leads come back as "wrong person."</p>
+  <p>So we filter Prospeo to <strong>Owner-level titles only</strong> as the primary pass. CMO is reasonable as a fallback at brands where Prospeo has no Founder listed — but is not the priority lead.</p>
+  <p style="margin-top:10px; font-size:0.92em; color:var(--muted);"><em>An earlier version of this section used "22 / ~60" and "1 / 15" numbers based on a 166-row subset (v3 prompt-version only) — the 95% CI on the 5-row CMO sample was [3.6%, 62.4%], too wide to be decisive. The numbers above are re-derived from the full 17,376-reply corpus. See <a href="FINDINGS.html">FINDINGS.html</a> §2 for the methodology.</em></p>
+</div>
+
+<h3>The final title list</h3>
+<p>These are the only job titles the bot asks Prospeo for. Everything else gets filtered out at the source — we don't pay credits to find Marketing VPs or generic Managers anymore.</p>
+<div style="margin:10px 0; display:flex; flex-wrap:wrap; gap:8px;">
+  <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.95em; padding: 4px 14px;">CEO</span>
+  <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.95em; padding: 4px 14px;">Chief Executive Officer</span>
+  <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.95em; padding: 4px 14px;">Founder</span>
+  <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.95em; padding: 4px 14px;">Owner</span>
+  <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.95em; padding: 4px 14px;">Co-Owner</span>
+  <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.95em; padding: 4px 14px;">President</span>
+  <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.95em; padding: 4px 14px;">Founder and CEO</span>
+  <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.95em; padding: 4px 14px;">Managing Director</span>
+  <span class="pill" style="background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.95em; padding: 4px 14px;">Chairman</span>
+</div>
+<p style="color: var(--muted); font-size: 0.95em;">Prospeo's "Smart match" expands these — so <strong>"Founding Partner"</strong>, <strong>"Co-CEO"</strong>, <strong>"Acting President"</strong>, etc. get pulled in automatically without us having to list every variant.</p>
+
+<!-- ============================================== -->
+<h2><span class="num">6</span>What it costs</h2>
+
+<div class="grid-3">
+  <div class="stat">
+    <div class="num">$99</div>
+    <div class="lbl">Prospeo monthly subscription<br>(5,000 credits)</div>
+  </div>
+  <div class="stat">
+    <div class="num">~2¢</div>
+    <div class="lbl">cost per credit</div>
+  </div>
+  <div class="stat">
+    <div class="num">$10–30</div>
+    <div class="lbl">to run the full 52k inclusion list once</div>
+  </div>
+</div>
+
+<h3>Email-only runs (the default)</h3>
+<table style="margin-top:10px;">
+  <thead><tr><th>Run size</th><th>Prospeo credits</th><th>Cost</th><th>Verified leads (est.)</th></tr></thead>
+  <tbody>
+    <tr><td>50 domains (test)</td><td>~2</td><td>$0.04</td><td>~1</td></tr>
+    <tr><td>500 domains (next pilot)</td><td>~15–25</td><td>$0.30–$0.50</td><td>~5–15</td></tr>
+    <tr><td>5,000 domains (weekly drop)</td><td>~150–250</td><td>$3–$5</td><td>~50–150</td></tr>
+    <tr><td><strong>Full 52k inclusion list</strong></td><td><strong>~500–1,500</strong></td><td><strong>$10–$30</strong></td><td><strong>~500–1,500</strong></td></tr>
+  </tbody>
+</table>
+
+<h3 style="margin-top: 24px;">Add mobile numbers (optional, 10x premium)</h3>
+<p style="color: var(--muted); font-size: 0.95em;">Only charged for verified mobiles actually returned (Prospeo coverage ~30–50%). Applied only to accepted brand leads — never to rejected ones.</p>
+<table style="margin-top:10px;">
+  <thead><tr><th>Run size</th><th>Extra credits (worst case)</th><th>Extra cost</th><th>Mobiles found (est.)</th></tr></thead>
+  <tbody>
+    <tr><td>1 accepted lead</td><td>10</td><td>$0.20</td><td>0 or 1</td></tr>
+    <tr><td>10 accepted leads (weekly drop)</td><td>~100</td><td>~$2</td><td>~3–5</td></tr>
+    <tr><td>50 accepted leads (monthly catch-up)</td><td>~500</td><td>~$10</td><td>~15–25</td></tr>
+    <tr><td>500 accepted leads (full inclusion list)</td><td>~5,000</td><td>~$100</td><td>~150–250</td></tr>
+  </tbody>
+</table>
+<div class="callout note">
+  <h4>Recommendation</h4>
+  <p>Use email-only for routine scraping. <strong>Add mobile only to the leads Atlas will actually cold-call</strong> — usually a small subset of the accepted list, after Jam reviews and prioritizes. The catch-up command (<code>enrich-mobile</code>) can be run any time on demand.</p>
+</div>
+
+<div class="callout caution">
+  <h4>Reality check on the 5,000 leads/week target</h4>
+  <p>At our strict Owner-only filter, expect ~150 verified leads per 5,000 domains queried. The full inclusion list yields somewhere around <strong>500–1,500 verified Owner-level leads</strong>, period. To hit 5,000/week consistently we'd need to either:</p>
+  <ul>
+    <li>Loosen the title filter (lowers quality — we'd be paying for replies that don't convert), or</li>
+    <li>Expand the domain list beyond the current 52k (waterfall to Find-the-Email, Apollo, etc. — Cold IQ's strategy)</li>
+  </ul>
+  <p><strong>Recommendation:</strong> ship the high-quality 500–1,500 first, prove the conversion rate, then decide whether to chase volume.</p>
+</div>
+
+<!-- ============================================== -->
+<h2><span class="num">7</span>What's done · what's next</h2>
+
+<div class="grid-2">
+  <div class="card" style="border-left: 4px solid var(--green);">
+    <h3 style="color: var(--green); margin-top:0;">✅ Done</h3>
+    <ul>
+      <li>Pipeline working end-to-end</li>
+      <li>Inclusion + exclusion lists cleaned</li>
+      <li>Title list calibrated against your reply data</li>
+      <li>Agency / reseller filter shipped</li>
+      <li>Cost model verified on a small test</li>
+      <li>Documentation written, repo ready to hand off</li>
+    </ul>
+  </div>
+
+  <div class="card" style="border-left: 4px solid var(--amber);">
+    <h3 style="color: var(--amber); margin-top:0;">⏳ Next</h3>
+    <ul>
+      <li>500-domain pilot (~$0.40) — confirm yield at scale</li>
+      <li>Jam reviews the output, signs off on quality</li>
+      <li>Full 52k run (~$10–30) after June 7 quota refresh</li>
+      <li>Monthly title-list re-tuning loop</li>
+      <li>Optional: SmartScout growth signal to prioritize high-growth brands</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================== -->
+<h2><span class="num">8</span>What I need from you</h2>
+
+<div class="decision">
+  <h4>Decision 1 — Is the strict title filter the right call?</h4>
+  <p>I'm targeting Owner-level only based on your reply data. If you want broader (CMOs included), say the word — we'll see more leads but worse conversion. <strong>My recommendation: stay strict.</strong></p>
+</div>
+
+<div class="decision">
+  <h4>Decision 2 — Schedule the full run before or after June 7?</h4>
+  <p>We have 1,325 Prospeo credits left this month. The full run uses ~500–1,500. <strong>My recommendation: wait for the June 7 refresh</strong> and split into weekly 5k-domain drops instead of one big batch.</p>
+</div>
+
+<div class="decision">
+  <h4>Decision 3 — When can Jam spend 30 min reviewing the 500-domain pilot output?</h4>
+  <p>This is the human-in-the-loop checkpoint. Once she signs off, we can automate the weekly drops.</p>
+</div>
+
+<footer>
+  Architecture and approach for Dwyer Enterprises lead scraper · Prepared by Hassan, 2026-05-13
+</footer>
+
+</body>
+</html>

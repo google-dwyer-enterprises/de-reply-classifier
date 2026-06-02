@@ -59,7 +59,10 @@ lead_status_mv       ◄── what NocoDB shows the client (joins leads + lead_
 | `smartscout_upload.py` | Upserts SmartScout Amazon brand market data CSV/xlsx into `smartscout_brands`. |
 | `smartscout_resolve.py` | Fuzzy-matches lead companies to SmartScout brands (≥92 → `fuzzy`). Auto-runs at the end of `upload-leads`. |
 | `smartscout_llm_resolve.py` | LLM (Haiku) second pass on grey-zone leads (default 85–92). Manual only — has `--dry-run` and a y/N prompt. Writes incrementally per batch. |
-| `migrations.sql` | Source of truth for table DDL. The MV definition (`lead_status_mv`) lives in Supabase only — fetch via `select definition from pg_matviews`. |
+| `prospeo_sync.py` | **Separate pipeline** — pulls new decision-maker leads from Prospeo for inclusion-list domains, two-stage filter (rules + Haiku LLM), writes to `prospeo_new_leads` table + `exports/*.xlsx` for Jam. Title list is owner-only (CEO/Founder/Owner/President + variants). Has `--max-credits` budget cap; always use it. |
+| `scripts/prospeo_category_pilot.py` | One-off pilot script that compares domain-mode vs category-mode Prospeo searches. Read-only (writes XLSX only, never touches DB). See `FINDINGS.html` for the empirically-verified filter shape and accepted industry strings. |
+| `scripts/verify_claims.py`, `scripts/title_analysis.py`, `scripts/verify_prospeo_shape.py` | Read-only verification scripts. Used to validate every number in `FINDINGS.html` against live data. |
+| `migrations.sql` | Source of truth for table DDL. The MV definition (`lead_status_mv`) lives in Supabase only — fetch via `select definition from pg_matviews`. Prospeo tables (`prospeo_new_leads`, `domain_inclusion_list`) are at the bottom. |
 
 ## CLI (run.py)
 
@@ -132,3 +135,13 @@ Before any full reclassify, do a stratified hand-review on ~200–500 replies, w
 - Updating `lead_status_mv` requires `drop` + `create` (Postgres can rename columns directly via `alter materialized view ... rename column`, but anything else needs full recreate). The MV definition is NOT in `migrations.sql` — fetch it from `pg_matviews` first.
 - `information_schema.columns` does not list materialized view columns in this Postgres version. Use `pg_attribute` to inspect: `select attname from pg_attribute where attrelid = 'public.lead_status_mv'::regclass and attnum > 0 and not attisdropped`.
 - After reclassifying, `excel_writer` / `update-status` correctly pick the newest row per reply. Don't introduce code that filters on a single `prompt_version` — it breaks history.
+- **Prospeo industry filter**: shape is `filters.company_industry.include` (singular, top-level). Common wrong shapes — `filters.company.industries.include` is silently ignored (accepted as syntax but does nothing), and `filters.industries.include` returns `INVALID_FILTERS`. Industry values must come from Prospeo's post-2023 LinkedIn-style enum — `"Apparel and Fashion"` is rejected, `"Retail Apparel and Fashion"` works. See `FINDINGS.html` §6 for the verified list.
+- **Prospeo websites filter** silently ignores entries above 15 (verified after a 506-credit production burn). `PROSPEO_BATCH_DOMAINS = 15` is hard-coded.
+- **`fetch_domains_with_decision_maker`** can drop the SSL connection mid-query on the 230k-row scan. Wrapped in 3-attempt retry with fresh connection; if you replace this function, preserve the retry.
+- **`sent_messages` table is currently empty in production** (verified 2026-05-19: 0 rows vs. 17,376 in `replies`). DDL exists in `migrations.sql:20` and `backfill_tags.py` references it for UPDATEs, but nothing inserts there yet. Plan to populate it lives in `FOLLOWUP_ANALYSIS_PLAN.md` — extends `instantly_sync.py` with an `email_type=sent` pass. Any query that reads from `sent_messages` without joining elsewhere returns nothing today.
+- **Instantly v2 `/emails` per-lead filter:** the correct query parameter is `?lead=<email>`, NOT `?lead_email=<email>` (the latter is silently ignored and returns the global feed). `ue_type` distinguishes message kinds: `1`=campaign auto-send (has `step` like `"0_1_0"`), `2`=inbound reply, `3`=manual Unibox send (`step` is null). Verified by `scripts/probe_outbound_v4.py` against 5 booked leads.
+
+## Pending planning documents
+
+- `FOLLOWUP_ANALYSIS_PLAN.md` — "which replies are working" analysis. Pulls outbound emails from Instantly into `sent_messages`, scores Unibox manual follow-ups via Haiku, exposes `followup_effectiveness_mv` to NocoDB. Phase 0 (API probe) done; Phase 1+ pending sign-off.
+- `LEAD_CLEANING_PLAN.md` — Booked-count under-reporting fix (139→200+), name population, reply tracking view. Phase 1b resolved 2026-05-19 (sent_messages confirmed empty). Phase 4 now depends on FOLLOWUP_ANALYSIS_PLAN's sync work.

@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Prospeo lead scraper</title>
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #59636e;
+    --bg: #ffffff;
+    --bg-alt: #f6f8fa;
+    --border: #d1d9e0;
+    --code-bg: #f6f8fa;
+    --link: #0969da;
+    --accent: #0550ae;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.55;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  h1, h2, h3, h4 {
+    line-height: 1.25;
+    margin-top: 1.8em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+  }
+  h1 { font-size: 2em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; margin-top: 0; }
+  h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+  h3 { font-size: 1.15em; }
+  h4 { font-size: 1em; color: var(--muted); }
+  p { margin: 0.7em 0; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.88em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.85em;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: 100%;
+    font-size: 0.92em;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--bg-alt); font-weight: 600; }
+  ul, ol { padding-left: 1.8em; }
+  li { margin: 0.25em 0; }
+  blockquote {
+    border-left: 3px solid var(--border);
+    margin: 1em 0;
+    padding: 0.2em 1em;
+    color: var(--muted);
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
+  .pipeline {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    padding: 16px 20px;
+    border-radius: 6px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 0.85em;
+    white-space: pre;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  .callout {
+    background: #fff8c5;
+    border-left: 3px solid #d4a72c;
+    padding: 0.7em 1em;
+    margin: 1em 0;
+    border-radius: 0 4px 4px 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>Prospeo lead scraper</h1>
+
+<p>Pulls decision-maker leads from Prospeo for domains in our inclusion list, filters out agencies/resellers, and writes accepted brand contacts to <code>prospeo_new_leads</code> + a CSV for Jam to load into Instantly.</p>
+
+<h2>How it works</h2>
+
+<div class="pipeline">inclusion CSV (Website column)
+   │  load_domains_from_csv() — auto-detects CSV/TSV, normalizes URLs
+   ▼
+domains list (~52k after cleaning)
+   │  dedupe vs lead_contacts/replies/prospeo_new_leads
+   │  skip domains where we already have a decision-maker
+   ▼
+batches of 50 domains
+   │  POST /search-person  (1 credit per 25-result page)
+   │  filters: company.websites + person_job_title (Smart match)
+   ▼
+person_ids of decision-makers
+   │  POST /enrich-person   (1 credit per verified email found; free otherwise)
+   │  only_verified_email: true  — avoids paying for unverified emails
+   ▼
+leads with email + company info
+   │  rule filter (agency tokens / marketplace)  → reject
+   │  LLM grey-zone (Haiku, prompts/agency_filter.txt) → brand/agency/reseller
+   ▼
+prospeo_new_leads (Supabase)  +  exports/prospeo_new_leads_&lt;timestamp&gt;.csv</div>
+
+<h2>Setup</h2>
+
+<ol>
+  <li>Add to <code>.env</code>:
+    <pre><code>PROSPEO_API_KEY=&lt;your key&gt;</code></pre>
+  </li>
+  <li>Run the new tables once in Supabase (see <code>migrations.sql</code> bottom):
+    <ul>
+      <li><code>prospeo_new_leads</code></li>
+      <li><code>domain_inclusion_list</code> (optional — only if loading domains from DB)</li>
+    </ul>
+  </li>
+  <li>Clean the inclusion list. Drops <code>.org / .edu / .io / gmail / yahoo / outlook</code> AND ~80 mega-brand domains (Adidas, Walmart, Pfizer, etc. — they're not real targets and their massive exec rosters break Prospeo's batched filter):
+    <pre><code>python scripts/clean_inclusion.py original_data/inclusion.csv original_data/inclusion_clean_v2.csv</code></pre>
+    The script names suffix <code>_v2</code> in current use — bump when MEGA_BRANDS or BLOCKED_* lists change.
+  </li>
+</ol>
+
+<h2>CLI</h2>
+
+<h3>scrape-leads — main scraper</h3>
+
+<pre><code># Sanity check, no API calls, no DB writes
+python run.py scrape-leads --domains original_data/inclusion_clean_v2.csv --dry-run --limit 50
+
+# Small live test (~$0.04 on GROWTH plan)
+python run.py scrape-leads --domains original_data/inclusion_clean_v2.csv --limit 50
+
+# Safe weekly drop with a hard budget cap (recommended)
+python run.py scrape-leads --domains original_data/inclusion_clean_v2.csv --limit 1000 --max-credits 80
+
+# Skip the LLM grey-zone classifier (rule-based filter only)
+python run.py scrape-leads --domains original_data/inclusion_clean_v2.csv --limit 500 --skip-llm
+
+# Email + mobile in a single run (10 credits per mobile, accepted leads only)
+python run.py scrape-leads --domains original_data/inclusion_clean_v2.csv --limit 500 --with-mobile
+
+# Full run from the cleaned CSV
+python run.py scrape-leads --domains original_data/inclusion_clean_v2.csv</code></pre>
+
+<p>Flags:</p>
+<ul>
+  <li><code>--domains &lt;csv&gt;</code> — input file. Accepts CSV or TSV; auto-picks <code>domain</code> / <code>Website</code> / <code>URL</code> column, or falls back to the first column.</li>
+  <li><code>--limit N</code> — cap domains processed (after dedupe).</li>
+  <li><code>--dry-run</code> — load + dedupe only, exit before API calls.</li>
+  <li><code>--skip-llm</code> — skip Haiku grey-zone agency classifier.</li>
+  <li><code>--with-mobile</code> — after filtering, also enrich mobile numbers for accepted leads only (10 credits per verified mobile; free if not available).</li>
+  <li><code>--max-credits N</code> — <strong>hard budget cap</strong>. Aborts the run before any API call that would push the credit count past N. Defaults to no cap. Strongly recommended on every run after the 506-credit burn we had with the old batch size.</li>
+</ul>
+
+<div class="callout">
+  <strong>Live progress:</strong> each batch prints a status line like
+  <code>[batch 7/67] credits: 23/80 | accepted: 4 | rejected: 6</code>
+  so you can monitor spend in real time. Leads are <strong>written to Supabase per batch</strong> — if the script crashes or is killed mid-run, everything found up to that point is safely persisted, and the next run resumes automatically by skipping already-scraped domains.
+</div>
+
+<h3>enrich-mobile — catch-up command</h3>
+
+<p>Adds mobile numbers to accepted leads in <code>prospeo_new_leads</code> that don't have one yet. Use this when you scraped email-only and decided later to add mobiles (e.g. after Jam reviews the accepted list).</p>
+
+<pre><code># Show how many leads would be enriched + estimated cost. No API calls.
+python run.py enrich-mobile --dry-run
+
+# Enrich every accepted-but-no-mobile lead in the DB
+python run.py enrich-mobile
+
+# Cap to N leads (useful for budget-bounded catch-ups)
+python run.py enrich-mobile --limit 50</code></pre>
+
+<p>Selects <code>where rejected = false and mobile is null</code>. Re-runnable safely — already-enriched rows are excluded automatically.</p>
+
+<h3>export-leads — cumulative dump from DB</h3>
+
+<p>Per-run CSV/XLSX files only contain that run's results. Use this to dump the entire <code>prospeo_new_leads</code> table at any time. No API calls, no cost.</p>
+
+<pre><code># Both modes combined (default)
+python run.py export-leads
+
+# Filter by mode — useful when handing different files to different reviewers
+python run.py export-leads --mode domain
+python run.py export-leads --mode category</code></pre>
+
+<p>Writes <code>exports/cumulative&lt;_mode&gt;_&lt;timestamp&gt;.csv</code> (accepted brands only) and a matching <code>.xlsx</code> (Accepted + Rejected sheets, with filter reasoning + <code>scrape_mode</code> + <code>source_industry</code> columns for audit). Filename embeds the mode filter (<code>cumulative_domain_…</code>, <code>cumulative_category_…</code>, or no suffix for combined).</p>
+
+<p>Run after each scrape if you want a single up-to-date file to hand to Jam.</p>
+
+<h2>Category mode</h2>
+
+<p>Added 2026-05-18. Same downstream pipeline as domain mode (rule + LLM filter, per-batch DB checkpoint, mobile pass, CSV+XLSX export). What differs is the <strong>upstream question Prospeo gets asked</strong>:</p>
+
+<table>
+  <thead><tr><th></th><th>Domain mode (today)</th><th>Category mode (new)</th></tr></thead>
+  <tbody>
+    <tr><td>Prospeo filter</td><td><code>company.websites.include</code> (15 domains per batch)</td><td><code>company_industry.include</code> (one industry per page) + <code>company_location_search.include</code></td></tr>
+    <tr><td>Input</td><td>52k inclusion-list domains</td><td>12 verified industries from <code>PROSPEO_INDUSTRIES</code> + country list passed via <code>--country</code></td></tr>
+    <tr><td>Dedup before API</td><td>3 layers — skip domains with existing decision-maker / scraped in last 30 days / pagination of inclusion list</td><td>1 layer — per-industry pagination cursor in <code>category_scrape_state</code></td></tr>
+    <tr><td>Dedup after enrich</td><td>Email check against <code>existing_emails</code></td><td>Same — email check against <code>existing_emails</code></td></tr>
+    <tr><td>Resume across runs</td><td>Yes (via <code>domain_inclusion_list.last_scraped_at</code>)</td><td>Yes (via <code>category_scrape_state.last_page_consumed</code> per industry)</td></tr>
+    <tr><td>Per-run output</td><td><code>exports/prospeo_new_leads_&lt;ts&gt;.csv</code> + <code>.xlsx</code></td><td>Same paths</td></tr>
+    <tr><td>DB rows tagged</td><td><code>scrape_mode='domain'</code>, <code>source_domain</code> populated</td><td><code>scrape_mode='category'</code>, <code>source_industry</code> populated</td></tr>
+    <tr><td>Brand rate (measured)</td><td>~21% (51-lead pilot)</td><td>~70-80% (51-lead pilot + Gates A+B verification)</td></tr>
+  </tbody>
+</table>
+
+<h3>How a category-mode run works</h3>
+
+<div class="pipeline">PROSPEO_INDUSTRIES (12 verified strings, in prospeo_sync.py)
+   │
+   │  fetch_category_state(conn)
+   ▼
+queue = [industries where exhausted=false]
+   │
+   │  fetch_existing_emails(conn)  — DB-wide dedup set (lead_contacts +
+   │                                  replies + prospeo_new_leads)
+   ▼
+ROUND-ROBIN per industry, one page at a time:
+   │
+   │  page = state[ind].last_page_consumed + 1
+   │  _search_people_by_industry(industry, countries, page, api_key)
+   │     filters.company_industry.include = [industry]
+   │     filters.person_job_title.include = PROSPEO_TITLES (17 titles, two-tier)
+   │     filters.company_location_search.include = countries
+   │  → returns up to 25 results, 1 credit per page
+   ▼
+For each result with a person_id:
+   │  _enrich_person()  → 1 credit if verified email, 0 if free_enrichment
+   │  email in existing_emails? → skip silently
+   │  rule_classify (agency tokens, marketplace domains)
+   │  llm_classify_batch (Haiku, grey-zone only)
+   │  CHECKPOINT: write_leads(conn, [page's accepted + rejected])
+   ▼
+upsert_category_state(industry, last_page_consumed=page, ...)
+   │
+   │  if page &gt;= total_pages: exhausted=true, drop from queue
+   │  else: stay in queue for next cycle
+   ▼
+Stop when: target_leads hit | max_credits hit | queue is empty</div>
+
+<h3>State table — <code>category_scrape_state</code></h3>
+
+<p>One row per industry, lazily created on first use. Tracks where each industry's pagination cursor sits between runs.</p>
+
+<pre><code>create table category_scrape_state (
+  industry text primary key,                  -- e.g. "Retail Apparel and Fashion"
+  countries text[] not null default '{}',     -- last-used location filter
+  last_page_consumed int not null default 0,  -- 0 = nothing yet
+  total_pages int,                            -- as reported by Prospeo on last call
+  exhausted boolean not null default false,   -- last_page &gt;= total_pages
+  last_scraped_at timestamptz,
+  total_credits_spent int not null default 0  -- cumulative across runs
+);</code></pre>
+
+<p>To re-scan an exhausted industry from the top:</p>
+
+<pre><code>update category_scrape_state
+set last_page_consumed = 0, exhausted = false
+where industry = 'Retail Apparel and Fashion';</code></pre>
+
+<h3>Round-robin behavior</h3>
+
+<p>Each cycle of the outer loop processes <strong>one page per industry</strong> before returning to the first industry for its next page. This prevents one deep industry from eating the entire budget before others get a chance.</p>
+
+<div class="callout">
+  <strong>Budget interaction:</strong> with small budgets (e.g. <code>--max-credits 20</code>), the cap is hit before round-robin completes a full cycle — the first 1-2 industries consume everything. For real production runs, allow at least <strong>12 + (target_leads × ~1.3) credits</strong> so every industry gets sampled at least once per run. A 100-lead target = ~150 credit cap is the sweet spot.</p>
+</div>
+
+<h3>CLI</h3>
+
+<pre><code># Dry-run: print the filter, no API spend
+python run.py scrape-leads --mode category --dry-run --country "United States,Canada"
+
+# Small live test (~$0.20)
+python run.py scrape-leads --mode category --target-leads 5 --max-credits 10 \
+    --country "United States,Canada"
+
+# Real weekly run — 100 brand leads target, $4 hard cap
+python run.py scrape-leads --mode category --target-leads 100 --max-credits 200 \
+    --country "United States,Canada"
+
+# Combine with mobile enrichment (10 credits per verified mobile, accepted only)
+python run.py scrape-leads --mode category --target-leads 50 --max-credits 200 \
+    --country "United States,Canada" --with-mobile</code></pre>
+
+<p>Flags identical to domain mode for <code>--max-credits</code>, <code>--skip-llm</code>, <code>--with-mobile</code>, <code>--dry-run</code>. Category-specific: <code>--target-leads N</code> (stop after N accepted) and <code>--country "X,Y"</code> (comma-separated location filter — verified shapes: <code>"United States"</code>, <code>"Canada"</code>, both combined).</p>
+
+<h3>When Prospeo is out of credits</h3>
+
+<p>If your Prospeo balance hits zero mid-run, the first failed <code>search-person</code> call raises <code>InsufficientCreditsError</code> and the script aborts with a clear message. The pagination cursor in <code>category_scrape_state</code> is <strong>not</strong> touched — so after you top up at <a href="https://prospeo.io/dashboard">prospeo.io/dashboard</a>, re-running the same command resumes from exactly where the last successful page read stopped. No manual SQL cleanup is required.</p>
+
+<p>This behavior is the result of a one-time fix on 2026-05-18 — see "Things that have bitten before" for the bug history. The lesson: always switch on Prospeo's <code>error_code</code> field, never on HTTP status alone, when handling 400 responses (<code>NO_RESULTS</code>, <code>INSUFFICIENT_CREDITS</code>, and <code>INVALID_FILTERS</code> all return 400 but mean different things).</p>
+
+<h3>Cost model</h3>
+
+<ul>
+  <li><strong>Per page of results:</strong> 1 search-person credit (always).</li>
+  <li><strong>Per enriched lead:</strong> 1 enrich-person credit if verified email is returned; 0 if Prospeo's <code>free_enrichment</code> flag is true or no email is available.</li>
+  <li><strong>Observed ratio:</strong> ~1.4 credits per accepted brand lead (1 search ÷ ~14 accepted per page + 1 enrich per accepted). About <strong>$0.028 per accepted brand</strong> at $0.02/credit.</li>
+  <li><strong>5,000 brand leads/week:</strong> ~$140/week. Doesn't fit inside the $99 GROWTH plan — would need a tier bump for that scale. <strong>500 brand leads/week:</strong> ~$14/week, comfortable within the existing plan.</li>
+</ul>
+
+<h2>What gets stored</h2>
+
+<p><code>prospeo_new_leads</code> columns:</p>
+
+<table>
+  <thead><tr><th>Column</th><th>What</th></tr></thead>
+  <tbody>
+    <tr><td>email</td><td>the lead's verified email</td></tr>
+    <tr><td>first_name, last_name, title</td><td>from Prospeo</td></tr>
+    <tr><td>company_name, company_website, company_domain</td><td>from Prospeo's enrich</td></tr>
+    <tr><td>source_domain</td><td>(domain mode) the inclusion-list domain that found this lead. NULL for category-mode rows.</td></tr>
+    <tr><td>source_industry</td><td>(category mode) the Prospeo industry string that surfaced this lead. NULL for domain-mode rows.</td></tr>
+    <tr><td>scrape_mode</td><td><code>'domain'</code> or <code>'category'</code> — which path produced this row. Defaults to <code>'domain'</code> for pre-2026-05-18 rows.</td></tr>
+    <tr><td>agency_filter_result</td><td><code>brand</code> / <code>agency</code> / <code>reseller</code> / <code>marketplace</code> / <code>unknown</code></td></tr>
+    <tr><td>agency_filter_method</td><td><code>rule</code> / <code>llm</code> / <code>none</code></td></tr>
+    <tr><td>agency_filter_reason</td><td>one-line explanation</td></tr>
+    <tr><td>rejected</td><td><code>true</code> for non-brands; <code>false</code> only for accepted brands</td></tr>
+    <tr><td>mobile</td><td>verified mobile number (E.164 format), if Prospeo had one and we enriched it</td></tr>
+    <tr><td>mobile_status</td><td><code>VERIFIED</code> or null</td></tr>
+    <tr><td>prospeo_raw</td><td>full search+enrich payload (audit); also stores <code>person_id</code> used by <code>enrich-mobile</code></td></tr>
+    <tr><td>scraped_at</td><td>when this row was created</td></tr>
+    <tr><td>exported_at</td><td>set when row is written to CSV / promoted to lead_contacts</td></tr>
+  </tbody>
+</table>
+
+<p>CSV export contains only <strong>accepted brand leads</strong> (the subset Jam should load into Instantly). XLSX export adds a <em>Rejected</em> sheet with <code>agency_filter_method</code> and <code>agency_filter_reason</code> columns for audit.</p>
+
+<h2>Cost model</h2>
+
+<p>GROWTH plan, $99/mo for 5,000 credits ≈ $0.02/credit.</p>
+
+<ul>
+  <li><strong>search-person</strong>: 1 credit per page of 25 results returned (paginated).</li>
+  <li><strong>enrich-person</strong> (email only): 1 credit <strong>only if a verified email is returned</strong>, free otherwise.</li>
+  <li><strong>enrich-person</strong> (mobile, opt-in via <code>--with-mobile</code> or <code>enrich-mobile</code>): <strong>10 credits per verified mobile</strong>, free if not available. Coverage typically 30–50% of accepted leads.</li>
+  <li><strong>Haiku grey-zone</strong>: ~$0.0001 per lead classified.</li>
+</ul>
+
+<p>Observed on a 47-domain pilot with the owner-only title list:</p>
+<ul>
+  <li>~2 Prospeo credits → ~$0.04</li>
+  <li>1 verified email out of 5 decision-makers found.</li>
+</ul>
+
+<p>Projected for the full 52k inclusion list (email only):</p>
+<ul>
+  <li>~500–1,500 credits ($10–$30)</li>
+  <li>~500–1,500 verified owner-level leads.</li>
+</ul>
+
+<p>If mobile is enriched for every accepted lead at that scale (worst case all have a verified mobile):</p>
+<ul>
+  <li>Up to ~5,000–15,000 additional credits ($100–$300) — only charged for mobiles actually returned.</li>
+  <li>Realistic at ~30–50% coverage: ~$30–$150 extra.</li>
+</ul>
+
+<div class="callout">
+  <strong>Budget note:</strong> GROWTH gives 5,000 credits/month. Email-only full inclusion list fits in one month's quota; weekly drops of ~5k domains fit comfortably. <strong>Adding mobile across the full list does NOT fit in one month</strong> — schedule mobile enrichment selectively (e.g. only on leads Atlas will actually cold-call) or spread across multiple monthly quotas.
+</div>
+
+<h2>Filter design (current)</h2>
+
+<h3>Job titles — owner-only</h3>
+
+<pre><code>PROSPEO_TITLES = [
+  "CEO", "Chief Executive Officer", "Founder", "Owner", "Co-Owner",
+  "President", "Founder and CEO", "Managing Director", "Chairman",
+]</code></pre>
+
+<p>This list was derived from <strong>Dwyer's own reply data</strong> (<code>classifications</code> v3, 166 classified replies with a matched lead title). Owner-level titles produce essentially all positive outcomes; marketing/CMO/e-com-manager titles produced 1 booking out of 15 replies in our history. The previous broader list is kept as <code>_PROSPEO_TITLES_BROAD_REF</code> in <code>prospeo_sync.py</code> for re-tuning runs.</p>
+
+<h3>Agency / reseller / marketplace filter</h3>
+
+<ul>
+  <li><strong>Rule pass</strong> (cheap, deterministic):
+    <ul>
+      <li>Agency tokens in company name/website: <code>agency, marketing, consulting, consultancy, services, solutions, media, digital, growth, fulfillment, 3pl, partners, advisors, advisory</code></li>
+      <li>Known marketplaces: <code>amazon.com, walmart.com, etsy.com, ebay.com, faire.com, shopify.com, alibaba.com, aliexpress.com</code></li>
+    </ul>
+  </li>
+  <li><strong>LLM pass</strong> (Haiku, <code>prompts/agency_filter.txt</code>) — runs only on leads the rule pass couldn't decide. Classifies <code>brand / agency / reseller / marketplace / unknown</code> with a one-line reason.</li>
+</ul>
+
+<p>Only <code>brand</code> lands in the CSV export. The other categories stay in <code>prospeo_new_leads</code> for audit but with <code>rejected = true</code>.</p>
+
+<h2>Re-tuning the title list</h2>
+
+<p>The title list is a snapshot of what's working today. Re-run this query monthly against fresh <code>classifications</code> data and adjust:</p>
+
+<pre><code>with latest as (
+  select distinct on (reply_id) reply_id, lead_email, label
+  from classifications where prompt_version='v3'
+  order by reply_id, classified_at desc
+)
+select lower(trim(lc.title)) as title,
+       sum(case when l.label in ('booked','interested','interested_past')
+                then 1 else 0 end) as positive,
+       sum(case when l.label in ('not_interested','not_now')
+                then 1 else 0 end) as negative,
+       count(*) as total
+from latest l
+join lead_contacts lc on lc.lead_email = l.lead_email
+where coalesce(lc.title,'') != ''
+group by title
+order by positive desc, total desc
+limit 30;</code></pre>
+
+<p>Drop titles with 0 positives across 5+ replies. Promote titles that show consistent positive signal (≥3 positives, ≥30% positive rate).</p>
+
+<h2>Things that have bitten before</h2>
+
+<ul>
+  <li><strong><code>/domain-search</code> is deprecated</strong> (removed March 1, 2026). Use <code>/search-person</code> + <code>/enrich-person</code> two-call workflow.</li>
+  <li><strong>Websites filter has an undocumented 15-domain limit.</strong> The docs say 500, but empirically the filter is silently ignored above 15 entries — Prospeo returns unfiltered global results and charges for every page. We burned 506 credits ($10) discovering this with batch size 50. <code>PROSPEO_BATCH_DOMAINS</code> is now hard-coded to 15, and a safety check aborts any batch returning more than <code>15 × 5 = 75</code> results.</li>
+  <li><strong>Industry filter shape is <code>filters.company_industry.include</code> (singular, top-level)</strong> — NOT nested under <code>company</code> like <code>websites</code> is. Common wrong shapes (empirically verified 2026-05-14, <code>scripts/verify_prospeo_shape.py</code>):
+    <ul>
+      <li><code>filters.company.industries.include</code> — accepted as syntax but <strong>silently ignored</strong> (returns the no-industry baseline <code>total_count</code>). Same class of bug as the 15-domain websites case.</li>
+      <li><code>filters.company.industry.include</code> — same silent-ignore.</li>
+      <li><code>filters.company_industries.include</code> (plural) — 400 <code>INVALID_FILTERS</code>.</li>
+      <li><code>filters.industries.include</code> / <code>filters.industry.include</code> (top-level) — 400 <code>INVALID_FILTERS</code>.</li>
+    </ul>
+  </li>
+  <li><strong>Industry values use Prospeo's post-2023 LinkedIn taxonomy.</strong> The pre-2023 names are silently rejected. Example: <code>"Apparel and Fashion"</code> (old) → <code>INVALID_FILTERS: Invalid industry(s) in include list</code>; use <code>"Retail Apparel and Fashion"</code> (current). Verified e-com strings: <code>Retail Apparel and Fashion</code>, <code>Apparel Manufacturing</code>, <code>Cosmetics</code>, <code>Personal Care Product Manufacturing</code>, <code>Food and Beverage Manufacturing</code>, <code>Furniture and Home Furnishings Manufacturing</code>, <code>Sporting Goods Manufacturing</code>, <code>Consumer Goods</code>, <code>Pet Services</code>. See <code>FINDINGS.html</code> §6 for the full list and rejections.</li>
+  <li><strong>400/INVALID_FILTERS body shape</strong>: the specific failure reason is in <code>filter_error</code>, not <code>error_toast</code> or <code>message</code>. Log <code>filter_error</code> first when debugging shape problems.</li>
+  <li><strong>Mega-brands break batched searches.</strong> A single Fortune-500 in a 15-domain batch (Adidas, ADM, Pfizer…) brings in 100+ exec-titled rows. The cleaner now drops ~80 known mega-brand domains via <code>MEGA_BRANDS</code> in <code>scripts/clean_inclusion.py</code>. Extend the list as new ones surface.</li>
+  <li><strong>Filter shape — person filters</strong>: person filters are <em>top-level</em> keys (<code>person_job_title</code>, <code>person_seniority</code>) — NOT nested under a <code>person</code> object. Wrong nesting → 400 <code>INVALID_FILTERS</code>.</li>
+  <li><strong>Empty result sets come back as 400 <code>NO_RESULTS</code></strong>, not 200 with an empty array. <code>_search_people</code> treats <code>400/NO_RESULTS</code> as success with zero hits (no credits charged).</li>
+  <li><strong>Out-of-credits comes back as 400 <code>INSUFFICIENT_CREDITS</code></strong> — same HTTP status as <code>NO_RESULTS</code> and <code>INVALID_FILTERS</code>, but completely different meaning. <strong>Discovered 2026-05-18:</strong> the initial category-mode helper treated all 400s as "empty success," which silently advanced the pagination cursor for all 12 industries when Prospeo's balance hit zero. Fixed in <code>_search_people_by_industry</code>: <code>INSUFFICIENT_CREDITS</code> raises a custom <code>InsufficientCreditsError</code> that <code>_run_category</code> catches as a hard abort — state is NOT updated, so resume works cleanly after top-up. Other non-NO_RESULTS 400s raise via <code>raise_for_status()</code> → caller's retry path. The lesson: <strong>always switch on <code>error_code</code>, never on HTTP status alone, for Prospeo 400s.</strong></li>
+  <li><strong><code>only_verified_email: true</code></strong> causes Prospeo to return 400 / <code>NO_MATCH</code> when no verified email exists for a person. We treat that as a soft skip, not an error. Without this flag we'd pay credits on unverified emails that bounce and hurt sender reputation.</li>
+  <li><strong>Subdomains are rejected.</strong> <code>parts.agcocorp.com</code> → 400 <code>INVALID_FILTERS: Subdomains are not supported</code>. <code>_norm_domain</code> strips subdomains down to the registrable domain. Multi-part TLDs (e.g. <code>brand.com.au</code>, <code>brand.bc.ca</code>) are preserved via <code>_MULTI_PART_TLDS</code>. Extend that set when Prospeo rejects a previously-fine domain.</li>
+  <li><strong>Person IDs can stale</strong> — if a Search result sits unused for too long, the matching <code>enrich-person</code> call returns <code>NO_MATCH</code>. Don't persist person_ids across days; enrich immediately after search.</li>
+  <li><strong>LLM responses sometimes ship inside <code>```json</code> fences</strong> even when prompted not to. The parser strips fences before <code>json.loads</code>. If the prompt model changes, re-verify.</li>
+  <li><strong>Seniority filter is too broad</strong>. Filtering by <code>Vice President</code> returns every VP — Engineering, Finance, Operations. Use <code>person_job_title</code> with Smart match for precision.</li>
+  <li><strong>SSL drops on <code>fetch_domains_with_decision_maker</code></strong>. The 230k-row scan over <code>lead_contacts</code> occasionally drops the Supabase pooler connection mid-query. The function is wrapped in a 3-attempt retry with a fresh connection per retry; if you refactor it, preserve the retry. Also: <code>db.connect()</code> sets <code>statement_timeout=300000</code> and TCP keepalives to keep the connection warm during long scans.</li>
+  <li><strong>Always run with <code>--max-credits</code></strong>. The script also has internal safety checks, but a hard budget cap is the only thing that's guaranteed to stop a runaway pathological case.</li>
+</ul>
+
+</body>
+</html>

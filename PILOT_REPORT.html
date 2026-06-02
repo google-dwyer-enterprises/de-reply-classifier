@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Category vs Domain pilot</title>
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #59636e;
+    --bg: #ffffff;
+    --bg-alt: #f6f8fa;
+    --border: #d1d9e0;
+    --code-bg: #f6f8fa;
+    --link: #0969da;
+    --accent: #0550ae;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.55;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  h1, h2, h3, h4 {
+    line-height: 1.25;
+    margin-top: 1.8em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+  }
+  h1 { font-size: 2em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; margin-top: 0; }
+  h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+  h3 { font-size: 1.15em; }
+  h4 { font-size: 1em; color: var(--muted); }
+  p { margin: 0.7em 0; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.88em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.85em;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: 100%;
+    font-size: 0.92em;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--bg-alt); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  ul, ol { padding-left: 1.8em; }
+  li { margin: 0.25em 0; }
+  blockquote {
+    border-left: 3px solid var(--border);
+    margin: 1em 0;
+    padding: 0.2em 1em;
+    color: var(--muted);
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
+  .pipeline {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    padding: 16px 20px;
+    border-radius: 6px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 0.85em;
+    white-space: pre;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  .callout {
+    background: #fff8c5;
+    border-left: 3px solid #d4a72c;
+    padding: 0.7em 1em;
+    margin: 1em 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .callout.note {
+    background: #ddf4ff;
+    border-left-color: #0969da;
+  }
+  .callout.success {
+    background: #dafbe1;
+    border-left-color: #1a7f37;
+  }
+  .pill {
+    display: inline-block;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 1px 9px;
+    font-size: 0.78em;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  .pill.ok   { background: #dafbe1; border-color: #aceebb; color: #1a7f37; }
+  .pill.no   { background: #ffebe9; border-color: #ffcecb; color: #cf222e; }
+  .pill.warn { background: #fff8c5; border-color: #eac54f; color: #9a6700; }
+</style>
+</head>
+<body>
+
+<h1>Category vs domain pilot</h1>
+
+<p>One-off comparison test: does asking Prospeo for <strong>"owners in these e-commerce industries"</strong> beat asking for <strong>"owners at these specific domains"</strong> — on both lead quality and total reach? Script: <code>scripts/prospeo_category_pilot.py</code>. Read-only — writes an XLSX to <code>exports/</code>, no DB writes.</p>
+
+<h2>Headline result</h2>
+
+<table>
+  <thead>
+    <tr><th></th><th>Pass A — Domain mode (today)</th><th>Pass B — Category mode (new)</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Brand rate</td>
+      <td class="num">5 / 10 = <strong>50%</strong></td>
+      <td class="num">9 / 10 = <strong>90%</strong></td>
+    </tr>
+    <tr>
+      <td>Addressable pool</td>
+      <td>52k hand-curated domains</td>
+      <td>~123,700 owner-level people across 9 e-com industries</td>
+    </tr>
+    <tr>
+      <td>5,000-leads/week target</td>
+      <td>Out of reach</td>
+      <td>Comfortably in range</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout success">
+  <strong>Direction:</strong> Category mode produced cleaner brand leads (fewer agencies/resellers slipping through) <em>and</em> opens a much larger addressable pool than our curated domain list. The signal is strong on a 10-lead-per-side sample but not conclusive — a 50-lead follow-up run is the right gate before switching production.
+</div>
+
+<h2>How it works</h2>
+
+<div class="pipeline">inclusion_clean.csv  (52k domains)
+   │
+   │  load_sample_domains() — reservoir sample, 60 random domains
+   ▼
+sample domains
+   │
+   │                    ┌─────────────────────────────────────┐
+   │                    │                                     │
+   ▼                    ▼                                     │
+PASS A — Domain mode                  PASS B — Category mode  │
+   │                                     │                    │
+   │  POST /search-person                │  POST /search-person
+   │  filters.company.websites           │  filters.company_industry
+   │     .include = [&lt;15 domains&gt;]       │     .include = [9 industries]
+   │  filters.person_job_title           │  filters.person_job_title
+   │     .include = PILOT_TITLES         │     .include = PILOT_TITLES
+   │  (batches of 15)                    │  (paginate until 10 results)
+   │                                     │
+   ▼                                     ▼
+   └─────────────────┬───────────────────┘
+                     │  POST /enrich-person  (only_verified_email: true)
+                     │  1 credit per verified email, free otherwise
+                     ▼
+              enriched leads
+                     │
+                     │  rule filter (agency tokens + marketplace domains)
+                     │  LLM grey-zone (Haiku, prompts/agency_filter.txt)
+                     ▼
+              classified leads  →  exports/category_pilot_&lt;ts&gt;.xlsx
+                                      (Pass A sheet · Pass B sheet · Summary)</div>
+
+<p>Both passes share the same downstream filter — only the upstream "what to ask Prospeo for" changes. That's the variable being tested.</p>
+
+<h2>What the pilot tests</h2>
+
+<table>
+  <thead><tr><th></th><th>Pass A — Domain</th><th>Pass B — Category</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Question to Prospeo</td>
+      <td>"Find owners at <em>these</em> 60 specific websites."</td>
+      <td>"Find owners at any company in <em>these</em> 9 industries."</td>
+    </tr>
+    <tr>
+      <td>Prospeo filter shape</td>
+      <td><code>company.websites.include</code> (nested — empirically the only working domain shape)</td>
+      <td><code>company_industry.include</code> (singular, top-level — only working industry shape, per <code>FINDINGS.html</code> §6)</td>
+    </tr>
+    <tr>
+      <td>Title filter</td>
+      <td colspan="2"><code>PILOT_TITLES</code> = owner-only set: CEO, Chief Executive Officer, Founder, Owner, Co-Owner, President, Founder and CEO, Managing Director, Chairman</td>
+    </tr>
+    <tr>
+      <td>Downstream filter</td>
+      <td colspan="2">Rule pass (agency tokens + marketplaces) → Haiku grey-zone classifier → brand / agency / reseller / marketplace / unknown</td>
+    </tr>
+    <tr>
+      <td>Target sample</td>
+      <td colspan="2">10 enriched results per pass (apples-to-apples)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Industry list (verified against Prospeo's live enum)</h3>
+
+<pre><code>PILOT_INDUSTRIES = [
+  "Retail Apparel and Fashion",
+  "Apparel Manufacturing",
+  "Cosmetics",
+  "Personal Care Product Manufacturing",
+  "Food and Beverage Manufacturing",
+  "Furniture and Home Furnishings Manufacturing",
+  "Sporting Goods Manufacturing",
+  "Consumer Goods",
+  "Pet Services",
+]</code></pre>
+
+<p>Each string was confirmed on 2026-05-14 via <code>scripts/verify_prospeo_shape.py</code> to (1) parse without <code>INVALID_FILTERS</code> and (2) reduce <code>total_count</code> when applied alongside the title filter. The pre-2023 LinkedIn names (<code>"Apparel and Fashion"</code>, <code>"Retail"</code>, <code>"Manufacturing"</code>, ampersand variants) are silently rejected. See <code>FINDINGS.html</code> §6 for rejections.</p>
+
+<h2>CLI</h2>
+
+<pre><code># Dry-run: shows the filters that would be sent, no API calls, no spend
+python scripts/prospeo_category_pilot.py --dry-run
+
+# Live run, capped to ~$0.40
+python scripts/prospeo_category_pilot.py --max-credits 20
+
+# Larger live run with confirmation skipped (CI / automated)
+python scripts/prospeo_category_pilot.py --max-credits 40 --yes
+
+# Rule-only filter (skip the Haiku grey-zone classifier)
+python scripts/prospeo_category_pilot.py --max-credits 20 --skip-llm
+
+# Try Pass B with a US country filter (off by default — Prospeo may reject)
+python scripts/prospeo_category_pilot.py --max-credits 40 --with-country</code></pre>
+
+<p>Flags:</p>
+<ul>
+  <li><code>--max-credits N</code> — hard budget cap. Aborts before any call that would push spend past N. Default 40 (~$0.80).</li>
+  <li><code>--dry-run</code> — print the JSON filters for both passes and exit. No API calls.</li>
+  <li><code>--target-results N</code> — leads per pass (default 60). The pilot used 10.</li>
+  <li><code>--skip-llm</code> — rule-only agency filter (no Haiku calls).</li>
+  <li><code>--yes</code> — skip the y/N confirmation prompt before live spend.</li>
+  <li><code>--with-country</code> — add <code>company_location_search.include = ["United States"]</code> to Pass B. Off by default — raw-string location filter is unverified and may return <code>INVALID_FILTERS</code>.</li>
+</ul>
+
+<h2>Pilot results — the leads themselves</h2>
+
+<h3>Pass A — Domain mode (5 of 10 brand)</h3>
+
+<table>
+  <thead><tr><th>Verdict</th><th>Company</th><th>Title</th><th>LLM reason</th></tr></thead>
+  <tbody>
+    <tr><td><span class="pill ok">brand</span></td><td>Massimo Copenhagen</td><td>Owner</td><td>Creates and sells its own handmade rugs directly to consumers and businesses.</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>VOYA</td><td>Owner</td><td>Own branded seaweed skincare and wellness products, sold globally.</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Happy Dog Barkery</td><td>Owner</td><td>Owns and operates own branded dog-treat business direct to consumers.</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Palace Skateboards</td><td>CEO</td><td>Sells its own branded skateboard products directly to consumers.</td></tr>
+    <tr><td><span class="pill no">reseller</span></td><td>Atlanta Cutlery <em>(× 3 distinct Presidents)</em></td><td>President</td><td>Sells knives from multiple manufacturers — not their own brand.</td></tr>
+    <tr><td><span class="pill warn">skipped</span></td><td>Sabriel · Schuh</td><td>—</td><td>No verified email available — skipped, no charge.</td></tr>
+  </tbody>
+</table>
+
+<h3>Pass B — Category mode (9 of 10 brand)</h3>
+
+<table>
+  <thead><tr><th>Verdict</th><th>Company</th><th>Title</th><th>Note</th></tr></thead>
+  <tbody>
+    <tr><td><span class="pill ok">brand</span></td><td>Special-T</td><td>Chairman</td><td>Office furniture manufacturer</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Quala</td><td>CEO</td><td>Sustainable workwear</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Basic American Foods</td><td>CEO</td><td>Food manufacturer</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Barni Skin</td><td>Founder</td><td>DTC skincare</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>CurveLab</td><td>Founder</td><td>Baby/children's furniture</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Birdie Bump</td><td>Founder</td><td>Golf hats DTC</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Maesa</td><td>CEO</td><td>Grows beauty brands (Kristin Ess, Hairitage, Fine'ry)</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Argent</td><td>Founder &amp; CEO</td><td>DTC womenswear</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Central Park West</td><td>President</td><td>Ladies fashion brand since 1992</td></tr>
+    <tr><td><span class="pill no">reseller</span></td><td>Danger Jones</td><td>Founder &amp; CEO</td><td>Sells hair color through professional distributors (Cosmoprof), not DTC.</td></tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <strong>What jumps out:</strong>
+  <ul>
+    <li>Pass B leads look like recognizable DTC brands — apparel, beauty, food, baby goods, golf accessories. Exactly the profile Atlas signs.</li>
+    <li>Pass A pulled the same reseller (Atlanta Cutlery) three times — three distinct Presidents at one multi-brand reseller. When a curated domain is itself a reseller, the bot collects more wrong people, not fewer.</li>
+    <li>Pass A also burned 2 of 10 slots on "no verified email." Pass B had zero such skips.</li>
+  </ul>
+</div>
+
+<h2>Cost</h2>
+
+<table>
+  <thead><tr><th>Metric</th><th class="num">Value</th></tr></thead>
+  <tbody>
+    <tr><td>Total Prospeo credits</td><td class="num">21 / 30 cap</td></tr>
+    <tr><td>Total cost (GROWTH @ $0.02/credit)</td><td class="num">$0.42</td></tr>
+    <tr><td>Leads enriched (both passes)</td><td class="num">20</td></tr>
+    <tr><td>Haiku grey-zone calls</td><td class="num">~$0.002</td></tr>
+  </tbody>
+</table>
+
+<p>Same ballpark as a vending-machine coffee. The budget cap was never approached.</p>
+
+<h2>Implications for the 5,000-leads/week target</h2>
+
+<table>
+  <thead><tr><th></th><th>Domain mode (today)</th><th>Category mode (new)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Total addressable pool</td>
+      <td>52,000 hand-curated domains</td>
+      <td><strong>~123,700 owner-level people</strong> across 9 e-com industries</td>
+    </tr>
+    <tr>
+      <td>Brand rate (this pilot)</td>
+      <td>50%</td>
+      <td><strong>90%</strong></td>
+    </tr>
+    <tr>
+      <td>Implied verified-brand yield</td>
+      <td>~500–1,500 leads per full run</td>
+      <td><strong>~10,000–50,000</strong> if the 90% holds at scale</td>
+    </tr>
+    <tr>
+      <td>5,000/week target</td>
+      <td>Out of reach</td>
+      <td>Comfortably in range</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Recommended next steps</h2>
+
+<ol>
+  <li><strong>Authorize a 50-lead category run</strong> (~$2–3, ~5 minutes). Confirms the 90% brand-rate at meaningful scale and gives Jam a real shortlist to spot-check for quality.</li>
+  <li><strong>If the 50-lead run holds:</strong> switch the weekly scraper to category mode as primary, keep the domain list as fallback / sanity check. Should hit 5,000/week inside the current $99 Prospeo plan.</li>
+  <li><strong>Optional:</strong> Jam reviews the 10 leads in this pilot to confirm she'd be comfortable emailing them.</li>
+</ol>
+
+<h2>Caveats &amp; things to watch</h2>
+
+<ul>
+  <li><strong>Small sample.</strong> 10 leads per side. The 90% / 50% gap is large enough to be directionally meaningful, but a 50-lead follow-up is the right gate before switching production over. Expect Pass B to settle in the 70–90% range at scale, Pass A in the 40–60% range.</li>
+  <li><strong>Pass B is currently global, not US-only.</strong> The first page included some non-US brands. <code>company_location_search</code> with raw country strings is undocumented and may return <code>INVALID_FILTERS</code> — gated behind <code>--with-country</code> until verified separately. If we need US-only, this is a small follow-up.</li>
+  <li><strong>Industry strings are post-2023 LinkedIn taxonomy.</strong> Adding a new industry to <code>PILOT_INDUSTRIES</code> requires running it through <code>scripts/verify_prospeo_shape.py</code> first — the API silently accepts wrong shapes and just ignores them (same class of bug as the 15-domain websites cap).</li>
+  <li><strong>Industry filter shape is <code>company_industry</code>, singular, top-level.</strong> Nested <code>company.industry</code> / <code>company.industries</code> shapes parse but are silently ignored, returning the no-industry baseline. The pilot script's <code>_build_category_filter</code> uses the verified shape.</li>
+  <li><strong>The pilot does not write to the DB.</strong> Output is XLSX only. Once we commit to category mode, <code>prospeo_sync.py</code> will need a category-mode branch and the same per-batch persistence guarantees as the domain path.</li>
+</ul>
+
+<hr>
+
+<p style="color: var(--muted); font-size: 0.9em; text-align: center;">
+  Pilot run 2026-05-14 · 21 credits · $0.42 · raw data in <code>exports/category_pilot_20260514_211012.xlsx</code>
+</p>
+
+</body>
+</html>

@@ -1,0 +1,21 @@
+You are identifying which follow-up email a lead's commitment reply was most directly responding to.
+
+The lead replied:
+"{committed_body}"
+(sent on {reply_timestamp})
+
+Before that reply, we sent the following follow-up emails (chronological, oldest first):
+
+{candidates_block}
+
+Which follow-up was this reply most directly responding to? Consider:
+- Explicit content references: does the reply quote, react to, or mention something specific from one of the follow-ups?
+- Time gap: which follow-up was sent closest to the reply?
+- Thematic continuity: does the reply pick up the thread of one follow-up over the others?
+
+Return ONLY valid JSON, no other text:
+{
+  "winning_outbound": "A" or "B" or "C",
+  "confidence": "high" or "medium" or "low",
+  "rationale": "30 words or fewer explaining why this follow-up was the trigger"
+}

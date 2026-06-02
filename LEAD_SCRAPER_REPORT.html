@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lead Scraper — Verification, Pilot Results & Updates</title>
+<style>
+  :root {
+    --fg: #1a1d23;
+    --muted: #5e6470;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e1e4e8;
+    --accent: #0550ae;
+    --accent-soft: #ddeefc;
+    --green: #1a7f37;
+    --green-soft: #ddf4e3;
+    --amber: #9a6700;
+    --amber-soft: #fff4cc;
+    --red: #cf222e;
+    --red-soft: #ffeef0;
+    --pill-bg: #f0f4f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 28px 80px;
+  }
+  header {
+    text-align: center;
+    padding: 24px 0 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  header h1 {
+    font-size: 2.2em;
+    font-weight: 700;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+  }
+  header .tag { color: var(--muted); font-size: 1.05em; }
+  h2 {
+    font-size: 1.5em;
+    font-weight: 700;
+    margin: 48px 0 16px;
+    letter-spacing: -0.01em;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 36px;
+    font-size: 0.8em;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+  h3 { font-size: 1.15em; margin: 28px 0 10px; font-weight: 600; }
+  h4 { font-size: 1em; margin: 16px 0 8px; }
+  p { margin: 0.6em 0; }
+
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--pill-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.88em;
+  }
+  pre {
+    background: var(--pill-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.85em;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--pill-bg); font-weight: 600; font-size: 0.9em; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .callout {
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 16px 0;
+  }
+  .callout.insight { background: #fff8c5; border-left: 4px solid #d4a72c; }
+  .callout.note    { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.caution { background: var(--red-soft); border-left: 4px solid var(--red); }
+  .callout.success { background: var(--green-soft); border-left: 4px solid var(--green); }
+  .callout h4 { margin-top: 0; font-size: 1em; }
+
+  .conf {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.82em;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .conf.live { background: var(--green-soft); color: var(--green); }
+  .conf.sql  { background: var(--green-soft); color: var(--green); }
+  .conf.test { background: var(--accent-soft); color: var(--accent); }
+  .conf.doc  { background: var(--amber-soft); color: var(--amber); }
+  .conf.pend { background: var(--red-soft);   color: var(--red); }
+
+  .pill {
+    display: inline-block;
+    background: var(--pill-bg);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.85em;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .pill.ok   { background: var(--green-soft); color: var(--green); }
+  .pill.no   { background: var(--red-soft);   color: var(--red); }
+  .pill.warn { background: var(--amber-soft); color: var(--amber); }
+
+  ul { padding-left: 1.5em; }
+  li { margin: 0.3em 0; }
+
+  .changed-old { background: #ffeef0; padding: 2px 6px; border-radius: 4px; text-decoration: line-through; color: var(--red); }
+  .changed-new { background: #dafbe1; padding: 2px 6px; border-radius: 4px; font-weight: 600; color: var(--green); }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.88em;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Lead Scraper — Verification, Pilot &amp; Updates</h1>
+  <div class="tag">51-lead category-vs-domain pilot, US+Canada filter, 12-industry + 17-title (two-tier) configuration. Verified 2026-05-15.</div>
+</header>
+
+<div class="callout note">
+  <h4>Confidence tags</h4>
+  <ul>
+    <li><span class="conf sql">SQL-verified</span> — confirmed by query against production Supabase.</li>
+    <li><span class="conf live">API-verified</span> — confirmed by live Prospeo call (<code>scripts/verify_prospeo_shape.py</code>).</li>
+    <li><span class="conf test">Bench-verified</span> — confirmed by running production script in dry-run.</li>
+    <li><span class="conf doc">From repo docs</span> — sourced from existing repo files; not independently re-derived.</li>
+    <li><span class="conf pend">Pending pilot</span> — projected; resolves on next live category run.</li>
+  </ul>
+</div>
+
+<h2><span class="num">1</span>Headline</h2>
+
+<div class="callout success">
+  <h4>Category-mode beats domain-mode by ~3.3× on brand rate.</h4>
+  <p>Pilot 2026-05-15 (51 leads, US+Canada, ~$0.80): <strong>26 of 37 category-mode leads</strong> were real DTC brands (70.3%) versus <strong>3 of 14 domain-mode leads</strong> (21.4%). At the 5,000-leads/week target this is <em>in range</em>, though the pool shrinks meaningfully under the US+Canada filter.</p>
+</div>
+
+<table>
+  <thead><tr><th></th><th>Domain mode</th><th>Category mode</th></tr></thead>
+  <tbody>
+    <tr><td>Brand rate (51-lead pilot, US+CA)</td><td><strong>21.4%</strong></td><td><strong>70.3%</strong></td></tr>
+    <tr><td>Pool size</td><td>~52,000 hand-curated domains</td><td><strong>51,650</strong> owner+marketing-level people across 12 industries, US+Canada</td></tr>
+    <tr><td>Projected weekly verified-brand yield</td><td>~150–500</td><td><strong>~5,000–10,000</strong> at 70% rate</td></tr>
+    <tr><td>5,000/week target</td><td>Out of reach</td><td>In range; sustainable for ~7 weeks before pool exhausts unique leads</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">2</span>Data flow</h2>
+
+<pre><code>Prospeo (search-person)
+   │  filters: company_industry.include = [12 e-com industries]
+   │           person_job_title.include  = [17 owner + marketing titles]
+   ▼
+enriched leads (email + title + company)
+   │  rule filter: agency tokens + marketplace domains
+   │  LLM grey-zone (Haiku) → brand / agency / reseller / marketplace / unknown
+   ▼
+classified leads → prospeo_new_leads (Postgres) + exports/*.xlsx</code></pre>
+
+<p>Two passes share this downstream filter; only the upstream Prospeo query changes between them.</p>
+
+<h2><span class="num">3</span>Prospeo filter shape — what works</h2>
+
+<p>Industry filter is the part most likely to fail silently. <span class="conf live">API-verified</span> across 4 separate probe runs in this engagement.</p>
+
+<table>
+  <thead><tr><th>Shape</th><th>Behavior</th></tr></thead>
+  <tbody>
+    <tr><td><code>filters.company_industry.include = [...]</code> (singular, top-level)</td><td><span class="pill ok">Works</span> — credits charged, real results, narrows <code>total_count</code></td></tr>
+    <tr><td><code>filters.company.industries.include</code> (nested, plural)</td><td><span class="pill no">Silently ignored</span> — 200 OK but <code>total_count</code> matches no-filter baseline</td></tr>
+    <tr><td><code>filters.company.industry.include</code> (nested, singular)</td><td><span class="pill no">Silently ignored</span></td></tr>
+    <tr><td><code>filters.industries.include</code> / <code>filters.industry.include</code></td><td><span class="pill no">INVALID_FILTERS</span> (400, free)</td></tr>
+    <tr><td><code>filters.company_industries.include</code> (plural, top-level)</td><td><span class="pill no">INVALID_FILTERS</span></td></tr>
+  </tbody>
+</table>
+
+<div class="callout caution">
+  <h4>Silent no-op trap</h4>
+  <p>The wrong-but-not-rejected shapes return HTTP 200 with no error. <code>total_count</code> is the only signal: a filter that returns the unfiltered baseline (tens of millions) is doing nothing. Same trap exists at the value level — see §4.</p>
+</div>
+
+<h2><span class="num">4</span>Industry list — verified e-com enum</h2>
+
+<p>Prospeo uses LinkedIn's <strong>post-2023</strong> taxonomy. Pre-2023 names (<code>"Apparel and Fashion"</code>, <code>"Retail"</code>, <code>"Furniture"</code>, ampersand variants) are rejected. Every candidate below was probed for two things:</p>
+<ol>
+  <li>Parses cleanly (no <code>INVALID_FILTERS</code>).</li>
+  <li>Actually narrows <code>total_count</code> vs the no-industry baseline (not silently ignored).</li>
+</ol>
+
+<h3>Current production list — 12 industries <span class="conf live">API-verified 2026-05-14 + 2026-05-15</span></h3>
+
+<div style="display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0;">
+  <span class="pill ok">Retail Apparel and Fashion</span>
+  <span class="pill ok">Apparel Manufacturing</span>
+  <span class="pill ok">Cosmetics</span>
+  <span class="pill ok">Personal Care Product Manufacturing</span>
+  <span class="pill ok">Food and Beverage Manufacturing</span>
+  <span class="pill ok">Furniture and Home Furnishings Manufacturing</span>
+  <span class="pill ok">Sporting Goods Manufacturing</span>
+  <span class="pill ok">Consumer Goods</span>
+  <span class="pill ok">Pet Services</span>
+  <span class="pill ok">Retail Groceries</span>
+  <span class="pill ok">Alternative Medicine</span>
+  <span class="pill ok">Retail Health and Personal Care Products</span>
+</div>
+
+<p><strong>Added 2026-05-15</strong> (this session) — <code>Retail Groceries</code>, <code>Alternative Medicine</code>, <code>Retail Health and Personal Care Products</code>. Found via two follow-up probes:</p>
+<ul>
+  <li>Probe across the <code>positive_industries</code> sheet (170 distinct Apollo strings from leads with status <code>booked</code> / <code>interested</code> / <code>interested_past</code>): yielded 4 accepted enum values, of which 0 were e-com-relevant (Automotive, Computer Hardware, Consumer Services, Human Resources).</li>
+  <li>Probe across the <code>ecom_industries</code> sheet (1,774 distinct Apollo strings filtered to e-com): yielded 4 accepted, of which 1 was added (<code>Retail Groceries</code>).</li>
+  <li>Hand-crafted gaps probe (19 candidates for supplements / alt-medicine / wellness / mechanical / electronics): yielded 7 accepted, of which 2 were e-com-relevant (added) and 5 were too broad or service-flavored (skipped — see §5).</li>
+</ul>
+
+<h3>Strings tested and rejected</h3>
+
+<p>Useful to keep on file so the same wrong shapes don't come back in future work. All <span class="conf live">API-verified</span> as <code>INVALID_FILTERS</code>:</p>
+
+<p><code>"Apparel and Fashion"</code>, <code>"Apparel"</code>, <code>"Retail"</code>, <code>"Furniture"</code>, <code>"Manufacturing"</code>, <code>"Fashion"</code>, <code>"Apparel &amp; Fashion"</code>, <code>"Personal Care Products"</code>, <code>"Health and Beauty"</code>, <code>"Food Production"</code>, <code>"Beverage Manufacturing"</code>, <code>"Retail Home Furnishings"</code>, <code>"Retail Consumer Goods"</code>, <code>"Health, Wellness &amp; Fitness"</code>, <code>"Dietary Supplement Manufacturing"</code>, <code>"Nutritional Supplement Manufacturing"</code>, <code>"Vitamins and Dietary Supplements Manufacturing"</code>, <code>"Holistic Health Services"</code>, <code>"Naturopathic Medicine"</code>, <code>"Health and Human Services"</code>, <code>"Tool and Hardware Manufacturing"</code>, <code>"Hardware Manufacturing"</code>, <code>"Consumer Electronics Manufacturing"</code>, <code>"Computers and Electronics Manufacturing"</code>, <code>"Electrical Equipment Manufacturing"</code>, <code>"Retail Appliances, Electrical, and Electronic Equipment"</code>.</p>
+
+<h2><span class="num">5</span>Set-1 wish list — coverage status</h2>
+
+<p>Comparing the 12 ICP categories against Prospeo's verified enum:</p>
+
+<table>
+  <thead><tr><th>ICP category</th><th>Status</th><th>Prospeo equivalent</th></tr></thead>
+  <tbody>
+    <tr><td>Apparel and fashion</td><td><span class="pill ok">Covered</span></td><td>Retail Apparel and Fashion + Apparel Manufacturing</td></tr>
+    <tr><td>Food &amp; beverage</td><td><span class="pill ok">Covered</span></td><td>Food and Beverage Manufacturing (manufacturers only)</td></tr>
+    <tr><td>Sporting goods</td><td><span class="pill ok">Covered</span></td><td>Sporting Goods Manufacturing</td></tr>
+    <tr><td>Groceries</td><td><span class="pill ok">Covered (new)</span></td><td>Retail Groceries — added 2026-05-15</td></tr>
+    <tr><td>Cosmetics</td><td><span class="pill ok">Covered</span></td><td>Cosmetics</td></tr>
+    <tr><td>Beauty brands</td><td><span class="pill ok">Covered</span></td><td>Cosmetics + Personal Care Product Manufacturing</td></tr>
+    <tr><td>Alternative medicines (no cannabis)</td><td><span class="pill ok">Covered (new)</span></td><td>Alternative Medicine — added 2026-05-15</td></tr>
+    <tr><td>Consumer goods</td><td><span class="pill ok">Covered</span></td><td>Consumer Goods</td></tr>
+    <tr><td>Supplements</td><td><span class="pill warn">Partial</span></td><td>Retail Health and Personal Care Products covers retail-side. No dedicated supplement-manufacturer enum value exists.</td></tr>
+    <tr><td>Health and wellness (no services)</td><td><span class="pill no">Not covered</span></td><td>Only <code>Wellness and Fitness Services</code> works — but the word <em>Services</em> violates the ICP exclusion.</td></tr>
+    <tr><td>Mechanical goods</td><td><span class="pill no">Not covered</span></td><td>Only <code>Machinery Manufacturing</code> / <code>Industrial Machinery Manufacturing</code> exist — both industrial-scale, not consumer brands.</td></tr>
+    <tr><td>Electronics</td><td><span class="pill warn">Borderline</span></td><td><code>Appliances, Electrical, and Electronics Manufacturing</code> works (total_count 4.1M) but mixes DTC consumer electronics with industrial. <strong>Pilot separately before adding</strong> (~10 credits, see §9).</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Bottom line: 8 of 12 ICP categories are fully covered, 2 partial/borderline, 2 currently uncoverable through Prospeo's category filter.</strong> The two uncoverable categories (health-wellness-no-services, mechanical-goods-DTC) may still be reachable via domain-mode for those niches.</p>
+
+<h2><span class="num">6</span>Title list — owner + marketing/e-com</h2>
+
+<p>The original 9-title owner-only list was tuned on a 15-row reply subset that produced 1 booking from CMO/Marketing replies. A larger SQL-verified analysis across the full reply table reframes that conclusion:</p>
+
+<h3>Reply-level conversion rates <span class="conf sql">SQL-verified</span></h3>
+
+<table>
+  <thead><tr><th>Title family</th><th class="num">Positive %</th><th>95% CI</th><th class="num">n</th></tr></thead>
+  <tbody>
+    <tr><td>Founder / CEO / Owner / President</td><td class="num"><strong>14.6%</strong></td><td>[13.8, 15.5]</td><td class="num">6,335</td></tr>
+    <tr><td>CMO / Marketing Director / Head of E-com</td><td class="num">5.2%</td><td>[3.6, 7.4]</td><td class="num">538</td></tr>
+    <tr><td>Generic Manager / Specialist / Other</td><td class="num">6.5%</td><td>[5.4, 7.7]</td><td class="num">1,736</td></tr>
+    <tr><td>COO / Other-Chief / VP / Director</td><td class="num">4.4%</td><td>[3.4, 5.9]</td><td class="num">1,058</td></tr>
+  </tbody>
+</table>
+
+<h3>Lead-level conversion rates (deduped across replies) <span class="conf sql">SQL-verified</span></h3>
+
+<table>
+  <thead><tr><th>Title family at lead level</th><th class="num">Distinct leads</th><th class="num">Positive %</th></tr></thead>
+  <tbody>
+    <tr><td>(no title in lead_contacts)</td><td class="num">3,673</td><td class="num"><strong>17.7%</strong></td></tr>
+    <tr><td>Founder / CEO / Owner / President</td><td class="num">3,674</td><td class="num">15.8%</td></tr>
+    <tr><td>Manager / Specialist / Other</td><td class="num">1,037</td><td class="num">9.6%</td></tr>
+    <tr><td>CMO / Marketing / Head of E-com</td><td class="num">315</td><td class="num">8.6%</td></tr>
+    <tr><td>Other-Chief / VP / Director</td><td class="num">653</td><td class="num">7.4%</td></tr>
+  </tbody>
+</table>
+
+<div class="callout insight">
+  <h4>What this changes</h4>
+  <p>Owner-tier still wins, but only by ~1.8× over CMO-tier at lead level (15.8% vs 8.6%), not 5×+. The "1 of 15" framing came from a 5-row sample whose CI was [3.6%, 62.4%] — too wide for a categorical drop. CMO-tier is real signal; the question is whether mixing it in dilutes more than the volume helps. Decision: add it as Tier 2.</p>
+</div>
+
+<h3>Production title list — 17 titles <span class="conf test">Bench-verified 2026-05-15</span></h3>
+
+<table>
+  <thead><tr><th>Tier 1 — owner (11 titles)</th><th>Tier 2 — marketing / e-com (6 titles)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>
+        CEO · Chief Executive Officer · Founder · <strong>Co-Founder</strong> · Owner · Co-Owner · President · Founder and CEO · <strong>CEO and Founder</strong> · Managing Director · Chairman
+      </td>
+      <td>
+        <strong>CMO</strong> · <strong>Chief Marketing Officer</strong> · <strong>Head of Marketing</strong> · <strong>VP Marketing</strong> · <strong>Head of E-commerce</strong> · <strong>Director of E-commerce</strong>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Bold = new in this session. Mirrored across <code>prospeo_sync.py</code> (<code>PROSPEO_TITLES</code>) and <code>scripts/prospeo_category_pilot.py</code> (<code>PILOT_TITLES</code>).</p>
+
+<p><strong>Explicitly NOT added</strong> despite appearing in reply data:</p>
+<ul>
+  <li><strong>COO / VP / Director (non-marketing)</strong> — lead-level 7.4%. Too close to Manager tier; not the buyer for agency services.</li>
+  <li><strong>Manager / Specialist / generic Director</strong> — too broad to filter cleanly in Prospeo; would explode credit spend.</li>
+  <li><strong>(no title)</strong> — the 17.7% lead-level number is striking, but not actionable: you can't ask Prospeo for "leads with no title." Worth a separate investigation into what this segment represents (likely Apollo enrichment misses on smaller operators), but it isn't a title to add.</li>
+</ul>
+
+<h2><span class="num">7</span>Pilot results — 51-lead run, US+Canada</h2>
+
+<p>Run 2026-05-15 with the 12-industry list, 17-title two-tier filter, and verified <code>company_location_search.include = ["United States", "Canada"]</code>. Cap hit at 40 credits ($0.80). Pass B's <code>total_count</code> for the combined filter was <strong>51,650</strong> — confirming the country filter is a real narrow filter (silent no-op would have shown tens of millions).</p>
+
+<table>
+  <thead><tr><th>Metric</th><th class="num">Pass A — Domain</th><th class="num">Pass B — Category</th></tr></thead>
+  <tbody>
+    <tr><td>Enriched leads returned</td><td class="num">14</td><td class="num">37</td></tr>
+    <tr><td>Accepted as brand</td><td class="num">3</td><td class="num"><strong>26</strong></td></tr>
+    <tr><td>Brand rate</td><td class="num">21.4%</td><td class="num"><strong>70.3%</strong></td></tr>
+    <tr><td>Rejected by LLM (agency/reseller)</td><td class="num">4</td><td class="num">11</td></tr>
+    <tr><td>No verified email (skip, no charge)</td><td class="num">7 (50%)</td><td class="num">0</td></tr>
+    <tr><td>Credits spent</td><td class="num">11</td><td class="num">29</td></tr>
+  </tbody>
+</table>
+
+<div class="callout insight">
+  <h4>What this run resolves</h4>
+  <ul>
+    <li><strong>Country filter works with raw strings.</strong> <code>{"company_location_search": {"include": ["United States", "Canada"]}}</code> returns <code>total_count=51,650</code> — a real narrow filter. No Suggestions-API resolution needed for these two values.</li>
+    <li><strong>Category mode brand rate: 70.3% (n=37).</strong> Within the predicted [70–90%] range, at the low end. ~3.3× domain mode at this scale.</li>
+    <li><strong>Domain mode is not viable as a primary path.</strong> 50% no-email skip rate at n=14 means half the curated domains don't return contactable owners; brand rate of those that do is only 21.4%.</li>
+  </ul>
+</div>
+
+<h3>Pass B category-mode brand leads (sample)</h3>
+
+<table>
+  <thead><tr><th>Verdict</th><th>Company</th><th>Title</th><th>Note</th></tr></thead>
+  <tbody>
+    <tr><td><span class="pill ok">brand</span></td><td>Special-T</td><td>Chairman</td><td>Office furniture manufacturer</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Basic American Foods</td><td>CEO</td><td>Food manufacturer</td></tr>
+    <tr><td><span class="pill ok">brand</span></td><td>Fair Harbor</td><td>Co-Founder</td><td>DTC apparel/swimwear</td></tr>
+    <tr><td><span class="pill no">agency</span></td><td>Advance Sports Therapy</td><td>President</td><td>Sports therapy services, not own product</td></tr>
+  </tbody>
+</table>
+
+<p>Full lead-by-lead detail in <code>exports/category_pilot_20260515_220750.xlsx</code>.</p>
+
+<h2><span class="num">8</span>Cost</h2>
+
+<table>
+  <thead><tr><th>Bucket</th><th class="num">Credits</th><th class="num">USD (~$0.02/credit)</th></tr></thead>
+  <tbody>
+    <tr><td>Pilot run (both passes, 51 enriched leads, US+CA)</td><td class="num">40 / 40 cap</td><td class="num">$0.80</td></tr>
+    <tr><td>Filter-shape verification (FINDINGS §6)</td><td class="num">~14</td><td class="num">$0.28</td></tr>
+    <tr><td>Positive-sheet industry probe</td><td class="num">4</td><td class="num">$0.08</td></tr>
+    <tr><td>E-com sheet industry probe (1,774 unknowns; 1,770 free 400s)</td><td class="num">4</td><td class="num">$0.08</td></tr>
+    <tr><td>Gap-candidates probe (19 candidates; 12 free 400s)</td><td class="num">7</td><td class="num">$0.14</td></tr>
+    <tr><td>Haiku grey-zone classifier calls (pilot)</td><td class="num">—</td><td class="num">~$0.002</td></tr>
+    <tr><th>Total session spend</th><th class="num">~70</th><th class="num">~$1.40</th></tr>
+  </tbody>
+</table>
+
+<p>The whole verification + pilot + expansion effort cost less than a cup of coffee.</p>
+
+<h2><span class="num">9</span>Recommended next steps</h2>
+
+<ol>
+  <li>
+    <strong>✅ Done 2026-05-15:</strong> 51-lead pilot with the expanded 12-industry / 17-title list, US+Canada filter. Brand rate landed at 70.3% — within the predicted [70–90%] range. Production-ready.
+  </li>
+  <li>
+    <strong>If the 50-lead run holds:</strong> switch the weekly scraper to category mode as primary, keep the domain list as fallback / sanity check. Should hit 5,000/week inside the current $99 Prospeo plan.
+  </li>
+  <li>
+    <strong>Standalone electronics pilot.</strong> Send <em>only</em> <code>Appliances, Electrical, and Electronics Manufacturing</code> + the 17 titles, 10 leads, ~$0.20. If 7+ are DTC consumer-electronics brands (Anker-like), add to <code>PILOT_INDUSTRIES</code>. If industrial-dominant, skip.
+  </li>
+  <li>
+    <strong>Investigate the (no title) bucket.</strong> 17.7% positive rate at lead level is the highest-converting tier and currently has no targeting story. Likely Apollo enrichment misses on small operators. Separate workstream.
+  </li>
+  <li>
+    <strong>Optional A/B on title tiers.</strong> Once category mode is in production, periodically pull conversion by tier-1 vs tier-2 leads to confirm the marketing-tier addition is still positive-EV. If tier-2 conversion drops below ~5%, revert to owner-only.
+  </li>
+</ol>
+
+<h2><span class="num">10</span>Caveats &amp; open questions</h2>
+
+<ul>
+  <li><strong>Pool exhaustion at 5K/week.</strong> US+Canada pool is 51,650 owner+marketing-level people across all 12 industries. At 5K leads/week with a 70% brand rate, you'd burn through unique leads in ~7 weeks. Plan for either (a) widening to UK/AU/EU later, (b) refreshing the pool as Prospeo's data updates, or (c) accepting lower weekly volume after ~month two.</li>
+  <li><strong>Country filter is now verified</strong> (<code>{"company_location_search": {"include": ["United States", "Canada"]}}</code> returned <code>total_count=51,650</code>, 2026-05-15). The earlier Suggestions-API caveat no longer applies — raw country strings work for these two values. Other countries unverified.</li>
+  <li><strong>Silent no-op risk on new additions still partial.</strong> <code>Retail Groceries</code>, <code>Alternative Medicine</code>, and <code>Retail Health and Personal Care Products</code> are in the verified-narrowing set but the second pilot's 37 leads don't cleanly tag back to a single industry. A per-industry breakdown isn't possible from the combined-OR query; trust them tentatively and watch the 50-lead next-pilot output for any industry that produces consistently low-quality leads.</li>
+  <li><strong>15-domain websites cap is enforced (<code>PROSPEO_BATCH_DOMAINS = 15</code>).</strong> Don't raise — verified to silently ignore entries above 15 after a 506-credit production burn.</li>
+  <li><strong>Pilot does not write to DB.</strong> Output is XLSX only. Once committed to category mode, <code>prospeo_sync.py</code> needs a category-mode branch with the same per-batch persistence guarantees as the domain path.</li>
+  <li><strong>Marketing-tier titles are a recent addition.</strong> The 8.6% lead-level conversion is historical reply data, not new-cohort behavior. Watch the first 50-lead run for drift.</li>
+</ul>
+
+<footer>
+  2026-05-15 · raw pilot data in <code>exports/category_pilot_20260515_220750.xlsx</code> · raw probe data in <code>exports/prospeo_industry_candidates.xlsx</code>
+</footer>
+
+</body>
+</html>

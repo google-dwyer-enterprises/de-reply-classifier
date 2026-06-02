@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Follow-up tracker — v3 (spreadsheet shape)</title>
+<style>
+  :root {
+    --fg: #1f2328;
+    --muted: #59636e;
+    --bg: #ffffff;
+    --bg-alt: #f6f8fa;
+    --border: #d1d9e0;
+    --code-bg: #f6f8fa;
+    --link: #0969da;
+    --accent: #0550ae;
+    --green: #1a7f37;
+    --red: #cf222e;
+    --amber: #9a6700;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.55;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  h1, h2, h3, h4 {
+    line-height: 1.25;
+    margin-top: 1.8em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+  }
+  h1 { font-size: 2em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; margin-top: 0; }
+  h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+  h3 { font-size: 1.15em; }
+  h4 { font-size: 1em; color: var(--muted); }
+  p { margin: 0.7em 0; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.88em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.85em;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+  table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: 100%;
+    font-size: 0.92em;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--bg-alt); font-weight: 600; }
+  ul, ol { padding-left: 1.8em; }
+  li { margin: 0.25em 0; }
+  blockquote {
+    border-left: 3px solid var(--border);
+    margin: 1em 0;
+    padding: 0.2em 1em;
+    color: var(--muted);
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
+  .pipeline {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    padding: 16px 20px;
+    border-radius: 6px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 0.85em;
+    white-space: pre;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  .callout {
+    background: #fff8c5;
+    border-left: 3px solid #d4a72c;
+    padding: 0.7em 1em;
+    margin: 1em 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .callout-green {
+    background: #dafbe1;
+    border-left: 3px solid var(--green);
+    padding: 0.7em 1em;
+    margin: 1em 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .callout-red {
+    background: #ffebe9;
+    border-left: 3px solid var(--red);
+    padding: 0.7em 1em;
+    margin: 1em 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .status-badge {
+    display: inline-block;
+    padding: 0.15em 0.6em;
+    border-radius: 12px;
+    font-size: 0.82em;
+    font-weight: 600;
+    margin-right: 0.4em;
+  }
+  .status-done    { background: #dafbe1; color: var(--green); }
+  .status-pending { background: #fff8c5; color: var(--amber); }
+  .status-blocked { background: #ffebe9; color: var(--red); }
+  .status-deferred { background: #f0f0f0; color: var(--muted); }
+  .version-tag {
+    display: inline-block;
+    background: var(--accent);
+    color: white;
+    font-size: 0.7em;
+    font-weight: 700;
+    padding: 0.1em 0.5em;
+    border-radius: 4px;
+    vertical-align: middle;
+    margin-left: 0.5em;
+    letter-spacing: 0.04em;
+  }
+</style>
+</head>
+<body>
+
+<h1>Follow-up tracker <span class="version-tag">v3 — spreadsheet shape</span></h1>
+
+<p>Replaces Jam's manual <strong>"DE Email Master Sheet → Follow Up Tracker"</strong> spreadsheet with a NocoDB-backed materialized view that has the <strong>same shape she already knows</strong> — one row per lead, paired Date + Body columns for each follow-up position — augmented with a new automated <strong>"Last reply from Instantly"</strong> column. No more manual upkeep.</p>
+
+<div class="callout">
+  <strong>Scope decision.</strong> Stakeholder review (2026-05-21) re-scoped: prioritize the spreadsheet replacement first, defer the Option D winning-reply work (Haiku-as-judge identifying the converting reply per booked lead). This doc covers the tracker shape; the winning-reply pieces ship behind a feature flag (see Phase 5 for the table + script that exist but aren't wired into the daily refresh yet).
+</div>
+
+<h2>The problem in one paragraph</h2>
+
+<p>Jam maintains a 1,231-row spreadsheet by hand. Every time the team sends a follow-up, she has to find the lead in the sheet, add the date + body to the next ffup column. Every time a lead replies, she has to dig into Instantly Unibox to see what they said and update the Status / NOTE. The sheet is always slightly out of date and the upkeep is a job. v3 turns the sheet into a database view that updates itself daily — and adds the lead's last reply right next to her notes so she can act on it without leaving NocoDB.</p>
+
+<h2>Status — 2026-05-21</h2>
+
+<ul>
+  <li><span class="status-badge status-done">DONE</span> <strong>Phase 0</strong> — verify <code>/v2/emails?lead=&lt;email&gt;</code> returns manual sends.</li>
+  <li><span class="status-badge status-done">DONE</span> <strong>Phase 0.5</strong> — verify global <code>?email_type=sent</code> feed includes manuals.</li>
+  <li><span class="status-badge status-done">DONE</span> <strong>Phase 0.6</strong> — verify <code>in_reply_to_id</code> threading viability. <span style="color: var(--red); font-weight: 600;">RED</span> — field not exposed.</li>
+  <li><span class="status-badge status-pending">PENDING</span> <strong>Phase 1</strong> — schema additions + MV definition (~1 hr).</li>
+  <li><span class="status-badge status-pending">PENDING</span> <strong>Phase 2</strong> — extend <code>instantly_sync.py</code> with outbound pass (~1 day).</li>
+  <li><span class="status-badge status-pending">PENDING</span> <strong>Phase 3</strong> — one-time CSV ingest into <code>lead_outcomes</code> (~2 hr). <strong>Mandatory in v3.</strong></li>
+  <li><span class="status-badge status-pending">PENDING</span> <strong>Phase 4</strong> — wire into <code>run.py refresh</code> + NocoDB filtered views (~30 min).</li>
+  <li><span class="status-badge status-pending">PENDING</span> <strong>Phase 5</strong> — manual validation with Jam (~1 hr).</li>
+  <li><span class="status-badge status-deferred">DEFERRED</span> <strong>v4</strong> — Option D winning-reply selection. Add if Victor wants the "which message converted" answer after v3 ships.</li>
+</ul>
+
+<h2>How it works</h2>
+
+<div class="pipeline">Instantly API
+   │
+   ├─── /v2/emails?email_type=received   ───►  replies         (already exists, ~17K rows)
+   │                                            │
+   └─── /v2/emails?email_type=sent       ───►  sent_messages   (empty today; Phase 2 fills it)
+                                                │
+followup_tracker_2026-05-19.csv  ───►  lead_outcomes (one-time CSV ingest)
+                                                │
+                                                ▼
+                                  followup_tracker_mv
+                                  ├─ Client, Email, Campaign, Leadlist Source
+                                  ├─ Status, Qualified
+                                  ├─ Initial Reply Date + Body                  (from replies, MIN ts)
+                                  ├─ Email ffup 1 Date + Body                   (from sent_messages, rank=1)
+                                  ├─ Email ffup 2 Date + Body                   (rank=2)
+                                  ├─ ... up to ffup 10                          (rank=10)
+                                  ├─ Call ffup, NOTE (JOYCE)                    (from lead_outcomes CSV)
+                                  └─ Last reply from Instantly  ★ NEW           (from replies, MAX ts)
+                                                │
+                                                ▼
+                                              NocoDB</div>
+
+<p>The MV pivots <code>sent_messages</code> from long-form (one row per outbound) into wide-form (10 ffup positions per lead) via conditional aggregates. NocoDB sees a single wide table that looks just like Jam's spreadsheet.</p>
+
+<h2>What's added, what's removed (vs. today's spreadsheet)</h2>
+
+<table>
+  <thead><tr><th>Change</th><th>Where</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>➕ <strong>NEW</strong>: "Last reply from Instantly"</td>
+      <td>Far right column</td>
+      <td>Auto-populated from <code>replies</code>. Lead's most recent inbound + timestamp. Eliminates the "did Mahmoud reply yet?" Unibox-digging.</td>
+    </tr>
+    <tr>
+      <td>➖ <strong>REMOVED</strong>: 4× "End of month ffup" blocks</td>
+      <td>Original cols 29–36</td>
+      <td>EOM cycles superseded by API capture. Every send goes into <code>sent_messages</code> regardless of cycle.</td>
+    </tr>
+    <tr>
+      <td>🔁 <strong>UNCHANGED</strong>: cols 1–28</td>
+      <td>Client, Email, Status, Qualified, Initial reply, ffup 1–10, Call ffup, NOTE</td>
+      <td>Same columns Jam knows. Same labels (verbatim). The shape is preserved on purpose — no relearning curve.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="phase-0">Phase 0/0.5/0.6 — already done (carried from v1/v2)</h2>
+
+<p>Findings from prior probes:</p>
+
+<ul>
+  <li><code>/v2/emails?lead=&lt;email&gt;</code> works. <code>ue_type</code> discriminates 1=campaign auto / 2=inbound / 3=manual outbound. <code>step IS NULL ⟺ ue_type=3</code> verified across 537 rows.</li>
+  <li>Right API param is <code>?lead=</code>, NOT <code>?lead_email=</code>.</li>
+  <li><code>in_reply_to_id</code> does NOT exist in Instantly's response (0/26 inbound emails had it). This finding killed the v1/v2 thread-chaining approach but is irrelevant to v3 — v3 doesn't need it.</li>
+</ul>
+
+<p>Full details lived in the now-removed v2 plan; the table DDL is in <code>migrations.sql</code> and the selection script is <code>select_winning_replies.py</code>.</p>
+
+<h2>Schema (Phase 1)</h2>
+
+<h3>1.1 Extend <code>sent_messages</code></h3>
+
+<pre><code>alter table sent_messages add column if not exists ue_type smallint;
+alter table sent_messages add column if not exists step text;
+alter table sent_messages add column if not exists send_kind text
+  generated always as (case
+    when step is null then 'unibox_manual'
+    when ue_type = 1 then 'campaign_auto'
+    else 'unknown'
+  end) stored;
+alter table sent_messages add column if not exists thread_id text;
+create index if not exists sent_messages_send_kind_idx on sent_messages (send_kind);
+create index if not exists sent_messages_thread_id_idx on sent_messages (thread_id);
+-- in_reply_to_id intentionally absent — verified Phase 0.6 that Instantly doesn't expose it.</code></pre>
+
+<h3>1.2 <code>lead_outcomes</code> — now mandatory in v3</h3>
+
+<p>In v2 this was optional. In v3 it's load-bearing — it holds the columns the API doesn't give us:</p>
+
+<pre><code>create table if not exists lead_outcomes (
+  lead_email text not null,
+  client text not null,
+  campaign text not null default '',
+  leadlist_source text,                 -- CSV "Leadlist Source"
+  status_raw text,                      -- CSV "Status" verbatim (e.g. "Booked", "Asking for Proposal")
+  qualified text,                       -- 'Qualified' | 'No' | 'Pending'
+  note text,                            -- CSV "NOTE (JOYCE)"
+  call_ffup text,                       -- CSV "Call ffup"
+  source text not null default 'manual_tracker_csv',
+  updated_at timestamptz default now(),
+  primary key (lead_email, client, campaign)
+);
+create index if not exists lead_outcomes_lead_idx on lead_outcomes (lead_email);</code></pre>
+
+<h3>1.3 <code>followup_tracker_mv</code> — the wide MV</h3>
+
+<p>Conditional aggregates pivot <code>sent_messages</code> into wide ffup-1 through ffup-10 columns. Last-reply column reads from <code>replies</code>.</p>
+
+<pre><code>create materialized view followup_tracker_mv as
+with first_reply as (
+  select distinct on (lead_email) lead_email, reply_timestamp, body
+  from replies order by lead_email, reply_timestamp asc
+),
+last_reply as (
+  select distinct on (lead_email) lead_email, reply_timestamp, body, from_address_email
+  from replies order by lead_email, reply_timestamp desc
+),
+ranked_outbounds as (
+  select s.lead_email, s.sent_timestamp, s.subject, s.body,
+    row_number() over (partition by s.lead_email order by s.sent_timestamp asc) as ffup_n
+  from sent_messages s
+  where s.send_kind = 'unibox_manual'
+)
+select
+  lo.client                              as "Client",
+  lo.lead_email                          as "Email Address",
+  lo.campaign                            as "Campaign",
+  lo.leadlist_source                     as "Leadlist Source",
+  coalesce(lo.status_raw, l.auto_status) as "Status",
+  lo.qualified                           as "Qualified",
+  fr.reply_timestamp                     as "Initial Reply Date",
+  fr.body                                as "What was their initial reply",
+  -- ffup 1
+  max(case when ro.ffup_n = 1 then ro.sent_timestamp end)  as "Email ffup 1 Date",
+  max(case when ro.ffup_n = 1 then ro.body end)            as "Email FF 1 what we sent",
+  -- ffup 2 through ffup 10 (same pattern; see PLAN.v3.md §1.3 for full DDL)
+  ...
+  lo.call_ffup                           as "Call ffup",
+  lo.note                                as "NOTE (JOYCE)",
+  -- ★ NEW column
+  lr.reply_timestamp                     as "Last Reply At",
+  case
+    when lr.from_address_email like '%@google.com'
+         or lr.from_address_email like '%calendly%'
+         or lr.from_address_email like '%calendar%'
+    then '[Calendar invite] ' || left(lr.body, 300)
+    else left(lr.body, 500)
+  end                                    as "Last reply from Instantly"
+from lead_outcomes lo
+left join leads l                  on l.lead_email = lo.lead_email
+left join first_reply fr           on fr.lead_email = lo.lead_email
+left join last_reply lr            on lr.lead_email = lo.lead_email
+left join ranked_outbounds ro      on ro.lead_email = lo.lead_email
+group by lo.client, lo.lead_email, lo.campaign, lo.leadlist_source, lo.status_raw,
+         l.auto_status, lo.qualified, fr.reply_timestamp, fr.body,
+         lo.call_ffup, lo.note, lr.reply_timestamp, lr.body, lr.from_address_email;
+
+create unique index followup_tracker_mv_pk
+  on followup_tracker_mv ("Email Address", "Client", "Campaign");</code></pre>
+
+<p>Full DDL with all 10 ffup pairs in <code>FOLLOWUP_ANALYSIS_PLAN.md</code> §1.3.</p>
+
+<div class="callout">
+  <strong>Why a wide pivot rather than a thin "one row per (lead, ffup_n)" MV:</strong> Jam's tracker shape is what NocoDB renders by default. A thin MV would push the pivot to client-side and break the familiar layout. The conditional-aggregate approach reproduces the spreadsheet exactly. Refresh cost is OK while <code>sent_messages</code> is small; revisit if it grows past ~500K rows.
+</div>
+
+<h2>Sync (Phase 2)</h2>
+
+<p>Same four edits as v2. No <code>in_reply_to_id</code> parsing. Paste-ready code in <code>FOLLOWUP_ANALYSIS_PLAN.md</code> §2 — verbatim from v2.</p>
+
+<p>Run order:</p>
+<ol>
+  <li>7-day smoke test first: <code>python instantly_sync.py --type sent --days 7</code>. Measure throughput.</li>
+  <li>Extrapolate. If 7-day projects to 180 days in under 4 hours, run the full backfill.</li>
+  <li>Otherwise narrow to 90 days (or smaller) for first pass.</li>
+</ol>
+
+<h2>CSV ingest (Phase 3) — mandatory in v3</h2>
+
+<p>Script <code>followup_tracker_upload.py</code>. Parses 1,231 rows from Jam's CSV. Upserts one row per <code>(lead_email, client, campaign)</code> into <code>lead_outcomes</code> carrying: Client, Campaign, Leadlist Source, Status, Qualified, NOTE, Call ffup. <strong>Does NOT insert any messages</strong> — those come from <code>sent_messages</code> via Phase 2 sync.</p>
+
+<pre><code># Validation
+select count(*) from lead_outcomes;                          -- ~1,231
+select qualified, count(*) from lead_outcomes group by 1;    -- Qualified=46, No=57, Pending=14
+select count(*) from lead_outcomes where note &lt;&gt; '';         -- ~few hundred</code></pre>
+
+<p>After Phase 3 runs once: <strong>stop maintaining the CSV</strong>. New leads enter via either the existing classification pipeline (derives Status from <code>leads.auto_status</code>) or one-row inserts when Jam needs to set Qualified/NOTE for a specific lead.</p>
+
+<h2>Wire-up (Phase 4)</h2>
+
+<pre><code>def cmd_refresh(args):
+    cmd_sync(args)                          # runs both passes now
+    cmd_refresh_status(args)                # unchanged
+    cmd_classify(args)                      # unchanged
+    update_status_main()                    # unchanged
+    # No refresh call needed — followup_tracker_mv / followup_messages_mv
+    # were converted from MVs to regular views for NocoDB v2026 schema-sync
+    # compatibility. Regular views recompute on every query.</code></pre>
+
+<p>Set up filtered views in NocoDB:</p>
+<ul>
+  <li><strong>All leads</strong> — default.</li>
+  <li><strong>Active in last 14 days</strong> — <code>"Last Reply At" &gt;= now() - interval '14 days'</code>.</li>
+  <li><strong>No reply since first</strong> — <code>"Last Reply At" = "Initial Reply Date"</code>.</li>
+  <li><strong>Status = Booked</strong> — the success cohort.</li>
+  <li><strong>Status = Asking for Proposal</strong> — proposals to chase.</li>
+</ul>
+
+<h2>Cost</h2>
+
+<table>
+  <thead><tr><th>Item</th><th>Cost</th></tr></thead>
+  <tbody>
+    <tr><td>Sync (Instantly API)</td><td>$0 (included)</td></tr>
+    <tr><td>CSV ingest</td><td>$0 (local)</td></tr>
+    <tr><td>MV creation + refresh</td><td>$0</td></tr>
+    <tr><td>Haiku scoring</td><td><strong>$0 — not used in v3</strong></td></tr>
+    <tr><td><strong>Total v3 spend</strong></td><td><strong>$0</strong></td></tr>
+  </tbody>
+</table>
+
+<p>v2 estimated ~$0.10 for Haiku selection. v3 drops that entirely — pure capture + display.</p>
+
+<h2>What v3 doesn't answer (deferred to v4)</h2>
+
+<p>v3 gives Jam a richer, always-up-to-date working spreadsheet. It does <strong>NOT</strong> answer the original Victor question <em>"which of our follow-ups convert?"</em></p>
+
+<p>If Victor reviews v3 and still wants the conversion answer:</p>
+
+<ol>
+  <li>Option D from v2 (Haiku-as-judge over 2–3 candidate outbounds, anchored on the LLM-classified <code>'booked'</code> reply) can be added as a sidecar.</li>
+  <li>~6 hours of work, ~$0.10 in Haiku for first run.</li>
+  <li>Adds <code>followup_winning_selection</code> table + a second MV (<code>followup_winning_replies_mv</code>) — doesn't disturb v3's main tracker MV.</li>
+  <li>Renders as a separate NocoDB table: ~128 rows (one per booked lead) with the winning reply + Haiku rationale.</li>
+</ol>
+
+<p>Design ships behind a flag (table + script exist; refresh wiring intentionally absent). Wire it into <code>cmd_refresh</code> when ready.</p>
+
+<h2>Known limitations</h2>
+
+<h3>1. v3 doesn't answer "which reply converted"</h3>
+
+<p>By design — that's deferred to v4 (Option D). v3 ships the spreadsheet replacement first. The conversion analysis is a separate question that can be layered on later without touching v3's MV.</p>
+
+<h3>2. Leads with &gt;10 manual outbounds get truncated</h3>
+
+<p>The MV surfaces the first 10 chronologically. Same constraint as Jam's spreadsheet. Workaround if it bites: add ffup 11–15 columns, or add a <code>"+N more"</code> overflow indicator.</p>
+
+<h3>3. "Last reply from Instantly" can be a Calendar invite</h3>
+
+<p>When a lead books via Calendly without typing a "yes" email, the last inbound is the calendar invite. v3 tags these with a <code>[Calendar invite]</code> prefix in the new column so Jam knows it's not a real reply. If she wants both the last inbound AND the last <em>human</em> reply visible, split into two columns (~15 min change).</p>
+
+<h3>4. First-backfill volume is unverified</h3>
+
+<p>Probe v2 timed out at 30s on 90 days. Phase 2 starts with a 7-day smoke before extrapolating.</p>
+
+<h3>5. <code>step IS NULL ⟺ ue_type=3</code> is empirical, not guaranteed</h3>
+
+<p>If Instantly ever attaches <code>step</code> to a manual reply, those rows would miscategorize as <code>campaign_auto</code> and disappear from ffup columns. Re-verify quarterly.</p>
+
+<h3>6. Wide-MV refresh cost grows with <code>sent_messages</code></h3>
+
+<p>Conditional aggregates over a growing table get slower. Fine at current volumes (~0 rows, scaling to ~90K after backfill). Watch performance. If refresh exceeds ~30s, switch to a thin MV (one row per (lead, ffup_n)) and let NocoDB do client-side pivot.</p>
+
+<h2>Open questions for sign-off</h2>
+
+<ol>
+  <li><strong>Column order:</strong> "Last reply from Instantly" at the far right (current mockup) or right after "What was their initial reply"?</li>
+  <li><strong>Calendar invite handling:</strong> show with <code>[Calendar invite]</code> prefix (current) or hide entirely and show the last <em>human</em> reply instead?</li>
+  <li><strong>Body preview length:</strong> 3-line clamp (mockup) or full body?</li>
+  <li><strong>Timestamp format:</strong> <code>2026-01-08 14:22 EST</code> or "Mon, Jan 8, 2026 2:22 PM EST" (Jam's current style)?</li>
+  <li><strong>Add "days since last reply"</strong> as a sortable numeric column?</li>
+  <li><strong>Status fallback to <code>leads.auto_status</code></strong> when CSV is silent — yes (recommended) or leave null?</li>
+  <li><strong>Schedule v4 before or after v3 lands?</strong> Recommend after — Victor may not need the conversion view once the spreadsheet pain is solved.</li>
+</ol>
+
+<h2>Implementation order</h2>
+
+<ol>
+  <li><span class="status-badge status-done">DONE</span> Phase 0 — per-lead endpoint probe.</li>
+  <li><span class="status-badge status-done">DONE</span> Phase 0.5 — global-feed probe.</li>
+  <li><span class="status-badge status-done">DONE</span> Phase 0.6 — <code>in_reply_to_id</code> verification (RED, drove v1→v2→v3 simplification).</li>
+  <li>Phase 1.1 — <code>sent_messages</code> schema additions (~30 min).</li>
+  <li>Phase 1.2 — <code>lead_outcomes</code> table DDL (~10 min).</li>
+  <li>Phase 2 — extend <code>instantly_sync.py</code> + 7-day backfill smoke (~1 day).</li>
+  <li>Phase 3 — CSV ingest into <code>lead_outcomes</code> (~2 hr).</li>
+  <li>Phase 1.3 — create <code>followup_tracker_mv</code> + NocoDB meta-sync (~1 hr).</li>
+  <li>Phase 4 — wire into <code>run.py refresh</code> + NocoDB filtered views (~30 min).</li>
+  <li>Phase 5 — Jam reviews 10 random rows (~1 hr).</li>
+</ol>
+
+<p>Total: ~<strong>2 working days</strong>. Spend: <strong>$0</strong>.</p>
+
+<h2>Things to watch out for</h2>
+
+<ul>
+  <li><strong>Instantly's <code>/v2/emails</code> does not expose <code>in_reply_to_id</code></strong> (Phase 0.6).</li>
+  <li><strong>Right API filter is <code>?lead=&lt;email&gt;</code>, NOT <code>?lead_email=</code></strong> — the latter is silently ignored.</li>
+  <li><strong>Existing <code>sent_messages</code> is empty.</strong> No data-loss risk on schema additions.</li>
+  <li><strong>Calendar invite emails appear as inbound</strong> with <code>&lt;calendar-...@google.com&gt;</code> Message-ID headers. MV tags them with <code>[Calendar invite]</code>.</li>
+  <li><strong>NocoDB schema cache:</strong> any DDL change to <code>followup_tracker_mv</code> requires meta-sync.</li>
+  <li><strong>The MV needs a unique index</strong> on <code>("Email Address", "Client", "Campaign")</code> for <code>refresh concurrently</code> to work.</li>
+  <li><strong>Bodies are HTML.</strong> Reuse <code>html_to_text()</code> from <code>instantly_sync.py:293</code>.</li>
+  <li><strong>Conditional-aggregate MVs</strong> can be slow to refresh once <code>sent_messages</code> grows large. Watch performance; switch to thin MV + client-side pivot if it gets bad.</li>
+  <li><strong>Stop maintaining the CSV after Phase 3 ships.</strong> One-time historical snapshot, not a living document.</li>
+</ul>
+
+<h2>Related docs</h2>
+
+<ul>
+  <li><code>FOLLOWUP_ANALYSIS_PLAN.md</code> — full implementation plan (paste-ready DDL, code edits). This doc's MD twin.</li>
+  <li><code>scripts/probe_outbound_v4.py</code> — Phase 0 API-shape verification (ue_type / step / per-lead filter).</li>
+  <li><code>original_data/followup_tracker_2026-05-19.csv</code> — Phase 3 source.</li>
+</ul>
+
+</body>
+</html>
