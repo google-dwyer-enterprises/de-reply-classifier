@@ -378,9 +378,13 @@ def _update_state(conn, industry: str, *, new_offset: int,
         ))
 
 
-def _insert_leads(conn, leads: list[dict]) -> int:
+def _insert_leads(conn, leads: list[dict],
+                   scrape_request_id: int | None = None) -> int:
     """Bulk-insert leads (accepted or rejected). Caller sets each row's
-    `rejected` field explicitly. Returns rows actually inserted."""
+    `rejected` field explicitly. When `scrape_request_id` is set, every row
+    is tagged so the lead-scrape-automation worker can later move just the
+    rows from a specific request into `lead_contacts`. Returns rows actually
+    inserted."""
     if not leads:
         return 0
     cols = ["email", "first_name", "last_name", "title", "company_name",
@@ -388,10 +392,11 @@ def _insert_leads(conn, leads: list[dict]) -> int:
             "source_industry", "scrape_mode", "provider",
             "mobile", "mobile_status",
             "agency_filter_result", "agency_filter_method",
-            "agency_filter_reason", "rejected", "bettercontact_raw"]
+            "agency_filter_reason", "rejected", "bettercontact_raw",
+            "scrape_request_id"]
     rows = [
         [l.get(c) if c != "bettercontact_raw" else json.dumps(l.get(c) or {})
-         for c in cols]
+         for c in cols[:-1]] + [scrape_request_id]
         for l in leads
     ]
     placeholders = ",".join(["%s"] * len(cols))
@@ -411,7 +416,8 @@ def _run_category(conn, api_key: str, *,
                    country: list[str] | None,
                    skip_industries: list[str] | None = None,
                    page_limit: int = BC_PAGE_LIMIT,
-                   dry_run: bool, max_credits: int | None) -> None:
+                   dry_run: bool, max_credits: int | None,
+                   scrape_request_id: int | None = None) -> None:
     """Round-robin over BC_INDUSTRIES, advancing each industry's offset by
     BC_PAGE_LIMIT each cycle until target/budget/exhaustion."""
     countries = country
@@ -598,7 +604,8 @@ def _run_category(conn, api_key: str, *,
                 existing_emails.add(lead["email"])
 
             if batch_accepted or batch_rejected:
-                _insert_leads(conn, batch_accepted + batch_rejected)
+                _insert_leads(conn, batch_accepted + batch_rejected,
+                              scrape_request_id=scrape_request_id)
                 conn.commit()
 
             new_offset = offset + page_limit
@@ -683,12 +690,18 @@ def main(*, mode: str = "category", target_leads: int | None = None,
          country: list[str] | None = None,
          skip_industries: list[str] | None = None,
          page_limit: int = BC_PAGE_LIMIT,
-         dry_run: bool = False, max_credits: int | None = None) -> None:
+         dry_run: bool = False, max_credits: int | None = None,
+         scrape_request_id: int | None = None) -> None:
     """Entry point for `run.py scrape-leads --provider bettercontact`.
 
     Domain mode is NOT supported — BetterContact's Lead Finder is criteria-
     based, not domain-list based. If you want enrichment of an existing
     domain list, that's a different endpoint (separate implementation).
+
+    `scrape_request_id`, when set, tags every inserted row in
+    `prospeo_new_leads` so the Lead Scrape Automation worker (see worker.py)
+    can later move the request's rows into `lead_contacts` on approval.
+    Callers from the CLI leave this as None — only the worker uses it.
     """
     if mode != "category":
         raise SystemExit(f"BetterContact only supports --mode category (got {mode!r})")
@@ -704,7 +717,8 @@ def main(*, mode: str = "category", target_leads: int | None = None,
                       target_leads=target_leads, country=country,
                       skip_industries=skip_industries,
                       page_limit=page_limit,
-                      dry_run=dry_run, max_credits=max_credits)
+                      dry_run=dry_run, max_credits=max_credits,
+                      scrape_request_id=scrape_request_id)
     finally:
         conn.close()
 

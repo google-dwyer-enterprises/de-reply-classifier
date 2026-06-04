@@ -404,3 +404,48 @@ create table if not exists bettercontact_scrape_state (
   last_scraped_at timestamptz,
   total_credits_spent numeric(10,1) not null default 0  -- BC charges fractional
 );
+
+
+-- =========================================================================
+-- Lead Scrape Automation (2026-06-04)
+-- =========================================================================
+-- Jam submits a request in NocoDB → row lands in scrape_requests with
+-- status='pending'. A Railway worker polls every 60s, runs the BC scraper,
+-- updates status to 'ready', emails Jam. Jam approves in NocoDB →
+-- worker copies the request's prospeo_new_leads rows into lead_contacts
+-- and flips status to 'moved'. See LEAD_AUTOMATION.md for ops.
+
+create table if not exists scrape_requests (
+  id              bigserial primary key,
+  requested_leads integer  not null check (requested_leads between 1 and 5000),
+  industries      text[]   not null default '{}',          -- empty = all 12
+  skip_industries text[]   not null default '{}',
+  countries       text[]   not null default '{United States,Canada}',
+  notes           text,
+  status          text     not null default 'pending'
+                  check (status in ('pending','running','ready','moved','rejected','failed')),
+  approval        text     not null default 'pending'
+                  check (approval in ('pending','approved','rejected')),
+  scraped_count   integer  not null default 0,
+  moved_count     integer  not null default 0,
+  credits_spent   numeric(10,1) not null default 0,
+  created_at      timestamptz not null default now(),
+  started_at      timestamptz,
+  ready_at        timestamptz,
+  moved_at        timestamptz,
+  failed_at       timestamptz,
+  email_sent_at   timestamptz,
+  export_csv_path text,
+  export_xlsx_path text,
+  error_message   text
+);
+create index if not exists scrape_requests_status_idx on scrape_requests (status);
+create index if not exists scrape_requests_approval_idx on scrape_requests (approval);
+
+-- Tag every prospeo_new_leads row with the request that produced it.
+-- Lets the worker (a) find what to move on approval and (b) attribute
+-- credits/leads per request for reporting later.
+alter table prospeo_new_leads
+  add column if not exists scrape_request_id bigint references scrape_requests(id);
+create index if not exists prospeo_new_leads_scrape_request_id_idx
+  on prospeo_new_leads (scrape_request_id) where scrape_request_id is not null;
