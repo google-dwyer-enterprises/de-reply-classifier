@@ -23,6 +23,7 @@ from followup_tracker_upload import main as followup_tracker_upload_main
 from select_winning_replies import main as select_winning_replies_main
 from lead_contacts_upload import main as upload_leads_main
 from leads_status_update import main as update_status_main
+from bettercontact_sync import main as bettercontact_main
 from prospeo_sync import main as prospeo_main
 from prospeo_sync import enrich_mobile_for_accepted as prospeo_enrich_mobile
 from prospeo_sync import export_all_leads as prospeo_export_all
@@ -175,11 +176,15 @@ def main() -> None:
     rs.add_argument("--limit", type=int, default=None, help="Cap number of leads (testing)")
 
     sl = sub.add_parser("scrape-leads",
-                        help="Pull decision-maker leads from Prospeo (domain or category mode)")
+                        help="Pull decision-maker leads (Prospeo default; --provider bettercontact)")
+    sl.add_argument("--provider", choices=["prospeo", "bettercontact"],
+                    default="prospeo",
+                    help="Which scraping provider. prospeo (default) supports domain+category. "
+                         "bettercontact supports category only (Lead Finder API).")
     sl.add_argument("--mode", choices=["domain", "category"], default="domain",
-                    help="domain=query Prospeo per inclusion-list domain (default). "
-                         "category=query Prospeo by industry, paginate per industry "
-                         "with state in category_scrape_state.")
+                    help="[prospeo] domain=query per inclusion-list domain (default). "
+                         "category=query by industry, paginate per industry with state in "
+                         "category_scrape_state. [bettercontact] only 'category' is supported.")
     sl.add_argument("--domains", help="[domain mode] CSV path; defaults to domain_inclusion_list table")
     sl.add_argument("--limit", type=int, default=None,
                     help="[domain mode] Cap number of input domains")
@@ -200,6 +205,9 @@ def main() -> None:
                     help="Enrich accepted leads with mobile (10 credits each)")
     sl.add_argument("--max-credits", type=int, default=None,
                     help="Hard budget cap. Aborts run before spending past this.")
+    sl.add_argument("--page-limit", type=int, default=200,
+                    help="[bettercontact] Leads per Lead-Finder call (1-200, default 200). "
+                         "Lower values are useful for cheap smoke tests.")
 
     el = sub.add_parser("export-leads",
                         help="Dump prospeo_new_leads into a fresh CSV + XLSX")
@@ -261,13 +269,26 @@ def main() -> None:
             [s.strip() for s in args.skip_industries.split(",") if s.strip()]
             if args.skip_industries else None
         )
-        prospeo_main(mode=args.mode,
-                     domains_csv=args.domains, limit=args.limit,
-                     target_leads=args.target_leads, country=country_list,
-                     skip_industries=skip_list,
-                     dry_run=args.dry_run, skip_llm=args.skip_llm,
-                     with_mobile=args.with_mobile,
-                     max_credits=args.max_credits)
+        if args.provider == "bettercontact":
+            # BetterContact only supports category mode; other Prospeo-specific
+            # args are silently ignored.
+            if args.mode != "category":
+                sys.exit("--provider bettercontact requires --mode category")
+            bettercontact_main(mode=args.mode,
+                               target_leads=args.target_leads,
+                               country=country_list,
+                               skip_industries=skip_list,
+                               page_limit=args.page_limit,
+                               dry_run=args.dry_run,
+                               max_credits=args.max_credits)
+        else:
+            prospeo_main(mode=args.mode,
+                         domains_csv=args.domains, limit=args.limit,
+                         target_leads=args.target_leads, country=country_list,
+                         skip_industries=skip_list,
+                         dry_run=args.dry_run, skip_llm=args.skip_llm,
+                         with_mobile=args.with_mobile,
+                         max_credits=args.max_credits)
     elif args.command == "enrich-mobile":
         prospeo_enrich_mobile(limit=args.limit, dry_run=args.dry_run)
     elif args.command == "export-leads":

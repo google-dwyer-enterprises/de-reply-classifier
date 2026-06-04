@@ -432,6 +432,28 @@ Phase 2's 180-day sync could be slow (probe v2 timed out on 90-day in 30s). Phas
 
 Verified across 537 rows in Phase 0/0.5. If Instantly attaches `step` to a manual reply someday, those rows would miscategorize as `campaign_auto` and disappear from the ffup columns. Re-verify quarterly.
 
+### 6. Multi-workspace outbound gap (the "booked-with-no-follow-ups" anomaly)
+
+`instantly_sync.py` only syncs ONE Instantly workspace's outbound. Dwyer-Enterprises sends from multiple workspaces (e.g. `dwyer-enterprises.com`, `gotscal...`, `outreachecomm.com` — visible in reply bodies as quoted senders like "Bea Anderson" or "Roxy Davis"). Inbound replies all consolidate to the same support inbox we DO sync, so:
+
+- **Outbound** → only one workspace → `sent_messages`
+- **Inbound** → every workspace's replies → `replies`
+
+Investigation 2026-06-03 found 81 booked leads (Cat C in the categorization below) whose reply bodies clearly cite outbounds from *other* sending domains, but have zero rows in `sent_messages`. Those leads' campaign-auto + manual follow-up history exists, just not in our DB.
+
+**Mitigation (current).** `followup_tracker_mv` fills `"Email FF 1 what we sent"` with an explanatory marker for booked leads with `Total Follow-ups = 0`, categorized as:
+
+| Cat | Condition | Marker text |
+|---|---|---|
+| A | Had a campaign_auto send before reply | `No follow-up needed — replied to initial campaign in this workspace` |
+| B | First reply before Aug 7 2025 (pre-coverage) | `Pre-backfill (replies before Aug 7 2025; outbound history not captured)` |
+| C | No campaign_auto, reply within coverage | `Outreach sent via different Instantly workspace — outbound history not synced here` |
+| D | No reply at all | `Booking via external channel — no reply tracked in Instantly` |
+
+Implementation: `scripts/apply_tracker_with_markers.py` (idempotent CREATE OR REPLACE). Rollback: `debug/followup_tracker_mv_current.sql`.
+
+**Real fix (deferred).** Sync the other workspaces' `sent_messages`. Requires an Instantly API key per workspace (or one with multi-workspace access) and extending `instantly_sync.py` to iterate over workspaces. ~4 hours once the additional credentials are available.
+
 ---
 
 ## Open questions for sign-off
