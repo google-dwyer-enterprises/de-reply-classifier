@@ -372,3 +372,35 @@ create table if not exists followup_winning_selection (
 );
 create index if not exists followup_winning_selection_lead_idx
   on followup_winning_selection (lead_email);
+
+
+-- =========================================================================
+-- BetterContact provider support (Anna directive 2026-06-01 — switching
+-- category-mode scraping from Prospeo to BetterContact).
+-- =========================================================================
+-- BetterContact's Lead Finder API has a different filter shape than Prospeo
+-- (no revenue floor, seniority enum vs title list, lead_location vs company
+-- HQ location, async polling) but the output rows have the same business
+-- meaning. We write into the existing prospeo_new_leads table and tag rows
+-- with a `provider` column so downstream exports + dedup keep working.
+
+-- Tag every existing row as Prospeo-sourced so legacy data is back-compat.
+alter table prospeo_new_leads
+  add column if not exists provider text not null default 'prospeo';
+
+-- Store BC's response payload alongside prospeo_raw (different JSON shape).
+alter table prospeo_new_leads
+  add column if not exists bettercontact_raw jsonb;
+
+-- BetterContact pagination is offset-based (limit 1-200), unlike Prospeo's
+-- page-based. We use a separate state table so per-provider cursors stay
+-- independent and the existing category_scrape_state semantics don't change.
+create table if not exists bettercontact_scrape_state (
+  industry text primary key,
+  countries text[] not null default '{}',
+  last_offset_consumed integer not null default 0,
+  total_leads_estimated integer,           -- BC's `summary.leads_found` from probe
+  exhausted boolean not null default false,
+  last_scraped_at timestamptz,
+  total_credits_spent numeric(10,1) not null default 0  -- BC charges fractional
+);

@@ -31,6 +31,8 @@ def main() -> None:
     p.add_argument("--out-dir", default="exports")
     p.add_argument("--mode", choices=["domain", "category"], default="category",
                    help="Filter by scrape_mode (default: category)")
+    p.add_argument("--provider", choices=["prospeo", "bettercontact"], default=None,
+                   help="Filter by provider. Omit to include all providers.")
     args = p.parse_args()
 
     if args.since_snapshot:
@@ -47,15 +49,20 @@ def main() -> None:
     conn = connect()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
+            sql = """
               select email, mobile, first_name, last_name, title, company_name,
                      company_website, source_domain, agency_filter_result,
                      mobile_status, agency_filter_method, agency_filter_reason,
                      scrape_mode, source_industry, rejected, scraped_at
               from prospeo_new_leads
               where scrape_mode = %s and scraped_at >= %s
-              order by rejected, scraped_at desc
-            """, (args.mode, since_iso))
+            """
+            params: list = [args.mode, since_iso]
+            if args.provider:
+                sql += " and provider = %s"
+                params.append(args.provider)
+            sql += " order by rejected, scraped_at desc"
+            cur.execute(sql, params)
             for r in cur.fetchall():
                 lead = {
                     "email": r[0], "mobile": r[1],
@@ -75,13 +82,14 @@ def main() -> None:
 
     os.makedirs(args.out_dir, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    csv_path = f"{args.out_dir}/today_{args.mode}_{stamp}.csv"
-    xlsx_path = f"{args.out_dir}/today_{args.mode}_{stamp}.xlsx"
+    suffix = f"_{args.provider}" if args.provider else ""
+    csv_path = f"{args.out_dir}/today_{args.mode}{suffix}_{stamp}.csv"
+    xlsx_path = f"{args.out_dir}/today_{args.mode}{suffix}_{stamp}.xlsx"
     write_csv(accepted, csv_path)
     write_xlsx(accepted, rejected, xlsx_path)
 
     print(f"Exported {len(accepted)} accepted + {len(rejected)} rejected "
-          f"(mode={args.mode}, since={since_iso}):")
+          f"(mode={args.mode}, provider={args.provider or 'any'}, since={since_iso}):")
     print(f"  CSV  : {csv_path}")
     print(f"  XLSX : {xlsx_path}")
 
