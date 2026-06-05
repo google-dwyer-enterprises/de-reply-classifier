@@ -557,6 +557,47 @@ def process_pending_lead_moves(conn) -> bool:
     return any_work
 
 
+def finalize_complete_requests(conn) -> int:
+    """Sweep finalize: flip any 'ready' request with no pending leads AND
+    no unmoved approveds to status='moved'.
+
+    process_pending_lead_moves only runs finalize_request_if_done after a
+    move actually fires. So when Jam's LAST action on a batch is a rejection
+    (no move work triggered), the per-request finalize never re-checks and
+    the batch sits in status='ready' forever. This sweep covers that gap by
+    running on every poll regardless of move activity. Idempotent — once a
+    request flips to 'moved' it stops matching the WHERE clause.
+
+    Returns the number of requests finalized this call.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update scrape_requests
+               set status   = 'moved',
+                   moved_at = coalesce(moved_at, now())
+             where status = 'ready'
+               and not exists (
+                 select 1 from prospeo_new_leads
+                  where scrape_request_id = scrape_requests.id
+                    and lead_approval = 'pending'
+               )
+               and not exists (
+                 select 1 from prospeo_new_leads
+                  where scrape_request_id = scrape_requests.id
+                    and lead_approval = 'approved'
+                    and lead_moved_at is null
+               )
+            returning id
+            """
+        )
+        finalized = [r[0] for r in cur.fetchall()]
+    conn.commit()
+    for rid in finalized:
+        log(f"req #{rid}: all leads decided — status=moved (finalize sweep)")
+    return len(finalized)
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
@@ -578,6 +619,11 @@ def main() -> None:
             # get moved on the same cycle (no extra 60s wait for Jam).
             did_work = bool(apply_mass_approval(conn)) or did_work
             did_work = process_pending_lead_moves(conn) or did_work
+            # Sweep finalize covers the "Jam's last action was a rejection"
+            # path: no move fires, so process_pending_lead_moves never invokes
+            # the per-request finalize_request_if_done — yet the batch is
+            # actually fully decided. Idempotent.
+            did_work = bool(finalize_complete_requests(conn)) or did_work
         except Exception as e:
             # Defensive: a transient DB error shouldn't kill the worker.
             log(f"poll error: {e}\n{traceback.format_exc()}")
