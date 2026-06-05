@@ -1,18 +1,22 @@
 """Lead Scrape Automation worker.
 
-Single long-running process. Polls `scrape_requests` every POLL_INTERVAL_S
-seconds and drives two state transitions:
+Single long-running process. Polls every POLL_INTERVAL_S seconds and drives:
 
-  1. status='pending'  → run BC scraper → status='ready' (send email)
-  2. status='ready' + approval='approved'
-                       → copy rows from prospeo_new_leads into lead_contacts
-                       → status='moved'
+  1. status='pending'  → run BC scraper → status='ready' (send email).
+  2. For each 'ready' request with leads that have lead_approval='approved'
+     and lead_moved_at IS NULL: copy those leads into lead_contacts and
+     stamp lead_moved_at=now(). Jam approves/rejects leads one-at-a-time
+     in the NocoDB per-batch grid; the worker keeps moving newly-approved
+     leads until the batch is fully decided.
+  3. When every lead for a 'ready' request has a decision (lead_approval !=
+     'pending') AND every approved lead has been moved, the worker auto-
+     finalizes the request to status='moved'.
 
-Both selects use `FOR UPDATE SKIP LOCKED` so multiple workers can coexist
+All claims use `FOR UPDATE SKIP LOCKED` so multiple workers can coexist
 without double-processing the same row.
 
 On startup the worker also sweeps any `status='running'` rows older than
-RUNNING_STUCK_THRESHOLD_S back to 'pending' so a crashed mid-run is auto-
+RUNNING_STUCK_THRESHOLD_S back to 'pending' so a crash mid-scrape is auto-
 recovered on the next loop.
 
 Designed to run as a Railway service. See LEAD_AUTOMATION.md for the deploy
@@ -312,39 +316,73 @@ def process_one_pending_request(conn) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# approved → moved
+# Per-lead approval → granular move (Flavor C)
 # ---------------------------------------------------------------------------
+#
+# Jam reviews leads inside the NocoDB per-batch grid and toggles each row's
+# `lead_approval` to 'approved' or 'rejected'. The worker keeps moving newly-
+# approved leads into lead_contacts on every poll until the batch is fully
+# decided, then auto-finalizes the request.
+#
+# Two functions:
+#   - process_pending_lead_moves(conn) — finds ready requests with leads
+#     that are 'approved' but not yet moved; copies those into lead_contacts.
+#   - finalize_completed_requests(conn) — flips status='moved' on ready
+#     requests where no lead is still 'pending' and every approved lead has
+#     been moved.
 
-def claim_approved_request(conn) -> dict | None:
-    """Pick the oldest ready+approved request. SKIP LOCKED on contention."""
+def find_requests_with_pending_moves(conn) -> list[int]:
+    """Return scrape_request ids that have at least one lead with
+    lead_approval='approved' AND lead_moved_at IS NULL.
+
+    Uses the prospeo_new_leads_pending_move_idx partial index so this is
+    cheap even though prospeo_new_leads has tens of thousands of rows.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """
-            select id from scrape_requests
-            where status = 'ready' and approval = 'approved'
-            order by id
-            for update skip locked
-            limit 1
+            select distinct p.scrape_request_id
+              from prospeo_new_leads p
+              join scrape_requests r on r.id = p.scrape_request_id
+             where p.lead_approval = 'approved'
+               and p.lead_moved_at is null
+               and r.status = 'ready'
+             order by p.scrape_request_id
             """
         )
-        row = cur.fetchone()
-        if not row:
-            return None
-        request_id = row[0]
-    conn.commit()
-    return {"id": request_id}
+        return [r[0] for r in cur.fetchall()]
 
 
-def move_request_to_contacts(conn, request_id: int) -> int:
-    """Copy accepted prospeo_new_leads rows for this request into
-    lead_contacts. Returns the number of rows actually inserted (after
-    ON CONFLICT dedup).
+def move_approved_leads_for_request(conn, request_id: int) -> int:
+    """Copy this request's approved-but-not-yet-moved leads into
+    lead_contacts and stamp lead_moved_at on the source rows.
+
+    Returns the number of NEW rows inserted into lead_contacts (the ON
+    CONFLICT path silently drops dups; all approved-but-not-moved source
+    rows still get lead_moved_at stamped regardless of conflict).
 
     The mapping intentionally lists columns explicitly so we get a loud
     error if lead_contacts gains a NOT NULL column later (rather than
     silently dropping data).
     """
     with conn.cursor() as cur:
+        # Lock the source rows first so concurrent workers can't double-move.
+        cur.execute(
+            """
+            select email
+              from prospeo_new_leads
+             where scrape_request_id = %s
+               and lead_approval = 'approved'
+               and lead_moved_at is null
+             order by id
+             for update skip locked
+            """,
+            (request_id,),
+        )
+        emails = [r[0] for r in cur.fetchall()]
+        if not emails:
+            return 0
+
         cur.execute(
             """
             insert into lead_contacts (
@@ -354,21 +392,35 @@ def move_request_to_contacts(conn, request_id: int) -> int:
             select p.email, p.first_name, p.last_name, p.title, p.company_name,
                    p.company_website, p.source_industry,
                    'BetterContact', now()
-            from prospeo_new_leads p
-            where p.scrape_request_id = %s
-              and p.rejected = false
+              from prospeo_new_leads p
+             where p.scrape_request_id = %s
+               and p.lead_approval = 'approved'
+               and p.lead_moved_at is null
+               and p.email = any(%s)
             on conflict (lead_email) do nothing
             """,
-            (request_id,),
+            (request_id, emails),
         )
         inserted = cur.rowcount
 
         cur.execute(
             """
+            update prospeo_new_leads
+               set lead_moved_at = now()
+             where scrape_request_id = %s
+               and lead_approval = 'approved'
+               and lead_moved_at is null
+               and email = any(%s)
+            """,
+            (request_id, emails),
+        )
+
+        # moved_count on the scrape_requests row is a running total of leads
+        # actually copied (NEW rows only — dedup-conflict rows aren't counted).
+        cur.execute(
+            """
             update scrape_requests
-               set status      = 'moved',
-                   moved_at    = now(),
-                   moved_count = %s
+               set moved_count = moved_count + %s
              where id = %s
             """,
             (inserted, request_id),
@@ -377,24 +429,69 @@ def move_request_to_contacts(conn, request_id: int) -> int:
     return inserted
 
 
-def process_one_approved_request(conn) -> bool:
-    """Pick one approved request and move it. Returns True if work done."""
-    req = claim_approved_request(conn)
-    if not req:
+def finalize_request_if_done(conn, request_id: int) -> bool:
+    """Auto-flip status='moved' when this request is fully decided.
+
+    "Fully decided" = no lead_approval='pending' rows remain AND every
+    'approved' lead has lead_moved_at set. moved_at gets stamped (idempotent
+    via coalesce).
+
+    Returns True if the request was finalized this call.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update scrape_requests
+               set status   = 'moved',
+                   moved_at = coalesce(moved_at, now())
+             where id     = %s
+               and status = 'ready'
+               and not exists (
+                 select 1 from prospeo_new_leads
+                  where scrape_request_id = %s
+                    and lead_approval = 'pending'
+               )
+               and not exists (
+                 select 1 from prospeo_new_leads
+                  where scrape_request_id = %s
+                    and lead_approval = 'approved'
+                    and lead_moved_at is null
+               )
+            returning id
+            """,
+            (request_id, request_id, request_id),
+        )
+        finalized = cur.fetchone() is not None
+    conn.commit()
+    return finalized
+
+
+def process_pending_lead_moves(conn) -> bool:
+    """Across all ready requests, move newly-approved leads into lead_contacts.
+
+    Loops over every request id that has pending moves; for each, locks
+    + moves + finalizes (if applicable). Returns True if any work was done
+    this cycle.
+    """
+    request_ids = find_requests_with_pending_moves(conn)
+    if not request_ids:
         return False
-    rid = req["id"]
-    log(f"req #{rid}: approved, moving into lead_contacts")
-    try:
-        moved = move_request_to_contacts(conn, rid)
-    except Exception as e:
-        tb = traceback.format_exc()
-        # Mark failed but leave the rows in prospeo_new_leads so they can be
-        # moved manually after the engineer fixes the mapping.
-        mark_failed(conn, rid, "move-to-lead_contacts failed:\n" + tb)
-        log(f"req #{rid}: MOVE FAILED — {e}")
-        return True
-    log(f"req #{rid}: moved {moved} rows -> status=moved")
-    return True
+
+    any_work = False
+    for rid in request_ids:
+        try:
+            moved = move_approved_leads_for_request(conn, rid)
+        except Exception as e:
+            tb = traceback.format_exc()
+            mark_failed(conn, rid, "move-to-lead_contacts failed:\n" + tb)
+            log(f"req #{rid}: MOVE FAILED — {e}")
+            continue
+        if moved or True:  # always check finalize, even when ON CONFLICT skipped everything
+            log(f"req #{rid}: moved {moved} approved lead(s) into lead_contacts")
+            any_work = True
+        if finalize_request_if_done(conn, rid):
+            log(f"req #{rid}: all leads decided — status=moved")
+    return any_work
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +511,7 @@ def main() -> None:
     while True:
         try:
             did_work = process_one_pending_request(conn)
-            did_work = process_one_approved_request(conn) or did_work
+            did_work = process_pending_lead_moves(conn) or did_work
         except Exception as e:
             # Defensive: a transient DB error shouldn't kill the worker.
             log(f"poll error: {e}\n{traceback.format_exc()}")

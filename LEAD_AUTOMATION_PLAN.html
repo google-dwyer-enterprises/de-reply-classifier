@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lead Scrape Automation — Implementation Plan</title>
+<style>
+  :root {
+    --fg: #1a1d23;
+    --muted: #5e6470;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e1e4e8;
+    --accent: #0550ae;
+    --accent-soft: #ddeefc;
+    --green: #1a7f37;
+    --green-soft: #ddf4e3;
+    --amber: #9a6700;
+    --amber-soft: #fff4cc;
+    --red: #cf222e;
+    --red-soft: #ffeef0;
+    --pill-bg: #f0f4f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 28px 80px;
+  }
+  header {
+    text-align: center;
+    padding: 24px 0 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  header h1 {
+    font-size: 2.2em;
+    font-weight: 700;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+  }
+  header .tag { color: var(--muted); font-size: 1.05em; }
+  h2 {
+    font-size: 1.5em;
+    font-weight: 700;
+    margin: 48px 0 16px;
+    letter-spacing: -0.01em;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 36px;
+    font-size: 0.8em;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+  h3 { font-size: 1.15em; margin: 28px 0 10px; font-weight: 600; }
+  h4 { font-size: 1em; margin: 16px 0 8px; }
+  p { margin: 0.6em 0; }
+
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--pill-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.88em;
+  }
+  pre {
+    background: var(--pill-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.85em;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--pill-bg); font-weight: 600; font-size: 0.9em; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .callout {
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 16px 0;
+  }
+  .callout.insight { background: #fff8c5; border-left: 4px solid #d4a72c; }
+  .callout.note    { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.caution { background: var(--red-soft); border-left: 4px solid var(--red); }
+  .callout.success { background: var(--green-soft); border-left: 4px solid var(--green); }
+  .callout h4 { margin-top: 0; font-size: 1em; }
+
+  .pill {
+    display: inline-block;
+    background: var(--pill-bg);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.85em;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .pill.ok   { background: var(--green-soft); color: var(--green); }
+  .pill.no   { background: var(--red-soft);   color: var(--red); }
+  .pill.warn { background: var(--amber-soft); color: var(--amber); }
+
+  ul { padding-left: 1.5em; }
+  li { margin: 0.3em 0; }
+
+  .arch {
+    background: var(--pill-bg);
+    border: 1px solid var(--border);
+    padding: 18px;
+    border-radius: 6px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 0.82em;
+    line-height: 1.5;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.88em;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Lead Scrape Automation — Implementation Plan</h1>
+  <div class="tag">Jam-driven NocoDB form → Railway worker → BetterContact scrape → email → per-lead approve/reject → 200K pool. Shipped on <code>main</code> at <code>102f0a4</code> (PR #4); per-lead workflow added on follow-up branch.</div>
+</header>
+
+<div class="callout note">
+  <h4>What this document is</h4>
+  <p>The end-to-end implementation plan for the Lead Scrape Automation feature: <em>what</em> we built, <em>why</em> each piece exists the way it does, and what was verified before merge. Deployment steps (Railway dashboard clicks, env-var values) live in <code>LEAD_AUTOMATION.md</code>.</p>
+</div>
+
+<h2><span class="num">1</span>Why this exists</h2>
+
+<p>Jam can't trigger lead scrapes herself today. She pings the engineer, who runs <code>python run.py scrape-leads ...</code> from a Windows machine, hands over a CSV, and Jam manually copies leads into <code>lead_contacts</code> (the 230,227-row "200K pool"). Every batch adds engineer-time friction and gates Jam on Anna's availability.</p>
+
+<p>The outcome we wanted: <strong>Jam opens NocoDB, fills a one-line form ("I want 500 leads"), and the rest happens without an engineer.</strong> A Railway worker picks up the request, runs the BetterContact scraper, emails Jam when results are ready, and she reviews each lead in NocoDB — approve/reject per row. As leads get approved, the worker keeps moving them into <code>lead_contacts</code>; she can come back over multiple sessions, and the batch auto-finalizes when every lead has a decision.</p>
+
+<h2><span class="num">2</span>End-to-end flow</h2>
+
+<div class="arch">┌────────────────────┐   insert row     ┌─────────────────────┐
+│  NocoDB form view  │ ───────────────► │  scrape_requests    │
+│  (Jam submits)     │                  │  status='pending'   │
+└────────────────────┘                  └─────────────────────┘
+                                                  ▲
+                                                  │ poll every 60 s
+                                                  │
+                                         ┌─────────────────────┐
+                                         │  worker.py          │
+                                         │  (Railway service)  │
+                                         └─────────────────────┘
+                                                  │
+                                                  ├──► bettercontact_sync.main(...)
+                                                  │      inserts into prospeo_new_leads
+                                                  │      tagged scrape_request_id = N
+                                                  │      lead_approval='pending' on
+                                                  │      BC-accepted rows
+                                                  │
+                                                  ├──► status='ready', writes
+                                                  │     scraped_count, credits_spent,
+                                                  │     export_csv_path, export_xlsx_path
+                                                  │
+                                                  └──► Resend ──► email to NOTIFY_EMAIL
+
+┌────────────────────────────┐    set per-row    ┌──────────────────────┐
+│  NocoDB per-batch grid     │ ───────────────►  │  prospeo_new_leads   │
+│  (Jam reviews each lead,   │                   │  lead_approval =     │
+│   sets approve / reject)   │                   │   approved | rejected│
+└────────────────────────────┘                   └──────────────────────┘
+                                                          ▲
+                                                          │ every poll
+                                                          │
+                                                ┌─────────────────────┐
+                                                │  worker copies any  │
+                                                │  approved-but-not-  │
+                                                │  yet-moved leads to │
+                                                │  lead_contacts;     │
+                                                │  stamps lead_moved_ │
+                                                │  at on each.        │
+                                                │                     │
+                                                │  When NO lead is    │
+                                                │  still 'pending':   │
+                                                │  status='moved'.    │
+                                                └─────────────────────┘</div>
+
+<h2><span class="num">3</span>State machine</h2>
+
+<h3>Request-level: <code>scrape_requests.status</code></h3>
+
+<table>
+  <thead><tr><th><code>status</code></th><th>set by</th><th>meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>pending</code></td><td>Jam (NocoDB form insert)</td><td>Waiting for the worker to pick it up.</td></tr>
+    <tr><td><code>running</code></td><td>worker (<code>claim_pending_request</code>)</td><td>Scrape in flight. Tracked with <code>started_at</code> for the stuck-running sweep.</td></tr>
+    <tr><td><code>ready</code></td><td>worker (<code>mark_ready</code>)</td><td>Scrape finished, leads in <code>prospeo_new_leads</code>. Email sent. Jam reviews per-lead inside NocoDB.</td></tr>
+    <tr><td><code>moved</code></td><td>worker (<code>finalize_request_if_done</code>)</td><td>Every lead has a decision (no <code>lead_approval='pending'</code> left) AND every approved lead has been moved. Terminal.</td></tr>
+    <tr><td><code>failed</code></td><td>worker (any exception path)</td><td>BC error, DB error, or move-mapping mismatch. <code>error_message</code> populated. Terminal until manual intervention.</td></tr>
+  </tbody>
+</table>
+
+<h3>Lead-level: <code>prospeo_new_leads.lead_approval</code> + <code>lead_moved_at</code></h3>
+
+<p>The per-lead workflow (Flavor C / granular). NULL on rows from the CLI scraper; for worker-tagged rows, seeded based on BC's filter outcome and then driven by Jam's decisions:</p>
+
+<table>
+  <thead><tr><th><code>lead_approval</code></th><th><code>lead_moved_at</code></th><th>meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>pending</code></td><td>NULL</td><td>BC accepted the lead; Jam hasn't decided yet. Worker keeps the batch in <code>status='ready'</code> while any leads are here.</td></tr>
+    <tr><td><code>approved</code></td><td>NULL</td><td>Jam approved; queued for the next worker move cycle (within ~60s).</td></tr>
+    <tr><td><code>approved</code></td><td>timestamp</td><td>Moved to <code>lead_contacts</code>. (Stays in <code>prospeo_new_leads</code> as the audit trail.)</td></tr>
+    <tr><td><code>rejected</code></td><td>NULL</td><td>Jam rejected, OR BC's filter auto-rejected on insert (<code>rejected=true</code> case). Terminal — never moves.</td></tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <h4>Why two booleans instead of one approval state?</h4>
+  <p><code>lead_approval='approved'</code> alone doesn't tell us whether the move has happened yet — and we can't infer it from <code>lead_contacts</code> because <code>ON CONFLICT (lead_email) DO NOTHING</code> silently drops duplicates. <code>lead_moved_at</code> stamps the worker's <em>intent</em> ("I processed this row"), regardless of whether the insert deduplicated. Distinguishing the two lets the worker run idempotently and the finalize-check be correct.</p>
+</div>
+
+<h2><span class="num">4</span>Schema</h2>
+
+<p>One new table, one new column. DDL lives at the bottom of <code>migrations.sql</code>; applied to production Supabase via <code>scripts/apply_scrape_requests_schema.py</code> (idempotent — safe to re-run).</p>
+
+<pre><code>create table scrape_requests (
+  id              bigserial primary key,
+  -- Input fields (Jam fills these via NocoDB form)
+  requested_leads integer  not null check (requested_leads between 1 and 5000),
+  industries      text[]   not null default '{}',   -- empty = all 12
+  skip_industries text[]   not null default '{}',
+  countries       text[]   not null default '{United States,Canada}',
+  notes           text,
+  -- State machine (worker drives these)
+  status          text not null default 'pending'
+                  check (status in ('pending','running','ready','moved','rejected','failed')),
+  approval        text not null default 'pending'
+                  check (approval in ('pending','approved','rejected')),
+  scraped_count   integer  not null default 0,
+  moved_count     integer  not null default 0,
+  credits_spent   numeric(10,1) not null default 0,
+  created_at      timestamptz not null default now(),
+  started_at      timestamptz,
+  ready_at        timestamptz,
+  moved_at        timestamptz,
+  failed_at       timestamptz,
+  email_sent_at   timestamptz,
+  export_csv_path  text,
+  export_xlsx_path text,
+  error_message   text
+);
+create index scrape_requests_status_idx   on scrape_requests (status);
+create index scrape_requests_approval_idx on scrape_requests (approval);
+
+alter table prospeo_new_leads
+  add column scrape_request_id bigint references scrape_requests(id);
+create index prospeo_new_leads_scrape_request_id_idx
+  on prospeo_new_leads (scrape_request_id) where scrape_request_id is not null;
+
+-- Per-lead approval workflow (Flavor C).
+alter table prospeo_new_leads
+  add column lead_approval text
+    check (lead_approval is null or
+           lead_approval in ('pending', 'approved', 'rejected'));
+alter table prospeo_new_leads
+  add column lead_moved_at timestamptz;
+create index prospeo_new_leads_pending_move_idx
+  on prospeo_new_leads (scrape_request_id)
+  where lead_approval = 'approved' and lead_moved_at is null;</code></pre>
+
+<p><strong>Why <code>prospeo_new_leads.scrape_request_id</code>?</strong> When the move-to-<code>lead_contacts</code> step runs, it needs to pick exactly the rows that came from <em>this</em> request, not a previous one. The tag is the only reliable join key — BC's per-lead id isn't stable across our schema, and <code>scraped_at</code> isn't precise enough to distinguish concurrent runs.</p>
+
+<p><strong>Why the partial index?</strong> The worker's hot path is "find approved-but-not-yet-moved leads." Without the partial index, that scan would be O(all_rows_for_this_request); with it, O(approved_unmoved). With 30K+ rows and most already-moved or auto-rejected by BC, this keeps each poll cheap.</p>
+
+<h2><span class="num">5</span>Components</h2>
+
+<h3>worker.py — the polling loop</h3>
+
+<p>Single long-running process. ~450 lines, procedural. Two responsibilities per poll cycle:</p>
+
+<table>
+  <thead><tr><th>Function</th><th>Job</th></tr></thead>
+  <tbody>
+    <tr><td><code>sweep_stuck_running()</code></td><td>At startup, demote any <code>status='running'</code> row older than 1 hour back to <code>pending</code> (crash recovery from OOM / redeploy / kill).</td></tr>
+    <tr><td><code>claim_pending_request()</code></td><td><code>SELECT ... FOR UPDATE SKIP LOCKED LIMIT 1</code> on <code>status='pending'</code>, flips to <code>running</code> in the same statement.</td></tr>
+    <tr><td><code>run_scrape(req)</code></td><td>Calls <code>bettercontact_sync.main(scrape_request_id=req.id, ...)</code>. Returns the run-summary dict (accepted / credits_spent / csv_path / xlsx_path / aborted_reason).</td></tr>
+    <tr><td><code>mark_ready(...)</code></td><td>Writes <code>scraped_count</code>, <code>credits_spent</code>, <code>export_csv_path</code>, <code>export_xlsx_path</code>; flips to <code>ready</code>.</td></tr>
+    <tr><td><code>mark_failed(...)</code></td><td>Writes <code>error_message</code>, flips to <code>failed</code>. Used by every exception path.</td></tr>
+    <tr><td><code>find_requests_with_pending_moves()</code></td><td>Returns scrape_request ids that have <em>any</em> lead with <code>lead_approval='approved'</code> and <code>lead_moved_at IS NULL</code>. Cheap via the partial index.</td></tr>
+    <tr><td><code>move_approved_leads_for_request(rid)</code></td><td>Per-request: <code>SELECT ... FOR UPDATE SKIP LOCKED</code> on approved-unmoved rows, <code>INSERT INTO lead_contacts ... ON CONFLICT DO NOTHING</code>, then <code>UPDATE ... SET lead_moved_at=now()</code> on the source rows. Increments <code>scrape_requests.moved_count</code> by the number of NEW rows inserted (dedup-skipped rows are still stamped moved_at but don't increment the counter — Jam sees only fresh contributions to the pool).</td></tr>
+    <tr><td><code>finalize_request_if_done(rid)</code></td><td>Atomically flips <code>status='moved'</code> when no <code>lead_approval='pending'</code> rows remain AND every approved row has <code>lead_moved_at</code> set. Idempotent — coalesces <code>moved_at</code> so re-running doesn't reset the timestamp.</td></tr>
+    <tr><td><code>process_pending_lead_moves()</code></td><td>Loops over every request with pending moves, moves each, then attempts finalize. Returns True if any work was done this cycle.</td></tr>
+    <tr><td><code>main()</code></td><td>Endless loop: <code>sweep</code> once, then <code>process_one_pending_request</code> + <code>process_pending_lead_moves</code> every <code>POLL_INTERVAL_S</code> (default 60s). Catches transient DB errors and reconnects.</td></tr>
+  </tbody>
+</table>
+
+<h3>notifier.py — Resend HTTP wrapper</h3>
+
+<p>One file, two functions. Thin HTTP POST to <code>https://api.resend.com/emails</code>. Best-effort: a failure logs to stderr and returns <code>False</code>, never raises. The worker commits <code>status='ready'</code> <em>before</em> attempting the send, so an outage at Resend can't strand a request in a half-state.</p>
+
+<ul>
+  <li><code>send_batch_ready_email(req)</code> — the "your batch is ready" email. HTML body shows leads scraped, credits spent, top 5 industries by count, and an "Open in NocoDB" button.</li>
+  <li><code>send_failure_email(req_id, error)</code> — sent when the pending cycle hits <code>InsufficientCreditsError</code> or an unexpected exception. Subject is <code>Lead batch #N FAILED</code> so Jam sees it stand out.</li>
+</ul>
+
+<h3>bettercontact_sync.py — modified, not new</h3>
+
+<p>Two contract changes; existing CLI callers are unaffected:</p>
+<ul>
+  <li>Added <code>scrape_request_id: int | None = None</code> kwarg to <code>main()</code>, <code>_run_category()</code>, and <code>_insert_leads()</code>. When set, every row inserted into <code>prospeo_new_leads</code> during the run carries this tag.</li>
+  <li><code>_run_category()</code> and <code>main()</code> now return a run-summary <code>dict</code> instead of <code>None</code>: <code>{accepted, rejected, credits_spent, csv_path, xlsx_path, aborted_reason, rejected_counts}</code>. Existing CLI callers ignore the return — no behavior change.</li>
+</ul>
+
+<h3>Infra files</h3>
+
+<ul>
+  <li><code>Dockerfile.worker</code> — <code>python:3.12-slim</code>, installs <code>requirements.txt</code>, <code>CMD python -u worker.py</code>. The <code>-u</code> matters: Railway logs only surface output when the buffer flushes; unbuffered mode shows the worker's heartbeat lines in real time.</li>
+  <li><code>railway.worker.json</code> — service config pointing at <code>Dockerfile.worker</code>, restart <code>ON_FAILURE</code> with max 10 retries. (The existing <code>railway.json</code> stays untouched; it's for the refresh-cron service.)</li>
+  <li><code>LEAD_AUTOMATION.md</code> — operator guide: env vars, NocoDB UI setup, troubleshooting, rollback.</li>
+  <li><code>LEAD_AUTOMATION_MOCKUPS.html</code> — visual mockups used in the design review (NocoDB form, grid, expanded row, email body). Reference only.</li>
+</ul>
+
+<h2><span class="num">6</span>Key design decisions</h2>
+
+<h3>NocoDB as the UI, not a standalone web app</h3>
+<p>Jam already lives in NocoDB to review the existing 200K pool. A new SaaS-style web app would mean another deploy target, another auth scheme, another thing to maintain. NocoDB gives us form + grid + per-row edit for free, and her bookmark is one click. Trade-off: no fancy preview / sort UI — she sees the same per-row grid she uses for <code>lead_contacts</code> today. We considered an Option B standalone web app in the design review (see mockups HTML) and chose NocoDB explicitly.</p>
+
+<h3>Polling instead of a webhook from NocoDB</h3>
+<p>NocoDB's webhook story is fragile (auth, retries, NocoDB version drift). A 60s poll is simpler, robust to Railway restarts, and the latency cost (~30s average) doesn't matter when scrapes take 1–10 minutes anyway.</p>
+
+<h3>Per-lead approval, not batch approval</h3>
+<p>BC's filter does most of the obvious-reject work but isn't perfect — in the E2E test it accepted "Owner, small business bookkeeper @ Crocs" (not a real Crocs employee). A batch-approve workflow would force Jam to either ship those false positives into the 200K pool or reject the whole batch over a handful of bad leads. Per-lead approval lets her cherry-pick. The downside is more clicks per batch; we mitigate by defaulting all BC-accepted leads to <code>pending</code> (no work needed if she approves everything) and letting NocoDB do bulk-row select for mass-approve.</p>
+
+<h3>Idempotent move via <code>lead_moved_at</code></h3>
+<p>The worker can re-fire <code>process_pending_lead_moves</code> on every poll without double-moving anything: the move query filters on <code>lead_moved_at IS NULL</code>, and the UPDATE after the INSERT stamps moved_at regardless of whether the INSERT's ON CONFLICT skipped a row (the lead already exists in <code>lead_contacts</code>). Either way, the row is marked "processed" and won't appear in the next move query.</p>
+
+<h3>Auto-finalize over a "close batch" trigger</h3>
+<p>Jam never has to explicitly tell the worker she's done with a batch. The worker checks every cycle: if no leads are <code>pending</code> AND every approved lead has moved, the request flips to <code>status='moved'</code>. This avoids a UX dead-end where Jam approves the last lead but the batch sits in <code>ready</code> forever because she never clicked a "finalize" button.</p>
+
+<h3>Pre-charged budget cap on BC credits</h3>
+<p>BetterContact's API reports credits consumed only <em>after</em> a call completes. To avoid runaway spend during a slow poll, the worker reserves <code>page_limit</code> credits per submit (<code>in_flight_credits</code>) and checks <code>spent + in_flight + page_limit ≤ max_credits</code> before each new submit. On timeout we conservatively assume the reservation was spent (matches what BC actually charged in the post-batch1 recovery scenario).</p>
+
+<h3>ON CONFLICT (lead_email) DO NOTHING on the move</h3>
+<p><code>lead_contacts</code> already has 230K rows. New BC leads will occasionally overlap with an existing entry; we silently skip those rather than re-insert or merge. <code>moved_count</code> reflects new rows only (the INSERT's rowcount), which is the number Jam cares about ("how many fresh contacts did I just unlock?"). Even when ON CONFLICT skips a row, the source row in <code>prospeo_new_leads</code> still gets <code>lead_moved_at</code> stamped so the worker doesn't keep retrying it.</p>
+
+<h3>Worker tags rows before commit, not after</h3>
+<p>The <code>scrape_request_id</code> goes onto every <code>prospeo_new_leads</code> row inside the existing <code>INSERT</code> in <code>_insert_leads()</code>, not in a follow-up <code>UPDATE</code>. If the scrape crashes mid-cycle, every row already written is correctly tagged and the next move-step will find them.</p>
+
+<h2><span class="num">7</span>What we hit during E2E (and fixed)</h2>
+
+<p>Live testing on the production Supabase + BetterContact API surfaced four issues that would have bitten in production. All four fixed before the PR merge.</p>
+
+<table>
+  <thead><tr><th>Symptom</th><th>Root cause</th><th>Fix</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>credits_spent</code> column was getting absurd values like <em>1837.0</em> for a 3-lead request</td>
+      <td><code>mark_ready</code> was doing <code>(SELECT SUM(total_credits_spent) FROM bettercontact_scrape_state)</code> — that table holds <em>lifetime</em> totals, not per-request</td>
+      <td><code>bettercontact_sync.main</code> returns a run-summary dict; the worker uses its <code>credits_spent</code> directly</td>
+    </tr>
+    <tr>
+      <td><code>requested_leads=3</code> aborted instantly with "budget cap hit (spent=0.0 + in_flight=0.0 + next_reserve=50 > 9)"</td>
+      <td>Budget cap was hard-coded at <code>requested_leads × 3 = 9</code>, but the page_limit was 50 — the cap gated the very first submit</td>
+      <td>Scale <code>page_limit</code> 5× requested (floor 10, ceil 50); floor <code>max_credits</code> at <code>page_limit × 3 + 5</code> so cycle 1 always fits 3 industries</td>
+    </tr>
+    <tr>
+      <td>Worker crashed mid-scrape on Windows with <code>UnicodeEncodeError: 'charmap' codec can't encode '→'</code></td>
+      <td>BC sync's progress logs use <code>→</code>; Windows' default cp1252 stdout can't encode it</td>
+      <td>Worker reconfigures <code>sys.stdout/stderr</code> to UTF-8 on import. No-op on Linux (Railway) but unblocks local dev</td>
+    </tr>
+    <tr>
+      <td>Test email landed with a malformed link: <code>http://xn--(nocodb%20link%20not%20configured...)-b857b/</code></td>
+      <td><code>_build_link</code> returned a human-readable hint string when env vars weren't set; <code>_build_html</code> wrapped it in <code>&lt;a href="..."&gt;</code> and Gmail punycode-encoded the hint</td>
+      <td><code>_build_link</code> returns <code>None</code> when unconfigured; <code>_build_html</code> renders a gray "Find request #N in your NocoDB grid" placeholder pill instead of an anchor tag</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2><span class="num">8</span>What got verified</h2>
+
+<div class="callout success">
+  <h4>Full pending → ready → approved → moved chain on live infra.</h4>
+  <p>Two real Crocs leads (Kelly Vandermeer, Robin Robinson) were scraped via the live BC API tagged with a synthetic <code>scrape_request_id</code>, then moved into <code>lead_contacts</code> with <code>lead_list_source='BetterContact'</code>. Verified by SELECT against production.</p>
+</div>
+
+<table>
+  <thead><tr><th>What</th><th>How</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>mark_ready</code> writes per-request credits</td>
+      <td>Two synthetic requests through <code>mark_ready</code> with deltas 4.2 and 1.5</td>
+      <td><span class="pill ok">PASS</span> both persisted exactly</td>
+    </tr>
+    <tr>
+      <td>Pending → running → ready</td>
+      <td>Insert pending row → <code>worker.process_one_pending_request</code> → SELECT</td>
+      <td><span class="pill ok">PASS</span> status flipped, scrape ran</td>
+    </tr>
+    <tr>
+      <td>Approved → moved</td>
+      <td>Set <code>approval='approved'</code> → <code>worker.process_one_approved_request</code> → SELECT from <code>lead_contacts</code></td>
+      <td><span class="pill ok">PASS</span> 2 rows moved, status='moved'</td>
+    </tr>
+    <tr>
+      <td>BC small-target regression</td>
+      <td><code>requested_leads=3</code> after the page_limit / max_credits fix</td>
+      <td><span class="pill ok">PASS</span> 3 industries fan out, scrape completes</td>
+    </tr>
+    <tr>
+      <td>Windows cp1252 crash</td>
+      <td>Re-run on Windows after UTF-8 stdout fix</td>
+      <td><span class="pill ok">PASS</span> no encoding error</td>
+    </tr>
+    <tr>
+      <td>Resend "batch ready" delivery</td>
+      <td>Sent via personal Resend → <code>hassanmehmood4077@gmail.com</code></td>
+      <td><span class="pill ok">PASS</span> email arrived in Gmail inbox</td>
+    </tr>
+    <tr>
+      <td>NocoDB link template + unconfigured fallback</td>
+      <td>Unit-tested both <code>_build_link</code> branches; re-sent email confirms gray pill renders instead of garbage URL</td>
+      <td><span class="pill ok">PASS</span> no fake URL when unset, proper anchor when set</td>
+    </tr>
+    <tr>
+      <td>Granular per-lead approval workflow</td>
+      <td>Synthetic 5-lead batch through 4 scenarios: no-approval no-op, partial approval (2/5), reject (no move), final approve+reject auto-finalize</td>
+      <td><span class="pill ok">PASS</span> moved counts correct, status flips only when batch fully decided</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2><span class="num">9</span>What this plan does NOT do</h2>
+
+<ul>
+  <li><strong>No editing a request after submit.</strong> Jam submits a new one. (Considered; deferred until we see whether the per-lead reject workflow makes it unnecessary.)</li>
+  <li><strong>No automatic load into Instantly.</strong> Leads land in <code>lead_contacts</code>; the existing flow takes over from there.</li>
+  <li><strong>No multi-workspace <code>sent_messages</code> sync fix.</strong> Separate ticket; see <code>FOLLOWUP_ANALYSIS_PLAN.md</code> §6.</li>
+  <li><strong>No multi-approver workflow.</strong> Single Jam approval is enough.</li>
+</ul>
+
+<h2><span class="num">10</span>Status &amp; open items</h2>
+
+<table>
+  <thead><tr><th>Item</th><th>State</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Schema in production Supabase</td><td><span class="pill ok">done</span></td><td>Applied via <code>scripts/apply_scrape_requests_schema.py</code></td></tr>
+    <tr><td>Worker code on <code>main</code></td><td><span class="pill ok">done</span></td><td>PR #4 merged at <code>102f0a4</code></td>
+    </tr>
+    <tr><td>Resend wiring</td><td><span class="pill ok">done</span></td><td>Personal Resend key in use; switch to dwyer-enterprises Resend after DNS verification</td></tr>
+    <tr><td>Resend domain verification</td><td><span class="pill warn">blocked</span></td><td>DNS is on WordPress.com; need credentials from domain owner. Worker keeps working with shared sender (<code>onboarding@resend.dev</code>) until then</td></tr>
+    <tr><td>Railway deploy</td><td><span class="pill warn">pending</span></td><td>Steps in <code>LEAD_AUTOMATION.md</code></td></tr>
+    <tr><td>NocoDB views (Form, Grid, SingleSelect, conditional coloring)</td><td><span class="pill warn">pending</span></td><td>~15 min, one-time. Done after Railway is up so the form can be smoke-tested end-to-end</td></tr>
+    <tr><td><code>NOCODB_ROW_URL_TEMPLATE</code> in Railway env</td><td><span class="pill warn">pending</span></td><td>Set after views are configured; copy any expanded-row URL and replace the row id with <code>{id}</code></td></tr>
+  </tbody>
+</table>
+
+<footer>
+  Implementation plan generated 2026-06-04. Source: <code>main</code> commit <code>102f0a4</code> (PR #4).
+</footer>
+
+</body>
+</html>
