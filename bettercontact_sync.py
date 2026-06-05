@@ -378,9 +378,13 @@ def _update_state(conn, industry: str, *, new_offset: int,
         ))
 
 
-def _insert_leads(conn, leads: list[dict]) -> int:
+def _insert_leads(conn, leads: list[dict],
+                   scrape_request_id: int | None = None) -> int:
     """Bulk-insert leads (accepted or rejected). Caller sets each row's
-    `rejected` field explicitly. Returns rows actually inserted."""
+    `rejected` field explicitly. When `scrape_request_id` is set, every row
+    is tagged so the lead-scrape-automation worker can later move just the
+    rows from a specific request into `lead_contacts`. Returns rows actually
+    inserted."""
     if not leads:
         return 0
     cols = ["email", "first_name", "last_name", "title", "company_name",
@@ -388,10 +392,11 @@ def _insert_leads(conn, leads: list[dict]) -> int:
             "source_industry", "scrape_mode", "provider",
             "mobile", "mobile_status",
             "agency_filter_result", "agency_filter_method",
-            "agency_filter_reason", "rejected", "bettercontact_raw"]
+            "agency_filter_reason", "rejected", "bettercontact_raw",
+            "scrape_request_id"]
     rows = [
         [l.get(c) if c != "bettercontact_raw" else json.dumps(l.get(c) or {})
-         for c in cols]
+         for c in cols[:-1]] + [scrape_request_id]
         for l in leads
     ]
     placeholders = ",".join(["%s"] * len(cols))
@@ -411,9 +416,25 @@ def _run_category(conn, api_key: str, *,
                    country: list[str] | None,
                    skip_industries: list[str] | None = None,
                    page_limit: int = BC_PAGE_LIMIT,
-                   dry_run: bool, max_credits: int | None) -> None:
+                   dry_run: bool, max_credits: int | None,
+                   scrape_request_id: int | None = None) -> dict:
     """Round-robin over BC_INDUSTRIES, advancing each industry's offset by
-    BC_PAGE_LIMIT each cycle until target/budget/exhaustion."""
+    BC_PAGE_LIMIT each cycle until target/budget/exhaustion.
+
+    Returns a run summary dict so callers (the Lead Scrape Automation worker)
+    can record per-request stats without re-querying the lifetime-aggregated
+    bettercontact_scrape_state table:
+        {
+          "accepted": int,
+          "rejected": int,
+          "credits_spent": float,
+          "csv_path": str | None,
+          "xlsx_path": str | None,
+          "aborted_reason": str | None,
+          "rejected_counts": dict[str, int],
+        }
+    Dry-run / all-exhausted early-returns get a zero-stats dict (still a dict).
+    """
     countries = country
     skip_set = set(skip_industries or [])
 
@@ -434,7 +455,10 @@ def _run_category(conn, api_key: str, *,
 
     if not queue:
         print("All industries exhausted. Reset state to re-scan from top.")
-        return
+        return {"accepted": 0, "rejected": 0, "credits_spent": 0.0,
+                "csv_path": None, "xlsx_path": None,
+                "aborted_reason": "all_industries_exhausted",
+                "rejected_counts": {}}
 
     print(f"  {len(queue)} industries active.")
 
@@ -442,7 +466,10 @@ def _run_category(conn, api_key: str, *,
         for ind in queue:
             s = state.get(ind, {})
             print(f"  would scrape {ind!r} starting at offset={s.get('last_offset_consumed', 0)}")
-        return
+        return {"accepted": 0, "rejected": 0, "credits_spent": 0.0,
+                "csv_path": None, "xlsx_path": None,
+                "aborted_reason": "dry_run",
+                "rejected_counts": {}}
 
     # Per-industry consecutive transport-failure counter (drop after N).
     consec_failures: dict[str, int] = {ind: 0 for ind in queue}
@@ -598,7 +625,8 @@ def _run_category(conn, api_key: str, *,
                 existing_emails.add(lead["email"])
 
             if batch_accepted or batch_rejected:
-                _insert_leads(conn, batch_accepted + batch_rejected)
+                _insert_leads(conn, batch_accepted + batch_rejected,
+                              scrape_request_id=scrape_request_id)
                 conn.commit()
 
             new_offset = offset + page_limit
@@ -674,6 +702,16 @@ def _run_category(conn, api_key: str, *,
         for reason, n in sorted(rejected_counts.items(), key=lambda x: -x[1])[:10]:
             print(f"    {reason}: {n}")
 
+    return {
+        "accepted": len(accepted),
+        "rejected": len(rejected),
+        "credits_spent": float(credits_spent),
+        "csv_path": csv_path,
+        "xlsx_path": xlsx_path,
+        "aborted_reason": aborted_reason,
+        "rejected_counts": dict(rejected_counts),
+    }
+
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -683,12 +721,18 @@ def main(*, mode: str = "category", target_leads: int | None = None,
          country: list[str] | None = None,
          skip_industries: list[str] | None = None,
          page_limit: int = BC_PAGE_LIMIT,
-         dry_run: bool = False, max_credits: int | None = None) -> None:
+         dry_run: bool = False, max_credits: int | None = None,
+         scrape_request_id: int | None = None) -> dict:
     """Entry point for `run.py scrape-leads --provider bettercontact`.
 
     Domain mode is NOT supported — BetterContact's Lead Finder is criteria-
     based, not domain-list based. If you want enrichment of an existing
     domain list, that's a different endpoint (separate implementation).
+
+    `scrape_request_id`, when set, tags every inserted row in
+    `prospeo_new_leads` so the Lead Scrape Automation worker (see worker.py)
+    can later move the request's rows into `lead_contacts` on approval.
+    Callers from the CLI leave this as None — only the worker uses it.
     """
     if mode != "category":
         raise SystemExit(f"BetterContact only supports --mode category (got {mode!r})")
@@ -700,11 +744,12 @@ def main(*, mode: str = "category", target_leads: int | None = None,
 
     conn = connect()
     try:
-        _run_category(conn, api_key,
-                      target_leads=target_leads, country=country,
-                      skip_industries=skip_industries,
-                      page_limit=page_limit,
-                      dry_run=dry_run, max_credits=max_credits)
+        return _run_category(conn, api_key,
+                             target_leads=target_leads, country=country,
+                             skip_industries=skip_industries,
+                             page_limit=page_limit,
+                             dry_run=dry_run, max_credits=max_credits,
+                             scrape_request_id=scrape_request_id)
     finally:
         conn.close()
 

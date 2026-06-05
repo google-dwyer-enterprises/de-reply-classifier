@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Lead Scrape Automation — UI Mockups</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 1100px; margin: 0 auto; padding: 28px; color: #1a1a1a; background: #f7f7f8; line-height: 1.5; }
+  h1 { margin: 0 0 8px; font-size: 28px; }
+  h2 { margin-top: 40px; padding-bottom: 8px; border-bottom: 3px solid #2563eb; font-size: 22px; }
+  h3 { margin-top: 28px; font-size: 17px; color: #374151; }
+  .lede { color: #6b7280; margin-bottom: 28px; }
+  .option { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 18px 22px; margin: 16px 0; }
+  .option-label { display: inline-block; background: #2563eb; color: white; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
+  .screen { background: #fff; border: 1px solid #d1d5db; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); margin: 16px 0; overflow: hidden; }
+  .screen-title { background: #f3f4f6; padding: 8px 14px; font-size: 12px; color: #6b7280; border-bottom: 1px solid #e5e7eb; font-weight: 600; letter-spacing: 0.3px; }
+  .screen-body { padding: 18px; }
+  /* NocoDB-style */
+  .noco-toolbar { background: #fff; border: 1px solid #e5e7eb; padding: 6px 12px; display: flex; gap: 8px; align-items: center; font-size: 13px; }
+  .noco-toolbar .crumb { color: #6b7280; }
+  .noco-toolbar .crumb-active { color: #111827; font-weight: 600; }
+  .noco-form { background: #fafafa; border: 1px solid #e5e7eb; padding: 18px; max-width: 540px; }
+  .noco-form .field { margin-bottom: 14px; }
+  .noco-form label { display: block; font-size: 13px; color: #374151; font-weight: 600; margin-bottom: 4px; }
+  .noco-form input, .noco-form select, .noco-form textarea { width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font: inherit; box-sizing: border-box; }
+  .noco-form .chips { padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; background: white; min-height: 32px; }
+  .chip { display: inline-block; background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin: 2px 4px 2px 0; }
+  .btn-primary { background: #2563eb; color: white; border: none; padding: 7px 16px; border-radius: 4px; cursor: pointer; font: inherit; font-weight: 600; }
+  .btn-secondary { background: white; color: #374151; border: 1px solid #d1d5db; padding: 7px 16px; border-radius: 4px; cursor: pointer; font: inherit; }
+  .btn-success { background: #16a34a; color: white; border: none; padding: 7px 16px; border-radius: 4px; cursor: pointer; font: inherit; font-weight: 600; }
+  .btn-danger { background: white; color: #b91c1c; border: 1px solid #fecaca; padding: 7px 16px; border-radius: 4px; cursor: pointer; font: inherit; }
+  /* NocoDB grid */
+  table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.grid th, table.grid td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+  table.grid th { background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 12px; letter-spacing: 0.3px; }
+  table.grid tr.highlight { background: #fffbeb; }
+  .status-pill { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; }
+  .status-ready { background: #fef3c7; color: #92400e; }
+  .status-approved { background: #dcfce7; color: #166534; }
+  .status-running { background: #dbeafe; color: #1e40af; }
+  .status-rejected { background: #fee2e2; color: #991b1b; }
+  /* Expanded NocoDB record */
+  .noco-expanded { background: white; border: 1px solid #e5e7eb; padding: 20px; }
+  .field-pair { display: flex; gap: 18px; margin-bottom: 10px; font-size: 14px; }
+  .field-pair .k { color: #6b7280; min-width: 130px; }
+  .field-pair .v { color: #111827; font-weight: 500; }
+  .preview-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0 16px; }
+  .preview-table th, .preview-table td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; text-align: left; }
+  .preview-table th { background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 11px; }
+  /* Web form style (more like a SaaS app) */
+  .web-frame { background: linear-gradient(180deg, #1e293b 0%, #1e293b 48px, white 48px); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+  .web-frame .urlbar { padding: 12px 16px; color: #93c5fd; font-family: ui-monospace, monospace; font-size: 12px; }
+  .web-content { padding: 32px 36px; }
+  .web-title { font-size: 24px; font-weight: 700; color: #111827; margin-bottom: 4px; }
+  .web-subtitle { color: #6b7280; margin-bottom: 24px; }
+  .web-form .group { margin-bottom: 20px; }
+  .web-form label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .web-form input[type="number"], .web-form input[type="text"], .web-form textarea {
+    width: 100%; padding: 10px 12px; border: 1.5px solid #d1d5db; border-radius: 6px;
+    font: inherit; box-sizing: border-box;
+  }
+  .industry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .industry-chk { display: flex; align-items: center; padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 6px; gap: 8px; cursor: pointer; font-size: 14px; }
+  .industry-chk.checked { background: #eff6ff; border-color: #3b82f6; }
+  .country-pills .chip { font-size: 14px; padding: 4px 12px; }
+  .summary-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 12px 0; }
+  .stats-row { display: flex; gap: 24px; padding: 12px 0; border-top: 1px solid #f3f4f6; }
+  .stat { flex: 1; }
+  .stat-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-value { font-size: 22px; font-weight: 700; color: #111827; }
+  .action-bar { display: flex; gap: 10px; justify-content: flex-end; padding-top: 18px; border-top: 1px solid #e5e7eb; }
+  /* Email */
+  .email { background: white; border: 1px solid #d1d5db; border-radius: 8px; max-width: 580px; margin: 12px 0; overflow: hidden; }
+  .email-hdr { background: #f9fafb; padding: 12px 16px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+  .email-hdr .from { color: #111827; font-weight: 600; }
+  .email-hdr .meta { color: #6b7280; font-size: 12px; }
+  .email-body { padding: 22px 24px; font-size: 14px; line-height: 1.7; }
+  .email-button { display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 12px 0; }
+  .note { background: #fffbeb; border-left: 3px solid #f59e0b; padding: 10px 14px; font-size: 13px; color: #78350f; margin: 12px 0; border-radius: 0 4px 4px 0; }
+  .arrow { color: #2563eb; font-weight: 700; padding: 6px 0; text-align: center; }
+  .arrow::before { content: "↓ "; }
+  details summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+</style>
+</head>
+<body>
+
+<h1>Lead Scrape Automation — UI Mockups</h1>
+<p class="lede">Two visual options for the same flow: <strong>Jam enters count → script runs → email notifies → Jam approves → leads load into the 200k pool</strong>. Pick the lane you prefer; both are equally feasible.</p>
+
+<!-- ========================================================================
+     OPTION 1 — NocoDB
+     ======================================================================== -->
+<h2>Option A: NocoDB form (recommended)</h2>
+<p class="lede">Lives inside the NocoDB Jam already uses for the followup tracker. No new tool to learn or log into. Implementation = one new table + a status-field workflow.</p>
+
+<div class="option">
+  <span class="option-label">Screen 1 of 5 — Submit a request</span>
+  <h3>Jam clicks "+ New row" on the <code>scrape_requests</code> table</h3>
+
+  <div class="noco-toolbar">
+    <span class="crumb">solar_grasshopper</span> /
+    <span class="crumb">leads</span> /
+    <span class="crumb-active">scrape_requests</span>
+    <div style="flex:1"></div>
+    <button class="btn-secondary">+ Filter</button>
+    <button class="btn-secondary">Sort</button>
+  </div>
+
+  <div class="screen" style="background: rgba(255,255,255,0); border: 0; box-shadow: none;">
+    <div class="noco-form">
+      <div class="field">
+        <label>Requested leads <span style="color:#dc2626">*</span></label>
+        <input type="number" value="500">
+      </div>
+      <div class="field">
+        <label>Industries (pick any subset; empty = all 12)</label>
+        <div class="chips">
+          <span class="chip">Cosmetics ×</span>
+          <span class="chip">Pet Services ×</span>
+          <span class="chip">Sporting Goods Manufacturing ×</span>
+          <span style="color: #9ca3af; font-size: 12px;">+ Add</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Skip industries (always excluded)</label>
+        <div class="chips">
+          <span class="chip">Food and Beverage Manufacturing ×</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Countries</label>
+        <div class="chips">
+          <span class="chip">United States ×</span>
+          <span class="chip">Canada ×</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Notes (optional)</label>
+        <textarea rows="2" placeholder="Anything Anna or Victor should know about this batch..."></textarea>
+      </div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn-secondary">Cancel</button>
+        <button class="btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <p style="color:#6b7280; font-size:13px;">→ Save triggers a row insert. The Railway worker is polling this table every 60 s for rows with <code>status = 'pending'</code>, picks this one up, and starts scraping.</p>
+</div>
+
+<div class="arrow">script runs in background (5–20 min)</div>
+
+<div class="option">
+  <span class="option-label">Screen 2 of 5 — Grid view while it's running</span>
+  <h3>The list view shows status changing live</h3>
+
+  <div class="noco-toolbar">
+    <span class="crumb-active">scrape_requests</span>
+    <div style="flex:1"></div>
+    <span style="color: #6b7280; font-size: 12px;">3 records · last updated 30s ago</span>
+  </div>
+
+  <table class="grid">
+    <thead>
+      <tr><th>#</th><th>Requested</th><th>Industries</th><th>Status</th><th>Scraped so far</th><th>Credits used</th><th>Approval</th><th>Created</th></tr>
+    </thead>
+    <tbody>
+      <tr class="highlight">
+        <td>14</td><td>500</td><td>3 chosen</td>
+        <td><span class="status-pill status-running">running</span></td>
+        <td>142 / 500</td><td>286</td><td>—</td>
+        <td>Jun 4, 9:30 AM</td>
+      </tr>
+      <tr>
+        <td>13</td><td>200</td><td>all 12</td>
+        <td><span class="status-pill status-approved">moved</span></td>
+        <td>198</td><td>421</td>
+        <td><span class="status-pill status-approved">approved</span></td>
+        <td>Jun 3, 4:15 PM</td>
+      </tr>
+      <tr>
+        <td>12</td><td>300</td><td>all 12</td>
+        <td><span class="status-pill status-approved">moved</span></td>
+        <td>289</td><td>602</td>
+        <td><span class="status-pill status-approved">approved</span></td>
+        <td>Jun 3, 1:02 PM</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="arrow">scrape completes → status becomes "ready" → email sent</div>
+
+<div class="option">
+  <span class="option-label">Screen 3 of 5 — Email Jam gets</span>
+
+  <div class="email">
+    <div class="email-hdr">
+      <div class="from">Dwyer Lead Scraper &lt;noreply@dwyer-enterprises.com&gt;</div>
+      <div class="meta">to jam@dwyer-enterprises.com · Jun 4, 9:47 AM</div>
+      <div style="margin-top:4px; font-weight:600;">Lead batch #14 ready for review — 487 leads scraped</div>
+    </div>
+    <div class="email-body">
+      Hi Jam,<br><br>
+      Batch <strong>#14</strong> finished scraping. <strong>487 of 500 requested leads</strong> were found (verified-deliverable decision makers). <strong>1,015 credits</strong> spent.<br><br>
+
+      Top industries this batch:<br>
+      • Pet Services: 154<br>
+      • Sporting Goods Manufacturing: 121<br>
+      • Cosmetics: 88<br><br>
+
+      Open the request in NocoDB to review the preview and approve:<br>
+
+      <a class="email-button" href="#">Open request #14 in NocoDB →</a><br>
+
+      Once approved, the leads will be loaded into the 200k contact pool automatically.<br><br>
+
+      <span style="color:#6b7280; font-size:13px;">— Lead Scraper bot</span>
+    </div>
+  </div>
+</div>
+
+<div class="arrow">Jam clicks the link → lands on the expanded record</div>
+
+<div class="option">
+  <span class="option-label">Screen 4 of 5 — Expanded record (approval view)</span>
+  <h3>Click on row #14 opens this side panel in NocoDB</h3>
+
+  <div class="noco-expanded">
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom: 16px;">
+      <h3 style="margin:0;">Job #14 — <span class="status-pill status-ready">ready for review</span></h3>
+    </div>
+
+    <div class="field-pair"><span class="k">Requested:</span><span class="v">500</span></div>
+    <div class="field-pair"><span class="k">Scraped:</span><span class="v">487</span></div>
+    <div class="field-pair"><span class="k">Credits spent:</span><span class="v">1,015</span></div>
+    <div class="field-pair"><span class="k">Industries:</span><span class="v">Cosmetics, Pet Services, Sporting Goods Manufacturing</span></div>
+    <div class="field-pair"><span class="k">Created:</span><span class="v">Jun 4, 9:30 AM</span></div>
+    <div class="field-pair"><span class="k">Ready at:</span><span class="v">Jun 4, 9:47 AM</span></div>
+
+    <h3 style="margin-top:20px;">Preview (first 6 of 487)</h3>
+    <table class="preview-table">
+      <thead><tr><th>Email</th><th>Name</th><th>Company</th><th>Title</th><th>Industry</th></tr></thead>
+      <tbody>
+        <tr><td>chelsea@loveamika.com</td><td>Chelsea Riggs</td><td>Amika</td><td>CEO</td><td>Cosmetics</td></tr>
+        <tr><td>jaye@moroccanoil.com</td><td>Jay Elarar</td><td>Moroccanoil</td><td>CEO Americas</td><td>Cosmetics</td></tr>
+        <tr><td>matt@freshfield.life</td><td>Matt Mazur</td><td>Freshfield</td><td>Founder</td><td>Personal Care</td></tr>
+        <tr><td>tim@huxleyandkent.com</td><td>Tim Anderson</td><td>Huxley &amp; Kent</td><td>CEO</td><td>Pet Services</td></tr>
+        <tr><td>tom@bell-corp.biz</td><td>Tom Bell</td><td>Belcorp</td><td>Owner</td><td>Cosmetics</td></tr>
+        <tr><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td></tr>
+      </tbody>
+    </table>
+
+    <div style="margin: 20px 0 12px;">
+      <label style="display:block; font-weight:600; margin-bottom:6px;">Approval</label>
+      <select style="width:200px; padding:6px 10px; border:1px solid #d1d5db; border-radius:4px;">
+        <option>pending</option>
+        <option style="background:#dcfce7">approved</option>
+        <option style="background:#fee2e2">rejected</option>
+      </select>
+      <span style="color:#6b7280; font-size:13px; margin-left:8px;">change to "approved" to load into 200k</span>
+    </div>
+
+    <div class="note">
+      <strong>How approval works:</strong> Setting the dropdown to <strong>approved</strong> triggers the worker to copy these 487 rows from <code>prospeo_new_leads</code> into <code>lead_contacts</code> (the 200k pool). Status flips to "moved" automatically.
+    </div>
+  </div>
+</div>
+
+<div class="arrow">After approval</div>
+
+<div class="option">
+  <span class="option-label">Screen 5 of 5 — After approval</span>
+  <h3>The row updates to "moved", and 487 leads are in <code>lead_contacts</code></h3>
+
+  <table class="grid">
+    <thead>
+      <tr><th>#</th><th>Requested</th><th>Status</th><th>Scraped</th><th>Approval</th><th>Moved at</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>14</td><td>500</td>
+        <td><span class="status-pill status-approved">moved</span></td>
+        <td>487</td>
+        <td><span class="status-pill status-approved">approved</span></td>
+        <td>Jun 4, 10:02 AM</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="color:#6b7280; font-size:13px;">Done. Jam never left NocoDB.</p>
+</div>
+
+<!-- ========================================================================
+     OPTION 2 — Web form
+     ======================================================================== -->
+<h2>Option B: Standalone web form</h2>
+<p class="lede">A dedicated small SaaS app on Railway. More design control, looks more polished, but Jam has to remember a new URL. Submit, approval, and preview all live in this one app.</p>
+
+<div class="option">
+  <span class="option-label">Screen 1 of 5 — Submit a request</span>
+  <h3>jam.dwyer.app/scrape</h3>
+
+  <div class="web-frame">
+    <div class="urlbar">https://jam.dwyer.app/scrape</div>
+    <div class="web-content">
+      <div class="web-title">Request a lead scrape</div>
+      <div class="web-subtitle">Decision-maker leads (CEO / Founder / Owner) verified-deliverable</div>
+
+      <form class="web-form">
+        <div class="group">
+          <label>How many leads do you want?</label>
+          <input type="number" value="500">
+        </div>
+
+        <div class="group">
+          <label>Industries (uncheck to exclude)</label>
+          <div class="industry-grid">
+            <div class="industry-chk checked">✓ Cosmetics</div>
+            <div class="industry-chk checked">✓ Pet Services</div>
+            <div class="industry-chk checked">✓ Sporting Goods Manufacturing</div>
+            <div class="industry-chk checked">✓ Apparel Manufacturing</div>
+            <div class="industry-chk checked">✓ Retail Apparel and Fashion</div>
+            <div class="industry-chk checked">✓ Personal Care Product Mfg</div>
+            <div class="industry-chk">☐ Food and Beverage Manufacturing</div>
+            <div class="industry-chk checked">✓ Furniture & Home Furnishings</div>
+            <div class="industry-chk checked">✓ Consumer Goods</div>
+            <div class="industry-chk checked">✓ Retail Groceries</div>
+            <div class="industry-chk checked">✓ Alternative Medicine</div>
+            <div class="industry-chk checked">✓ Retail Health & Personal Care</div>
+          </div>
+        </div>
+
+        <div class="group">
+          <label>Countries</label>
+          <div class="country-pills">
+            <span class="chip">United States ×</span>
+            <span class="chip">Canada ×</span>
+            <span style="color:#6b7280;">+ add</span>
+          </div>
+        </div>
+
+        <div class="group">
+          <label>Notes (optional)</label>
+          <textarea rows="2" placeholder="Any context for this batch..."></textarea>
+        </div>
+
+        <div class="action-bar">
+          <button class="btn-primary">Submit request</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="arrow">scrape runs</div>
+
+<div class="option">
+  <span class="option-label">Screen 2 of 5 — Confirmation page after submit</span>
+
+  <div class="web-frame">
+    <div class="urlbar">https://jam.dwyer.app/scrape/14</div>
+    <div class="web-content">
+      <div class="web-title">Request #14 submitted ✓</div>
+      <div class="web-subtitle">Estimated time to complete: 10–25 minutes</div>
+
+      <div class="summary-card">
+        <div class="field-pair"><span class="k">Requested:</span><span class="v">500 leads</span></div>
+        <div class="field-pair"><span class="k">Industries:</span><span class="v">11 selected (Food &amp; Bev excluded)</span></div>
+        <div class="field-pair"><span class="k">Countries:</span><span class="v">United States, Canada</span></div>
+        <div class="field-pair"><span class="k">Status:</span><span class="v"><span class="status-pill status-running">queued</span> → will start within 60 seconds</span></div>
+      </div>
+
+      <p style="color:#374151;">You'll get an email at <strong>jam@dwyer-enterprises.com</strong> when the leads are ready to review.</p>
+
+      <div style="margin-top:24px;">
+        <button class="btn-secondary">← Submit another</button>
+        <button class="btn-secondary" style="margin-left:8px;">View all requests</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="arrow">script runs in background</div>
+
+<div class="option">
+  <span class="option-label">Screen 3 of 5 — Email Jam gets (same as Option A)</span>
+
+  <div class="email">
+    <div class="email-hdr">
+      <div class="from">Dwyer Lead Scraper &lt;noreply@dwyer-enterprises.com&gt;</div>
+      <div class="meta">to jam@dwyer-enterprises.com · Jun 4, 9:47 AM</div>
+      <div style="margin-top:4px; font-weight:600;">Lead batch #14 ready for review — 487 leads scraped</div>
+    </div>
+    <div class="email-body">
+      Hi Jam,<br><br>
+      Batch <strong>#14</strong> finished scraping. <strong>487 of 500 requested leads</strong> were found. <strong>1,015 credits</strong> spent.<br><br>
+
+      <a class="email-button" href="#">Review &amp; approve →</a><br>
+
+      <span style="color:#6b7280; font-size:13px;">Or copy this link: jam.dwyer.app/scrape/14/review?token=...</span>
+    </div>
+  </div>
+</div>
+
+<div class="arrow">Jam clicks the link</div>
+
+<div class="option">
+  <span class="option-label">Screen 4 of 5 — Review &amp; approve page</span>
+
+  <div class="web-frame">
+    <div class="urlbar">https://jam.dwyer.app/scrape/14/review</div>
+    <div class="web-content">
+      <div class="web-title">Request #14 — ready to approve</div>
+      <div class="web-subtitle">Created Jun 4, 9:30 AM · Finished Jun 4, 9:47 AM (17 min)</div>
+
+      <div class="summary-card">
+        <div class="stats-row" style="border-top:0; padding-top:0;">
+          <div class="stat"><div class="stat-label">Requested</div><div class="stat-value">500</div></div>
+          <div class="stat"><div class="stat-label">Scraped</div><div class="stat-value">487</div></div>
+          <div class="stat"><div class="stat-label">Credits</div><div class="stat-value">1,015</div></div>
+          <div class="stat"><div class="stat-label">$ Est.</div><div class="stat-value">$50.75</div></div>
+        </div>
+      </div>
+
+      <h3>By industry</h3>
+      <table class="preview-table">
+        <tbody>
+          <tr><td>Pet Services</td><td style="text-align:right">154</td><td style="width:60%"><div style="background:#3b82f6;height:8px;width:75%;border-radius:4px"></div></td></tr>
+          <tr><td>Sporting Goods Manufacturing</td><td style="text-align:right">121</td><td><div style="background:#3b82f6;height:8px;width:60%;border-radius:4px"></div></td></tr>
+          <tr><td>Cosmetics</td><td style="text-align:right">88</td><td><div style="background:#3b82f6;height:8px;width:43%;border-radius:4px"></div></td></tr>
+          <tr><td>Personal Care Product Mfg</td><td style="text-align:right">52</td><td><div style="background:#3b82f6;height:8px;width:26%;border-radius:4px"></div></td></tr>
+          <tr><td>Alternative Medicine</td><td style="text-align:right">38</td><td><div style="background:#3b82f6;height:8px;width:19%;border-radius:4px"></div></td></tr>
+          <tr><td>...</td><td style="text-align:right">34</td><td></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Preview (first 6)</h3>
+      <table class="preview-table">
+        <thead><tr><th>Email</th><th>Name</th><th>Company</th><th>Title</th></tr></thead>
+        <tbody>
+          <tr><td>chelsea@loveamika.com</td><td>Chelsea Riggs</td><td>Amika</td><td>CEO</td></tr>
+          <tr><td>jaye@moroccanoil.com</td><td>Jay Elarar</td><td>Moroccanoil</td><td>CEO Americas</td></tr>
+          <tr><td>matt@freshfield.life</td><td>Matt Mazur</td><td>Freshfield</td><td>Founder</td></tr>
+          <tr><td>tim@huxleyandkent.com</td><td>Tim Anderson</td><td>Huxley &amp; Kent</td><td>CEO</td></tr>
+          <tr><td>fumi@abokichi.com</td><td>Fumi Tsukui</td><td>Abokichi</td><td>Founder</td></tr>
+          <tr><td>tanya@opexpert.co</td><td>Tanya Lewis</td><td>OpExpert</td><td>CEO</td></tr>
+        </tbody>
+      </table>
+
+      <div class="action-bar">
+        <button class="btn-secondary">Download CSV</button>
+        <button class="btn-danger">Reject</button>
+        <button class="btn-success">Approve → load into 200k</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="arrow">Jam clicks "Approve"</div>
+
+<div class="option">
+  <span class="option-label">Screen 5 of 5 — Approval confirmation</span>
+
+  <div class="web-frame">
+    <div class="urlbar">https://jam.dwyer.app/scrape/14/approved</div>
+    <div class="web-content" style="text-align:center;">
+      <div style="font-size:48px; color:#16a34a; margin: 16px 0 0;">✓</div>
+      <div class="web-title">Approved</div>
+      <div class="web-subtitle">487 leads are now in the 200k pool</div>
+      <div style="margin: 28px 0;">
+        <button class="btn-primary">Request another batch</button>
+        <button class="btn-secondary" style="margin-left:8px;">View all requests</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================
+     COMPARISON
+     ======================================================================== -->
+<h2>Trade-offs at a glance</h2>
+
+<table class="grid">
+  <thead><tr><th></th><th>Option A — NocoDB</th><th>Option B — Web form</th></tr></thead>
+  <tbody>
+    <tr><td>Where Jam interacts</td><td>NocoDB (already deployed, already learned)</td><td>New URL she has to bookmark</td></tr>
+    <tr><td>Engineering effort</td><td>~2 days (one new table + worker)</td><td>~4–5 days (FastAPI app + auth tokens + UI)</td></tr>
+    <tr><td>UI polish ceiling</td><td>Bounded by NocoDB's form/grid look</td><td>Fully custom — can look very clean</td></tr>
+    <tr><td>Mobile-friendliness</td><td>NocoDB's mobile UX is okay, not great</td><td>Can be designed mobile-first</td></tr>
+    <tr><td>Auth</td><td>NocoDB's existing login</td><td>Need to add a login layer or magic-link tokens</td></tr>
+    <tr><td>Per-request preview rendering</td><td>Limited — long tables get cramped</td><td>Full control — charts, sorting, search</td></tr>
+    <tr><td>Maintenance overhead</td><td>Low (one Python worker)</td><td>Medium (worker + FastAPI app + frontend)</td></tr>
+  </tbody>
+</table>
+
+<p style="margin-top:24px; color:#6b7280;">Either path is fine. <strong>NocoDB is the faster ship; Web form is the prettier ship.</strong></p>
+
+</body>
+</html>

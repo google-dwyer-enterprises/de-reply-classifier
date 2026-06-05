@@ -1,0 +1,27 @@
+# Lead Scrape Automation worker (see LEAD_AUTOMATION.md).
+#
+# Deployed as a Railway service alongside the existing refresh cron.
+# Long-running process — polls scrape_requests every 60s and runs the
+# BetterContact scraper when Jam submits a row.
+#
+# Build:   docker build -f Dockerfile.worker -t lead-scrape-worker .
+# Run:     docker run --env-file .env lead-scrape-worker
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Same system deps as the main Dockerfile — psycopg2 needs libpq.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+        && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# `-u` for unbuffered stdout so Railway logs surface our `log()` lines
+# immediately, not when the buffer flushes.
+CMD ["python", "-u", "worker.py"]

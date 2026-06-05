@@ -1,0 +1,218 @@
+"""Email notifications for the lead-scrape automation worker.
+
+Single function: `send_batch_ready_email(req)` posts to Resend's HTTP API.
+
+Why Resend (not SMTP):
+  - Single HTTP POST, no SMTP TLS / Gmail app-password fiddling
+  - 3,000 emails/month free, paid plans cheap
+  - DKIM/SPF handled once via a verified sending domain
+
+Env vars required:
+  RESEND_API_KEY        — from resend.com → API Keys
+  NOTIFY_EMAIL          — where to send (e.g. jam@dwyer-enterprises.com)
+  NOTIFY_FROM           — sender (defaults to "Dwyer Lead Scraper <noreply@dwyer-enterprises.com>")
+  NOCODB_ROW_URL_TEMPLATE — expanded-row URL template with {id} placeholder.
+                          Paste the URL of any expanded scrape_requests row from
+                          your NocoDB browser tab, then replace the numeric row
+                          id with the literal string {id}. Example:
+                          https://nocodb.example.com/dashboard/#/nc/abc/def/?rowId={id}
+  NOCODB_BASE_URL       — optional fallback if NOCODB_ROW_URL_TEMPLATE is unset;
+                          email will just link to the NocoDB root.
+
+If RESEND_API_KEY is unset, the function logs the email body and returns
+without sending. That's useful for local development and means a missing key
+never fails the job — the worker continues to record `status='ready'` so Jam
+can still see the request in the NocoDB grid.
+"""
+from __future__ import annotations
+
+import os
+import sys
+from typing import Any
+
+import requests
+
+RESEND_ENDPOINT = "https://api.resend.com/emails"
+DEFAULT_FROM = "Dwyer Lead Scraper <noreply@dwyer-enterprises.com>"
+
+
+def _build_link(req_id: int) -> str | None:
+    """Build the "open this row in NocoDB" link for the email.
+
+    NocoDB's expanded-row URL varies by version (workspace id, base id, table
+    id, query param vs hash, etc.), so instead of guessing we let the operator
+    supply a template with a literal `{id}` placeholder — they copy the URL
+    of any expanded row from their browser, swap the row id for `{id}`, and
+    paste it as NOCODB_ROW_URL_TEMPLATE.
+
+    Returns None when neither NOCODB_ROW_URL_TEMPLATE nor NOCODB_BASE_URL is
+    configured, so the caller can omit the button entirely rather than
+    rendering a non-URL hint string that mail clients punycode-encode into
+    garbage like `http://xn--(nocodb-link-not-configured)...`.
+    """
+    template = os.environ.get("NOCODB_ROW_URL_TEMPLATE", "").strip()
+    if template:
+        # Defensive: only replace the literal "{id}" token, not arbitrary
+        # str.format() syntax — the URL may contain {} characters.
+        if "{id}" in template:
+            return template.replace("{id}", str(req_id))
+        # Operator forgot the placeholder. Append ?rowId= as best-effort and
+        # log a hint to stderr so the worker log shows it.
+        print(f"notifier: NOCODB_ROW_URL_TEMPLATE has no {{id}} placeholder; "
+              f"appending ?rowId={req_id} as a guess", file=sys.stderr)
+        sep = "&" if "?" in template else "?"
+        return f"{template}{sep}rowId={req_id}"
+    base = os.environ.get("NOCODB_BASE_URL", "").rstrip("/")
+    if base:
+        return base
+    return None
+
+
+def _build_html(req: dict[str, Any]) -> str:
+    """The HTML email body. Mirrors LEAD_AUTOMATION_MOCKUPS.html screen 3."""
+    req_id = req["id"]
+    requested = req["requested_leads"]
+    scraped = req.get("scraped_count", 0)
+    credits = req.get("credits_spent", 0)
+    by_industry = req.get("by_industry") or []   # list of (industry, count) pairs
+
+    industry_lines = "".join(
+        f'<li style="margin:2px 0;">{name}: <strong>{n}</strong></li>'
+        for name, n in by_industry[:5]
+    ) or '<li style="color:#6b7280;">(none)</li>'
+
+    link = _build_link(req_id)
+    if link:
+        button = (
+            f'<a href="{link}" '
+            f'style="display:inline-block;background:#2563eb;color:white;'
+            f'padding:12px 28px;border-radius:6px;text-decoration:none;'
+            f'font-weight:600;margin:12px 0;">'
+            f'Open request #{req_id} in NocoDB →</a>'
+        )
+    else:
+        # Operator hasn't set NOCODB_ROW_URL_TEMPLATE / NOCODB_BASE_URL yet.
+        # Don't render a fake link the mail client will mangle — show a hint.
+        button = (
+            '<span style="display:inline-block;background:#f3f4f6;color:#6b7280;'
+            'padding:12px 28px;border-radius:6px;font-weight:600;margin:12px 0;'
+            'border:1px dashed #d1d5db;">'
+            f'Find request #{req_id} in your NocoDB scrape_requests grid '
+            '(NocoDB link not configured)'
+            '</span>'
+        )
+
+    return f"""\
+<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;
+            max-width:580px;margin:0 auto;padding:24px;color:#1a1a1a;
+            line-height:1.6;">
+  <p>Hi Jam,</p>
+  <p>Batch <strong>#{req_id}</strong> finished scraping.
+     <strong>{scraped} of {requested} requested leads</strong> were found
+     (verified-deliverable decision makers).
+     <strong>{credits} credits</strong> spent.</p>
+  <p>Top industries this batch:</p>
+  <ul>{industry_lines}</ul>
+  <p>Open the request in NocoDB to review the preview and approve:</p>
+  <p>{button}</p>
+  <p>Once you set <strong>approval</strong> to <em>approved</em>, the leads
+     will be loaded into the 200k contact pool automatically.</p>
+  <p style="color:#6b7280;font-size:13px;margin-top:24px;">
+     — Lead Scraper bot
+  </p>
+</div>
+"""
+
+
+def send_batch_ready_email(req: dict[str, Any]) -> bool:
+    """Send the "batch ready" email for one request.
+
+    Returns True on success, False on any failure (logged to stderr).
+    A False return does NOT raise — the worker's contract is that email
+    delivery is best-effort.
+
+    `req` is expected to be a dict with at least:
+      id (int), requested_leads (int), scraped_count (int),
+      credits_spent (numeric), by_industry (list of (name, count) tuples).
+    """
+    api_key = (os.environ.get("RESEND_API_KEY") or "").strip()
+    to = (os.environ.get("NOTIFY_EMAIL") or "").strip()
+    sender = os.environ.get("NOTIFY_FROM", DEFAULT_FROM).strip()
+
+    if not to:
+        print("notifier: NOTIFY_EMAIL not set — skipping send", file=sys.stderr)
+        return False
+    if not api_key:
+        # Dev mode: log instead of send.
+        print(f"notifier: RESEND_API_KEY not set — would have sent to {to}",
+              file=sys.stderr)
+        print(_build_html(req)[:400], file=sys.stderr)
+        return False
+
+    subject = (f"Lead batch #{req['id']} ready for review — "
+               f"{req.get('scraped_count', 0)} leads scraped")
+    html = _build_html(req)
+
+    payload = {
+        "from": sender,
+        "to": [to],
+        "subject": subject,
+        "html": html,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    try:
+        r = requests.post(RESEND_ENDPOINT, json=payload,
+                          headers=headers, timeout=30)
+    except Exception as e:
+        print(f"notifier: HTTP error sending to {to}: {e}", file=sys.stderr)
+        return False
+
+    if r.status_code >= 200 and r.status_code < 300:
+        return True
+    print(f"notifier: Resend returned {r.status_code}: {r.text[:200]}",
+          file=sys.stderr)
+    return False
+
+
+def send_failure_email(req_id: int, error: str) -> bool:
+    """Optional: tell Jam a job failed. Used by worker on terminal errors."""
+    api_key = (os.environ.get("RESEND_API_KEY") or "").strip()
+    to = (os.environ.get("NOTIFY_EMAIL") or "").strip()
+    sender = os.environ.get("NOTIFY_FROM", DEFAULT_FROM).strip()
+    if not (api_key and to):
+        return False
+
+    subject = f"Lead batch #{req_id} FAILED"
+    link = _build_link(req_id)
+    link_block = (
+        f'<p>You can view the row in NocoDB: '
+        f'<a href="{link}">Open request #{req_id}</a></p>'
+        if link else
+        f'<p>Find request #{req_id} in your NocoDB scrape_requests grid '
+        f'(NocoDB link not configured).</p>'
+    )
+    html = f"""\
+<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:580px;
+            margin:0 auto;padding:24px;line-height:1.6;">
+  <p>Hi Jam,</p>
+  <p>Batch <strong>#{req_id}</strong> failed before it could complete.</p>
+  <pre style="background:#fef2f2;border:1px solid #fecaca;padding:12px;
+              border-radius:6px;font-size:13px;overflow:auto;">{error[:600]}</pre>
+  <p>Engineer's been notified by the logs.</p>
+  {link_block}
+</div>
+"""
+    try:
+        r = requests.post(
+            RESEND_ENDPOINT,
+            json={"from": sender, "to": [to], "subject": subject, "html": html},
+            headers={"Authorization": f"Bearer {api_key}",
+                     "Content-Type": "application/json"},
+            timeout=30,
+        )
+        return 200 <= r.status_code < 300
+    except Exception:
+        return False
