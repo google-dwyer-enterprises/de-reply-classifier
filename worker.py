@@ -26,6 +26,15 @@ import time
 import traceback
 from datetime import datetime, timezone
 
+# bettercontact_sync prints unicode arrows in its progress output; on Windows
+# the default cp1252 stdout would raise UnicodeEncodeError and crash the
+# pending-cycle. Railway / Linux already runs UTF-8 so this is a no-op there.
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -165,42 +174,64 @@ def collect_stats(conn, request_id: int) -> dict:
     return {"accepted": accepted, "rejected": rejected, "by_industry": by_industry}
 
 
-def run_scrape(req: dict) -> None:
+def run_scrape(req: dict) -> dict:
     """Run the BC scraper for one claimed request.
 
     Calls bettercontact_sync.main with scrape_request_id set; everything that
     lands in prospeo_new_leads during this run will be tagged.
+
+    Returns the per-run summary dict from bettercontact_sync (accepted,
+    credits_spent, csv_path, xlsx_path, aborted_reason, ...) so the caller
+    can persist per-request stats without re-querying lifetime totals.
     """
     skip = compute_skip_industries(req["industries"], req["skip_industries"])
+    # Scale page size to the request: a target=3 ask shouldn't burn 50 credits
+    # to satisfy it. 10 is the practical floor; DEFAULT_PAGE_LIMIT (50) the
+    # ceiling. Anything in between scales ~5 raw leads per requested lead so
+    # the post-filter survival rate has slack.
+    page_limit = max(10, min(DEFAULT_PAGE_LIMIT, req["requested_leads"] * 5))
+    # Budget cap is a runaway guard, not the primary stop. Floor it at THREE
+    # pages so the first cycle can fan out across enough industries to make
+    # progress — one tapped-out industry (high offset / heavy dedup) shouldn't
+    # be able to swallow the whole budget. For target=3, page=15, this gives
+    # max_credits=50: 3 industries get a fair shot at finding the 3 leads.
+    max_credits = max(req["requested_leads"] * CREDITS_PER_LEAD_BUDGET,
+                      page_limit * 3 + 5)
     log(f"req #{req['id']}: scraping target={req['requested_leads']}, "
-        f"countries={req['countries']}, skip={skip}")
-    bettercontact_sync.main(
+        f"countries={req['countries']}, skip={skip}, "
+        f"page_limit={page_limit}, max_credits={max_credits}")
+    return bettercontact_sync.main(
         mode="category",
         target_leads=req["requested_leads"],
         country=req["countries"] or None,
         skip_industries=skip,
-        page_limit=DEFAULT_PAGE_LIMIT,
-        max_credits=req["requested_leads"] * CREDITS_PER_LEAD_BUDGET,
+        page_limit=page_limit,
+        max_credits=max_credits,
         scrape_request_id=req["id"],
     )
 
 
-def mark_ready(conn, request_id: int, stats: dict) -> None:
-    """Move row to status='ready' after a successful scrape."""
+def mark_ready(conn, request_id: int, *, scraped_count: int,
+               credits_spent: float, csv_path: str | None,
+               xlsx_path: str | None) -> None:
+    """Move row to status='ready' after a successful scrape.
+
+    credits_spent is the per-request delta returned by bettercontact_sync,
+    NOT a lifetime aggregate.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """
             update scrape_requests
-               set status        = 'ready',
-                   ready_at      = now(),
-                   scraped_count = %s,
-                   credits_spent = coalesce(
-                     (select sum(total_credits_spent)
-                        from bettercontact_scrape_state),
-                     credits_spent)
+               set status           = 'ready',
+                   ready_at         = now(),
+                   scraped_count    = %s,
+                   credits_spent    = %s,
+                   export_csv_path  = %s,
+                   export_xlsx_path = %s
              where id = %s
             """,
-            (stats["accepted"], request_id),
+            (scraped_count, credits_spent, csv_path, xlsx_path, request_id),
         )
     conn.commit()
 
@@ -220,13 +251,14 @@ def mark_failed(conn, request_id: int, error: str) -> None:
     conn.commit()
 
 
-def send_email_and_log(conn, request_id: int, req_dict: dict, stats: dict) -> None:
+def send_email_and_log(conn, request_id: int, req_dict: dict,
+                       stats: dict, run_summary: dict) -> None:
     """Best-effort: send the ready email, log on failure, never raise."""
     payload = {
         "id": request_id,
         "requested_leads": req_dict["requested_leads"],
         "scraped_count": stats["accepted"],
-        "credits_spent": req_dict.get("credits_spent", 0),
+        "credits_spent": run_summary.get("credits_spent", 0),
         "by_industry": stats["by_industry"],
     }
     ok = notifier.send_batch_ready_email(payload)
@@ -251,7 +283,7 @@ def process_one_pending_request(conn) -> bool:
     rid = req["id"]
     log(f"req #{rid}: claimed, status -> running")
     try:
-        run_scrape(req)
+        run_summary = run_scrape(req)
     except InsufficientCreditsError as e:
         mark_failed(conn, rid, f"BetterContact INSUFFICIENT_CREDITS: {e}")
         notifier.send_failure_email(rid, str(e))
@@ -266,9 +298,16 @@ def process_one_pending_request(conn) -> bool:
 
     stats = collect_stats(conn, rid)
     log(f"req #{rid}: scrape done, accepted={stats['accepted']}, "
-        f"rejected={stats['rejected']}")
-    mark_ready(conn, rid, stats)
-    send_email_and_log(conn, rid, req, stats)
+        f"rejected={stats['rejected']}, "
+        f"credits_spent={run_summary.get('credits_spent', 0):.1f}")
+    mark_ready(
+        conn, rid,
+        scraped_count=stats["accepted"],
+        credits_spent=float(run_summary.get("credits_spent") or 0),
+        csv_path=run_summary.get("csv_path"),
+        xlsx_path=run_summary.get("xlsx_path"),
+    )
+    send_email_and_log(conn, rid, req, stats, run_summary)
     return True
 
 

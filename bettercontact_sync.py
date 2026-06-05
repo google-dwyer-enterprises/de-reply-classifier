@@ -417,9 +417,24 @@ def _run_category(conn, api_key: str, *,
                    skip_industries: list[str] | None = None,
                    page_limit: int = BC_PAGE_LIMIT,
                    dry_run: bool, max_credits: int | None,
-                   scrape_request_id: int | None = None) -> None:
+                   scrape_request_id: int | None = None) -> dict:
     """Round-robin over BC_INDUSTRIES, advancing each industry's offset by
-    BC_PAGE_LIMIT each cycle until target/budget/exhaustion."""
+    BC_PAGE_LIMIT each cycle until target/budget/exhaustion.
+
+    Returns a run summary dict so callers (the Lead Scrape Automation worker)
+    can record per-request stats without re-querying the lifetime-aggregated
+    bettercontact_scrape_state table:
+        {
+          "accepted": int,
+          "rejected": int,
+          "credits_spent": float,
+          "csv_path": str | None,
+          "xlsx_path": str | None,
+          "aborted_reason": str | None,
+          "rejected_counts": dict[str, int],
+        }
+    Dry-run / all-exhausted early-returns get a zero-stats dict (still a dict).
+    """
     countries = country
     skip_set = set(skip_industries or [])
 
@@ -440,7 +455,10 @@ def _run_category(conn, api_key: str, *,
 
     if not queue:
         print("All industries exhausted. Reset state to re-scan from top.")
-        return
+        return {"accepted": 0, "rejected": 0, "credits_spent": 0.0,
+                "csv_path": None, "xlsx_path": None,
+                "aborted_reason": "all_industries_exhausted",
+                "rejected_counts": {}}
 
     print(f"  {len(queue)} industries active.")
 
@@ -448,7 +466,10 @@ def _run_category(conn, api_key: str, *,
         for ind in queue:
             s = state.get(ind, {})
             print(f"  would scrape {ind!r} starting at offset={s.get('last_offset_consumed', 0)}")
-        return
+        return {"accepted": 0, "rejected": 0, "credits_spent": 0.0,
+                "csv_path": None, "xlsx_path": None,
+                "aborted_reason": "dry_run",
+                "rejected_counts": {}}
 
     # Per-industry consecutive transport-failure counter (drop after N).
     consec_failures: dict[str, int] = {ind: 0 for ind in queue}
@@ -681,6 +702,16 @@ def _run_category(conn, api_key: str, *,
         for reason, n in sorted(rejected_counts.items(), key=lambda x: -x[1])[:10]:
             print(f"    {reason}: {n}")
 
+    return {
+        "accepted": len(accepted),
+        "rejected": len(rejected),
+        "credits_spent": float(credits_spent),
+        "csv_path": csv_path,
+        "xlsx_path": xlsx_path,
+        "aborted_reason": aborted_reason,
+        "rejected_counts": dict(rejected_counts),
+    }
+
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -691,7 +722,7 @@ def main(*, mode: str = "category", target_leads: int | None = None,
          skip_industries: list[str] | None = None,
          page_limit: int = BC_PAGE_LIMIT,
          dry_run: bool = False, max_credits: int | None = None,
-         scrape_request_id: int | None = None) -> None:
+         scrape_request_id: int | None = None) -> dict:
     """Entry point for `run.py scrape-leads --provider bettercontact`.
 
     Domain mode is NOT supported — BetterContact's Lead Finder is criteria-
@@ -713,12 +744,12 @@ def main(*, mode: str = "category", target_leads: int | None = None,
 
     conn = connect()
     try:
-        _run_category(conn, api_key,
-                      target_leads=target_leads, country=country,
-                      skip_industries=skip_industries,
-                      page_limit=page_limit,
-                      dry_run=dry_run, max_credits=max_credits,
-                      scrape_request_id=scrape_request_id)
+        return _run_category(conn, api_key,
+                             target_leads=target_leads, country=country,
+                             skip_industries=skip_industries,
+                             page_limit=page_limit,
+                             dry_run=dry_run, max_credits=max_credits,
+                             scrape_request_id=scrape_request_id)
     finally:
         conn.close()
 

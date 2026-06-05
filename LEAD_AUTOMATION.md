@@ -102,8 +102,8 @@ Set these on the Railway service (and locally in `.env` if testing):
 | `RESEND_API_KEY` | `re_abc123...` | From Resend dashboard |
 | `NOTIFY_EMAIL` | `jam@dwyer-enterprises.com` | Where the "ready" email goes |
 | `NOTIFY_FROM` | `Dwyer Lead Scraper <noreply@dwyer-enterprises.com>` | Optional; must be a verified sender on your Resend domain |
-| `NOCODB_BASE_URL` | `https://vd-master-leads.up.railway.app` | Used to build the "open in NocoDB" link |
-| `NOCODB_PROJECT_ID` | `solar_grasshopper` (or actual id) | NocoDB project containing `scrape_requests` |
+| `NOCODB_ROW_URL_TEMPLATE` | `https://vd-master-leads.up.railway.app/dashboard/#/nc/abc/def/?rowId={id}` | Expanded-row URL with literal `{id}` placeholder. To set it: open NocoDB → expand any row in `scrape_requests` → copy the URL bar → replace that row's id with the literal string `{id}`. Avoids guessing the NocoDB URL layout. |
+| `NOCODB_BASE_URL` | `https://vd-master-leads.up.railway.app` | Optional fallback. Used as the email link only when `NOCODB_ROW_URL_TEMPLATE` is unset. |
 | `WORKER_POLL_INTERVAL_S` | `60` (optional) | Defaults to 60 |
 
 ---

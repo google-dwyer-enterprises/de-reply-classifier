@@ -8,11 +8,16 @@ Why Resend (not SMTP):
   - DKIM/SPF handled once via a verified sending domain
 
 Env vars required:
-  RESEND_API_KEY      — from resend.com → API Keys
-  NOTIFY_EMAIL        — where to send (e.g. jam@dwyer-enterprises.com)
-  NOTIFY_FROM         — sender (defaults to "Dwyer Lead Scraper <noreply@dwyer-enterprises.com>")
-  NOCODB_BASE_URL     — root URL of the NocoDB instance
-  NOCODB_PROJECT_ID   — project containing scrape_requests (used to build a link)
+  RESEND_API_KEY        — from resend.com → API Keys
+  NOTIFY_EMAIL          — where to send (e.g. jam@dwyer-enterprises.com)
+  NOTIFY_FROM           — sender (defaults to "Dwyer Lead Scraper <noreply@dwyer-enterprises.com>")
+  NOCODB_ROW_URL_TEMPLATE — expanded-row URL template with {id} placeholder.
+                          Paste the URL of any expanded scrape_requests row from
+                          your NocoDB browser tab, then replace the numeric row
+                          id with the literal string {id}. Example:
+                          https://nocodb.example.com/dashboard/#/nc/abc/def/?rowId={id}
+  NOCODB_BASE_URL       — optional fallback if NOCODB_ROW_URL_TEMPLATE is unset;
+                          email will just link to the NocoDB root.
 
 If RESEND_API_KEY is unset, the function logs the email body and returns
 without sending. That's useful for local development and means a missing key
@@ -31,15 +36,36 @@ RESEND_ENDPOINT = "https://api.resend.com/emails"
 DEFAULT_FROM = "Dwyer Lead Scraper <noreply@dwyer-enterprises.com>"
 
 
-def _build_link(req_id: int) -> str:
+def _build_link(req_id: int) -> str | None:
+    """Build the "open this row in NocoDB" link for the email.
+
+    NocoDB's expanded-row URL varies by version (workspace id, base id, table
+    id, query param vs hash, etc.), so instead of guessing we let the operator
+    supply a template with a literal `{id}` placeholder — they copy the URL
+    of any expanded row from their browser, swap the row id for `{id}`, and
+    paste it as NOCODB_ROW_URL_TEMPLATE.
+
+    Returns None when neither NOCODB_ROW_URL_TEMPLATE nor NOCODB_BASE_URL is
+    configured, so the caller can omit the button entirely rather than
+    rendering a non-URL hint string that mail clients punycode-encode into
+    garbage like `http://xn--(nocodb-link-not-configured)...`.
+    """
+    template = os.environ.get("NOCODB_ROW_URL_TEMPLATE", "").strip()
+    if template:
+        # Defensive: only replace the literal "{id}" token, not arbitrary
+        # str.format() syntax — the URL may contain {} characters.
+        if "{id}" in template:
+            return template.replace("{id}", str(req_id))
+        # Operator forgot the placeholder. Append ?rowId= as best-effort and
+        # log a hint to stderr so the worker log shows it.
+        print(f"notifier: NOCODB_ROW_URL_TEMPLATE has no {{id}} placeholder; "
+              f"appending ?rowId={req_id} as a guess", file=sys.stderr)
+        sep = "&" if "?" in template else "?"
+        return f"{template}{sep}rowId={req_id}"
     base = os.environ.get("NOCODB_BASE_URL", "").rstrip("/")
-    project = os.environ.get("NOCODB_PROJECT_ID", "").strip()
-    if not base or not project:
-        # Fall back to a human-readable hint when env vars aren't set yet.
-        return "(NocoDB link not configured — set NOCODB_BASE_URL + NOCODB_PROJECT_ID)"
-    # Deep-link template; the exact path depends on the NocoDB version. The
-    # operator doc has the actual URL pattern once views are configured.
-    return f"{base}/#/nc/{project}/scrape_requests?row={req_id}"
+    if base:
+        return base
+    return None
 
 
 def _build_html(req: dict[str, Any]) -> str:
@@ -56,13 +82,25 @@ def _build_html(req: dict[str, Any]) -> str:
     ) or '<li style="color:#6b7280;">(none)</li>'
 
     link = _build_link(req_id)
-    button = (
-        f'<a href="{link}" '
-        f'style="display:inline-block;background:#2563eb;color:white;'
-        f'padding:12px 28px;border-radius:6px;text-decoration:none;'
-        f'font-weight:600;margin:12px 0;">'
-        f'Open request #{req_id} in NocoDB →</a>'
-    )
+    if link:
+        button = (
+            f'<a href="{link}" '
+            f'style="display:inline-block;background:#2563eb;color:white;'
+            f'padding:12px 28px;border-radius:6px;text-decoration:none;'
+            f'font-weight:600;margin:12px 0;">'
+            f'Open request #{req_id} in NocoDB →</a>'
+        )
+    else:
+        # Operator hasn't set NOCODB_ROW_URL_TEMPLATE / NOCODB_BASE_URL yet.
+        # Don't render a fake link the mail client will mangle — show a hint.
+        button = (
+            '<span style="display:inline-block;background:#f3f4f6;color:#6b7280;'
+            'padding:12px 28px;border-radius:6px;font-weight:600;margin:12px 0;'
+            'border:1px dashed #d1d5db;">'
+            f'Find request #{req_id} in your NocoDB scrape_requests grid '
+            '(NocoDB link not configured)'
+            '</span>'
+        )
 
     return f"""\
 <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;
@@ -149,6 +187,13 @@ def send_failure_email(req_id: int, error: str) -> bool:
 
     subject = f"Lead batch #{req_id} FAILED"
     link = _build_link(req_id)
+    link_block = (
+        f'<p>You can view the row in NocoDB: '
+        f'<a href="{link}">Open request #{req_id}</a></p>'
+        if link else
+        f'<p>Find request #{req_id} in your NocoDB scrape_requests grid '
+        f'(NocoDB link not configured).</p>'
+    )
     html = f"""\
 <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:580px;
             margin:0 auto;padding:24px;line-height:1.6;">
@@ -156,8 +201,8 @@ def send_failure_email(req_id: int, error: str) -> bool:
   <p>Batch <strong>#{req_id}</strong> failed before it could complete.</p>
   <pre style="background:#fef2f2;border:1px solid #fecaca;padding:12px;
               border-radius:6px;font-size:13px;overflow:auto;">{error[:600]}</pre>
-  <p>Engineer's been notified by the logs. You can view the row in NocoDB:</p>
-  <p><a href="{link}">Open request #{req_id}</a></p>
+  <p>Engineer's been notified by the logs.</p>
+  {link_block}
 </div>
 """
     try:
