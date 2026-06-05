@@ -747,13 +747,18 @@ def main(*, mode: str = "category", target_leads: int | None = None,
     can later move the request's rows into `lead_contacts` on approval.
     Callers from the CLI leave this as None — only the worker uses it.
     """
+    # Use ValueError (not sys.exit / SystemExit) so the Lead Scrape Automation
+    # worker can catch config errors via `except Exception` and mark the
+    # request `failed` with a clear message — instead of dying mid-poll and
+    # leaving the request stuck in `status='running'`. The CLI surfaces these
+    # as a traceback, same as any other invalid-input error.
     if mode != "category":
-        raise SystemExit(f"BetterContact only supports --mode category (got {mode!r})")
+        raise ValueError(f"BetterContact only supports --mode category (got {mode!r})")
 
     load_dotenv()
     api_key = (os.environ.get("BETTERCONTACT_API_KEY") or "").strip()
     if not api_key:
-        sys.exit("BETTERCONTACT_API_KEY not set in .env")
+        raise ValueError("BETTERCONTACT_API_KEY not set in env")
 
     conn = connect()
     try:
