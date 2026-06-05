@@ -47,6 +47,7 @@ import bettercontact_sync
 from bettercontact_sync import BC_INDUSTRIES, InsufficientCreditsError
 from db import connect
 import notifier
+import nocodb_views
 
 
 POLL_INTERVAL_S = int(os.environ.get("WORKER_POLL_INTERVAL_S", "60"))
@@ -238,22 +239,40 @@ def mark_ready(conn, request_id: int, *, scraped_count: int,
                xlsx_path: str | None) -> None:
     """Move row to status='ready' after a successful scrape.
 
+    Also creates a per-batch NocoDB grid view filtered to this request's
+    scrape_request_id + lead_approval='pending'. The view's public share
+    URL is stored on the row so the email links Jam directly to a view
+    that contains ONLY her batch's pending leads — header-checkbox /
+    bulk-edit inside it can't reach other batches' rows.
+
+    NocoDB integration is best-effort. If it fails (token missing,
+    NocoDB down, etc.) the row still flips to ready, the email still
+    sends, and notifier.py falls back to the generic row-template link.
+
     credits_spent is the per-request delta returned by bettercontact_sync,
     NOT a lifetime aggregate.
     """
+    view_id, share_uuid, share_url = nocodb_views.create_review_view(
+        request_id, on_log=log
+    )
+
     with conn.cursor() as cur:
         cur.execute(
             """
             update scrape_requests
-               set status           = 'ready',
-                   ready_at         = now(),
-                   scraped_count    = %s,
-                   credits_spent    = %s,
-                   export_csv_path  = %s,
-                   export_xlsx_path = %s
+               set status            = 'ready',
+                   ready_at          = now(),
+                   scraped_count     = %s,
+                   credits_spent     = %s,
+                   export_csv_path   = %s,
+                   export_xlsx_path  = %s,
+                   review_view_id    = %s,
+                   review_share_uuid = %s,
+                   review_url        = %s
              where id = %s
             """,
-            (scraped_count, credits_spent, csv_path, xlsx_path, request_id),
+            (scraped_count, credits_spent, csv_path, xlsx_path,
+             view_id, share_uuid, share_url, request_id),
         )
     conn.commit()
 
@@ -276,12 +295,26 @@ def mark_failed(conn, request_id: int, error: str) -> None:
 def send_email_and_log(conn, request_id: int, req_dict: dict,
                        stats: dict, run_summary: dict) -> None:
     """Best-effort: send the ready email, log on failure, never raise."""
+    # Pick up the per-batch review URL the worker just stored (if any).
+    # When present, it overrides the generic NOCODB_ROW_URL_TEMPLATE so
+    # the email button takes Jam straight to a view scoped to her batch.
+    review_url = None
+    with conn.cursor() as cur:
+        cur.execute(
+            "select review_url from scrape_requests where id = %s",
+            (request_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            review_url = row[0]
+
     payload = {
         "id": request_id,
         "requested_leads": req_dict["requested_leads"],
         "scraped_count": stats["accepted"],
         "credits_spent": run_summary.get("credits_spent", 0),
         "by_industry": stats["by_industry"],
+        "review_url": review_url,
     }
     ok = notifier.send_batch_ready_email(payload)
     if ok:
