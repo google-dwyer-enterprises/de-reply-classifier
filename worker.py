@@ -96,6 +96,24 @@ def sweep_stuck_running(conn) -> None:
 # pending → ready
 # ---------------------------------------------------------------------------
 
+def _csv_to_list(value) -> list[str]:
+    """Parse a NocoDB MultiSelect column value into a Python list.
+
+    NocoDB stores MultiSelect as comma-separated text; the older schema
+    used Postgres text[] (which psycopg2 returns as a list). Tolerant of
+    both formats so the worker survives the migration window where
+    Railway might briefly run new code against the old schema or vice
+    versa.
+
+    Empty / null / blank -> []. Whitespace around entries is trimmed.
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(s).strip() for s in value if str(s).strip()]
+    return [s.strip() for s in str(value).split(",") if s.strip()]
+
+
 def claim_pending_request(conn) -> dict | None:
     """Atomically pick the oldest pending request and mark it running.
 
@@ -128,9 +146,9 @@ def claim_pending_request(conn) -> dict | None:
     return {
         "id": row[0],
         "requested_leads": row[1],
-        "industries": row[2] or [],
-        "skip_industries": row[3] or [],
-        "countries": row[4] or [],
+        "industries": _csv_to_list(row[2]),
+        "skip_industries": _csv_to_list(row[3]),
+        "countries": _csv_to_list(row[4]),
         "notes": row[5],
     }
 
