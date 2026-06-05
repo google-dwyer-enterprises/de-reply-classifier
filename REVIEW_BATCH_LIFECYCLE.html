@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Per-batch review view — full lifecycle + cleanup mockup</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 1180px; margin: 0 auto; padding: 28px; color: #1a1a1a; background: #f7f7f8; line-height: 1.55; }
+  h1 { margin: 0 0 8px; font-size: 28px; }
+  h2 { margin-top: 44px; padding-bottom: 8px; border-bottom: 3px solid #2563eb; font-size: 22px; }
+  h3 { margin-top: 22px; font-size: 16px; color: #374151; }
+  .lede { color: #6b7280; margin-bottom: 28px; }
+
+  .phase { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 22px 26px; margin: 18px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .phase-header { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #f3f4f6; }
+  .phase-num { background: #2563eb; color: white; width: 32px; height: 32px; line-height: 32px; text-align: center; border-radius: 50%; font-weight: 700; font-size: 14px; }
+  .phase-title { font-size: 17px; font-weight: 700; color: #111827; }
+  .phase-sub { color: #6b7280; font-size: 13px; margin-left: auto; font-family: ui-monospace, monospace; }
+
+  .state-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 14px 0; }
+  .state-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 16px; }
+  .state-title { font-size: 11px; font-weight: 700; color: #6b7280; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 8px; }
+  .field { font-family: ui-monospace, monospace; font-size: 12px; padding: 2px 0; color: #1f2937; }
+  .field .k { color: #6b7280; }
+  .field .v { color: #1f2937; font-weight: 600; }
+  .field .gone { color: #dc2626; text-decoration: line-through; }
+  .field .new  { color: #16a34a; }
+
+  .nocodb-box { background: white; border: 1px solid #d1d5db; border-radius: 6px; margin-top: 8px; overflow: hidden; }
+  .nocodb-sidebar { background: #f9fafb; padding: 8px 12px; font-size: 11px; border-bottom: 1px solid #e5e7eb; }
+  .nocodb-sidebar .view { padding: 3px 0; color: #4b5563; }
+  .nocodb-sidebar .view.highlight { color: #1d4ed8; font-weight: 600; background: #eef2ff; margin: 0 -8px; padding: 3px 8px; border-radius: 3px; }
+  .nocodb-sidebar .view.gone { color: #dc2626; text-decoration: line-through; font-weight: 600; }
+  .nocodb-sidebar .view::before { content: "▸ "; color: #9ca3af; }
+
+  .trigger { background: #fef9c3; border: 2px solid #f59e0b; border-radius: 8px; padding: 10px 14px; margin: 12px 0; font-size: 13px; color: #78350f; }
+  .trigger strong { color: #92400e; }
+  .arrow { text-align: center; color: #2563eb; font-size: 24px; padding: 8px 0; }
+  .arrow::before { content: "↓"; }
+
+  .legend { background: #eef2ff; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 14px 0; font-size: 13px; border-radius: 0 6px 6px 0; }
+  code { background: #f3f4f6; padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, monospace; font-size: 12px; color: #1f2937; }
+
+  .badge-pending  { background: #fef9c3; color: #854d0e; border: 1px solid #fde68a; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-running  { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-ready    { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-approved { background: #dcfce7; color: #166534; border: 1px solid #86efac; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-rejected { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-moved    { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+
+  .path-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 14px 0; }
+  .path-box { border: 2px dashed #d1d5db; border-radius: 8px; padding: 14px 16px; background: #fafafa; }
+  .path-title { font-size: 13px; font-weight: 700; color: #2563eb; margin-bottom: 8px; }
+
+  table.summary { width: 100%; border-collapse: collapse; margin: 16px 0; background: white; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+  table.summary th, table.summary td { padding: 10px 14px; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: 13px; vertical-align: top; }
+  table.summary th { background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 12px; letter-spacing: 0.3px; }
+  table.summary code { font-size: 11px; }
+</style>
+</head>
+<body>
+
+<h1>Per-batch review view — full lifecycle</h1>
+<p class="lede">From form submission to view cleanup. Each phase shows: <strong>scrape_requests row</strong> on the left, <strong>per-lead state in prospeo_new_leads</strong> in the middle, <strong>NocoDB sidebar</strong> on the right. Cleanup triggers are highlighted in yellow. Worked example: batch <strong>#15</strong>, 3 leads (Fashion Nova, North Face, DBO Labs).</p>
+
+<div class="legend">
+  <strong>Cleanup rule:</strong> the per-batch view gets deleted when the batch leaves the "needs review" state via ANY path:
+  <ul style="margin: 8px 0 4px 22px;">
+    <li><code>status</code> auto-flips to <code>moved</code> (every lead decided, all approved moved — finalize sweep)</li>
+    <li><code>approval</code> set to <code>approved</code> (Jam mass-approves)</li>
+    <li><code>approval</code> set to <code>rejected</code> (Jam mass-rejects)</li>
+  </ul>
+  All three triggers are independent and idempotent — view deletion checks "if view_id exists, delete it" so multiple triggers can't double-delete.
+</div>
+
+<!-- ========================================================================
+     PHASE 1
+     ======================================================================== -->
+<div class="phase">
+  <div class="phase-header">
+    <span class="phase-num">1</span>
+    <span class="phase-title">Jam submits the form</span>
+    <span class="phase-sub">scrape_requests row created</span>
+  </div>
+  <div class="state-grid">
+    <div class="state-box">
+      <div class="state-title">scrape_requests #15</div>
+      <div class="field"><span class="k">status</span> = <span class="badge-pending">pending</span></div>
+      <div class="field"><span class="k">approval</span> = <span class="badge-pending">pending</span></div>
+      <div class="field"><span class="k">requested_leads</span> = <span class="v">5</span></div>
+      <div class="field"><span class="k">industries</span> = <span class="v">'Cosmetics,...'</span></div>
+      <div class="field"><span class="k">review_view_id</span> = <span class="v">null</span></div>
+      <div class="field"><span class="k">review_url</span> = <span class="v">null</span></div>
+    </div>
+    <div class="state-box">
+      <div class="state-title">prospeo_new_leads (for #15)</div>
+      <div class="field" style="color:#9ca3af;">(no rows yet)</div>
+    </div>
+    <div class="state-box">
+      <div class="state-title">NocoDB sidebar</div>
+      <div class="nocodb-box">
+        <div class="nocodb-sidebar">
+          <div class="view">All requests</div>
+          <div class="view">Submit a request</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="arrow"></div>
+
+<!-- ========================================================================
+     PHASE 2
+     ======================================================================== -->
+<div class="phase">
+  <div class="phase-header">
+    <span class="phase-num">2</span>
+    <span class="phase-title">Worker claims + scrapes BetterContact</span>
+    <span class="phase-sub">~1–10 min</span>
+  </div>
+  <div class="state-grid">
+    <div class="state-box">
+      <div class="state-title">scrape_requests #15</div>
+      <div class="field"><span class="k">status</span> = <span class="badge-running">running</span></div>
+      <div class="field"><span class="k">started_at</span> = <span class="v">2026-06-06 14:50:01</span></div>
+    </div>
+    <div class="state-box">
+      <div class="state-title">prospeo_new_leads (for #15)</div>
+      <div class="field" style="color:#9ca3af;">(still empty — BC poll in flight)</div>
+    </div>
+    <div class="state-box">
+      <div class="state-title">NocoDB sidebar</div>
+      <div class="nocodb-box">
+        <div class="nocodb-sidebar">
+          <div class="view">All requests</div>
+          <div class="view">Submit a request</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="arrow"></div>
+
+<!-- ========================================================================
+     PHASE 3
+     ======================================================================== -->
+<div class="phase">
+  <div class="phase-header">
+    <span class="phase-num">3</span>
+    <span class="phase-title">Worker writes leads, marks ready, creates view, sends email</span>
+    <span class="phase-sub">mark_ready()</span>
+  </div>
+  <div class="state-grid">
+    <div class="state-box">
+      <div class="state-title">scrape_requests #15</div>
+      <div class="field"><span class="k">status</span> = <span class="badge-ready">ready</span></div>
+      <div class="field"><span class="k">scraped_count</span> = <span class="v">3</span></div>
+      <div class="field"><span class="k">credits_spent</span> = <span class="v">17.0</span></div>
+      <div class="field"><span class="k">ready_at</span> = <span class="v">2026-06-06 14:55:35</span></div>
+      <div class="field"><span class="k">review_view_id</span> = <span class="new">'vw7x...'</span></div>
+      <div class="field"><span class="k">review_share_uuid</span> = <span class="new">'b1357...'</span></div>
+      <div class="field"><span class="k">review_url</span> = <span class="new">'.../nc/view/b1357...'</span></div>
+      <div class="field"><span class="k">email_sent_at</span> = <span class="new">2026-06-06 14:55:36</span></div>
+    </div>
+    <div class="state-box">
+      <div class="state-title">prospeo_new_leads (for #15)</div>
+      <div class="field"><span class="k">ar@fashionnova.com</span> → <span class="badge-pending">pending</span></div>
+      <div class="field"><span class="k">tyler@thenorthface.com</span> → <span class="badge-pending">pending</span></div>
+      <div class="field"><span class="k">bryanc@dbolabs.com</span> → <span class="badge-pending">pending</span></div>
+    </div>
+    <div class="state-box">
+      <div class="state-title">NocoDB sidebar</div>
+      <div class="nocodb-box">
+        <div class="nocodb-sidebar">
+          <div class="view">All requests</div>
+          <div class="view">Submit a request</div>
+          <div class="view highlight">Review batch #15</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="legend">
+    The new per-batch view is filtered to <code>scrape_request_id=15 AND lead_approval='pending'</code> and publicly shared. Its URL is the button in Jam's email.
+  </div>
+</div>
+<div class="arrow"></div>
+
+<!-- ========================================================================
+     PHASE 4 — TWO PATHS
+     ======================================================================== -->
+<div class="phase">
+  <div class="phase-header">
+    <span class="phase-num">4</span>
+    <span class="phase-title">Jam reviews — choose one of two paths</span>
+    <span class="phase-sub">she clicks the email button → lands inside Review batch #15</span>
+  </div>
+
+  <div class="path-row">
+    <!-- Path A — per-lead -->
+    <div class="path-box">
+      <div class="path-title">Path A — per-lead decisions</div>
+      <p style="font-size:13px;margin:0 0 8px;">She ticks checkboxes, picks <code>approved</code> or <code>rejected</code> per lead.</p>
+      <div class="field"><span class="k">ar@fashionnova.com</span> → <span class="badge-approved">approved</span></div>
+      <div class="field"><span class="k">tyler@thenorthface.com</span> → <span class="badge-approved">approved</span></div>
+      <div class="field"><span class="k">bryanc@dbolabs.com</span> → <span class="badge-rejected">rejected</span></div>
+      <p style="font-size:12px;color:#6b7280;margin:8px 0 0;">Worker moves 2 approved into lead_contacts within ~30s of each click. No <code>scrape_requests.approval</code> set.</p>
+    </div>
+
+    <!-- Path B — mass-approve -->
+    <div class="path-box">
+      <div class="path-title">Path B — mass-approve</div>
+      <p style="font-size:13px;margin:0 0 8px;">She trusts the batch, sets parent's <code>approval='approved'</code>.</p>
+      <div class="field"><span class="k">scrape_requests.approval</span> = <span class="badge-approved">approved</span></div>
+      <div class="field" style="margin-top:6px;color:#6b7280;font-style:italic;">→ apply_mass_approval flips all pending to approved</div>
+      <div class="field"><span class="k">ar@fashionnova.com</span> → <span class="badge-approved">approved</span></div>
+      <div class="field"><span class="k">tyler@thenorthface.com</span> → <span class="badge-approved">approved</span></div>
+      <div class="field"><span class="k">bryanc@dbolabs.com</span> → <span class="badge-approved">approved</span></div>
+    </div>
+  </div>
+</div>
+<div class="arrow"></div>
+
+<!-- ========================================================================
+     PHASE 5
+     ======================================================================== -->
+<div class="phase">
+  <div class="phase-header">
+    <span class="phase-num">5</span>
+    <span class="phase-title">Cleanup trigger fires → view deleted</span>
+    <span class="phase-sub">automatic, no Jam action needed</span>
+  </div>
+
+  <div class="trigger">
+    <strong>Trigger A (Path A):</strong> finalize_complete_requests sweep notices no pending + no unmoved-approveds → flips <code>status='moved'</code> → calls <code>delete_review_view(review_view_id)</code>.
+  </div>
+  <div class="trigger">
+    <strong>Trigger B (Path B):</strong> apply_mass_approval sees <code>approval='approved'</code> on parent → calls <code>delete_review_view(review_view_id)</code> before/after flipping the leads.
+  </div>
+  <div class="trigger">
+    <strong>Trigger C (mass-reject):</strong> if she ever sets <code>approval='rejected'</code> instead, apply_mass_rejection (mirror of B) handles it → calls <code>delete_review_view</code>.
+  </div>
+
+  <div class="state-grid">
+    <div class="state-box">
+      <div class="state-title">scrape_requests #15</div>
+      <div class="field"><span class="k">status</span> = <span class="badge-moved">moved</span></div>
+      <div class="field"><span class="k">moved_count</span> = <span class="v">2</span></div>
+      <div class="field"><span class="k">moved_at</span> = <span class="v">2026-06-06 15:37:46</span></div>
+      <div class="field"><span class="k">review_view_id</span> = <span class="gone">'vw7x...'</span> (cleared)</div>
+      <div class="field"><span class="k">review_url</span> = <span class="gone">'.../nc/view/b1357...'</span> (cleared)</div>
+    </div>
+    <div class="state-box">
+      <div class="state-title">prospeo_new_leads (for #15)</div>
+      <div class="field"><span class="k">ar@fashionnova.com</span> → <span class="badge-approved">approved</span> + moved_at</div>
+      <div class="field"><span class="k">tyler@thenorthface.com</span> → <span class="badge-approved">approved</span> + moved_at</div>
+      <div class="field"><span class="k">bryanc@dbolabs.com</span> → <span class="badge-rejected">rejected</span></div>
+      <p style="font-size:12px;color:#6b7280;margin:8px 0 0;font-style:italic;">All rows persist — never deleted from prospeo_new_leads. Audit trail intact.</p>
+    </div>
+    <div class="state-box">
+      <div class="state-title">NocoDB sidebar (after cleanup)</div>
+      <div class="nocodb-box">
+        <div class="nocodb-sidebar">
+          <div class="view">All requests</div>
+          <div class="view">Submit a request</div>
+          <div class="view gone">Review batch #15</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================
+     SUMMARY
+     ======================================================================== -->
+<h2>Summary: what gets deleted vs preserved</h2>
+
+<table class="summary">
+  <thead><tr><th>Object</th><th>Deleted on cleanup?</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Per-batch NocoDB view</strong></td>
+      <td><strong>YES</strong> — view + its public share are destroyed via API. Row's <code>review_view_id</code> + <code>review_url</code> cleared.</td>
+      <td>Sidebar stays clean. View was only useful while the batch needed review.</td>
+    </tr>
+    <tr>
+      <td><strong>scrape_requests row</strong></td>
+      <td>Never. Stays at <code>status='moved'</code> in the All requests grid.</td>
+      <td>Audit trail of "what was requested + scraped + cost in credits". Permanent record.</td>
+    </tr>
+    <tr>
+      <td><strong>prospeo_new_leads rows</strong></td>
+      <td>Never. All 3 stay with their final <code>lead_approval</code> values.</td>
+      <td>Audit trail of "what BC returned + what Jam decided per lead". Permanent.</td>
+    </tr>
+    <tr>
+      <td><strong>lead_contacts entries</strong></td>
+      <td>Never. Approved leads stay in the 200K pool forever.</td>
+      <td>That's the whole point — landing leads in the pool.</td>
+    </tr>
+    <tr>
+      <td><strong>Email Jam received</strong></td>
+      <td>Survives — the URL inside still resolves to the deleted view, which now 404s.</td>
+      <td>Acceptable: she's done with the batch. The All requests grid is the canonical record.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Code changes needed</h2>
+
+<table class="summary">
+  <thead><tr><th>File</th><th>Change</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>worker.py — finalize_complete_requests</code></td>
+      <td>After flipping <code>status='moved'</code>, fetch the <code>review_view_id</code>, call <code>nocodb_views.delete_review_view(...)</code>, then NULL out the row's <code>review_view_id</code> / <code>review_share_uuid</code> / <code>review_url</code> columns.</td>
+    </tr>
+    <tr>
+      <td><code>worker.py — apply_mass_approval</code></td>
+      <td>Same cleanup as above, but fires whenever the parent's <code>approval</code> changes to <code>'approved'</code> or <code>'rejected'</code>. Done in one query alongside the existing pending→approved flip.</td>
+    </tr>
+    <tr>
+      <td><code>nocodb_views.py</code></td>
+      <td><code>delete_review_view</code> already exists from the previous PR. No changes needed.</td>
+    </tr>
+    <tr>
+      <td>No schema migration</td>
+      <td>The 3 review_* columns already exist (added by the previous PR). The cleanup just sets them back to NULL.</td>
+    </tr>
+  </tbody>
+</table>
+
+</body>
+</html>

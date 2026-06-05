@@ -590,6 +590,53 @@ def process_pending_lead_moves(conn) -> bool:
     return any_work
 
 
+def cleanup_review_views(conn) -> int:
+    """Sweep: delete the per-batch NocoDB view for any scrape_requests row
+    where the batch has left the "needs review" state via ANY trigger:
+      - status='moved'      (auto-finalized or mass-approve→move chain)
+      - approval='approved' (Jam clicked mass-approve)
+      - approval='rejected' (Jam clicked mass-reject or audit cancel)
+
+    Calls nocodb_views.delete_review_view best-effort. If the delete fails
+    (404, timeout, token revoked etc.), the DB columns are NULLed anyway —
+    the URL is unreliable from that point and an orphaned view in NocoDB
+    is preferable to a stuck reference in the DB. Idempotent: once the
+    columns are NULL the row stops matching the WHERE clause.
+
+    Runs every poll. Returns the number of views cleaned up this call.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select id, review_view_id
+              from scrape_requests
+             where review_view_id is not null
+               and (status = 'moved' or approval in ('approved', 'rejected'))
+            """
+        )
+        candidates = cur.fetchall()
+
+    if not candidates:
+        return 0
+
+    for rid, view_id in candidates:
+        nocodb_views.delete_review_view(view_id, on_log=log)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update scrape_requests
+                   set review_view_id    = null,
+                       review_share_uuid = null,
+                       review_url        = null
+                 where id = %s
+                """,
+                (rid,),
+            )
+        conn.commit()
+        log(f"req #{rid}: review view cleaned up")
+    return len(candidates)
+
+
 def finalize_complete_requests(conn) -> int:
     """Sweep finalize: flip any 'ready' request with no pending leads AND
     no unmoved approveds to status='moved'.
@@ -657,6 +704,10 @@ def main() -> None:
             # the per-request finalize_request_if_done — yet the batch is
             # actually fully decided. Idempotent.
             did_work = bool(finalize_complete_requests(conn)) or did_work
+            # Cleanup runs LAST so finalize-this-poll batches get their
+            # views deleted on the same cycle. Also picks up the mass-
+            # approve / mass-reject paths via the approval column.
+            did_work = bool(cleanup_review_views(conn)) or did_work
         except Exception as e:
             # Defensive: a transient DB error shouldn't kill the worker.
             log(f"poll error: {e}\n{traceback.format_exc()}")
