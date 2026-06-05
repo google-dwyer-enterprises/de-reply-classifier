@@ -36,8 +36,16 @@ State machine:
 - When no row is still `pending` AND every approved row has been moved,
   the worker auto-finalizes the request: `status='moved'`.
 
-The legacy `scrape_requests.approval` column is no longer used by the worker
-(left in place for backwards-compat with any older NocoDB views).
+**Mass-approve shortcut.** `scrape_requests.approval` is also wired as a
+batch-level convenience: when Jam sets the parent row's `approval='approved'`
+in NocoDB, the worker flips every `lead_approval='pending'` lead for that
+request to `'approved'` on the next poll, and the move/finalize chain takes
+over on the same cycle. Gives her two paths in the same UI:
+- "I trust BC's filter, take everything" → flip the parent row's approval.
+- "I want to cherry-pick" → use the per-lead grid.
+
+The leads Jam has already individually rejected are NOT overridden by the
+mass-approve — only `lead_approval='pending'` rows get flipped.
 
 ---
 

@@ -316,6 +316,51 @@ def process_one_pending_request(conn) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Mass-approve shortcut
+# ---------------------------------------------------------------------------
+#
+# Jam can either review leads one-by-one in the NocoDB per-batch grid, OR
+# set scrape_requests.approval='approved' to mass-approve every pending
+# lead in the batch in one click. This function flips the pending leads
+# to 'approved' so the regular granular move loop picks them up.
+
+def apply_mass_approval(conn) -> int:
+    """Mass-approve every pending lead for any request where Jam has set
+    scrape_requests.approval='approved' on the parent row.
+
+    Runs every poll, before the move step, so leads flipped here get moved
+    on the same cycle. Idempotent — once the rows are flipped to 'approved',
+    they no longer match the pending filter.
+
+    Returns the total number of leads flipped to 'approved' this call.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update prospeo_new_leads p
+               set lead_approval = 'approved'
+              from scrape_requests r
+             where p.scrape_request_id = r.id
+               and r.status = 'ready'
+               and r.approval = 'approved'
+               and p.lead_approval = 'pending'
+            returning p.scrape_request_id
+            """
+        )
+        rids = [r[0] for r in cur.fetchall()]
+    conn.commit()
+    if not rids:
+        return 0
+    # Count per request for tidier logs.
+    counts: dict[int, int] = {}
+    for rid in rids:
+        counts[rid] = counts.get(rid, 0) + 1
+    for rid, n in counts.items():
+        log(f"req #{rid}: mass-approve flipped {n} pending lead(s) to approved")
+    return len(rids)
+
+
+# ---------------------------------------------------------------------------
 # Per-lead approval → granular move (Flavor C)
 # ---------------------------------------------------------------------------
 #
@@ -511,6 +556,9 @@ def main() -> None:
     while True:
         try:
             did_work = process_one_pending_request(conn)
+            # Mass-approve runs before the move so leads flipped this poll
+            # get moved on the same cycle (no extra 60s wait for Jam).
+            did_work = bool(apply_mass_approval(conn)) or did_work
             did_work = process_pending_lead_moves(conn) or did_work
         except Exception as e:
             # Defensive: a transient DB error shouldn't kill the worker.

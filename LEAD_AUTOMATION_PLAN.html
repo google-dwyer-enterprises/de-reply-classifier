@@ -189,6 +189,11 @@
 │   sets approve / reject)   │                   │   approved | rejected│
 └────────────────────────────┘                   └──────────────────────┘
                                                           ▲
+                       OR mass-approve shortcut:          │
+       set scrape_requests.approval='approved' ─────► flips all pending
+       on the parent row in NocoDB.                  to approved on the
+       (Already-rejected leads not touched.)         next worker poll.
+                                                          ▲
                                                           │ every poll
                                                           │
                                                 ┌─────────────────────┐
@@ -305,11 +310,12 @@ create index prospeo_new_leads_pending_move_idx
     <tr><td><code>run_scrape(req)</code></td><td>Calls <code>bettercontact_sync.main(scrape_request_id=req.id, ...)</code>. Returns the run-summary dict (accepted / credits_spent / csv_path / xlsx_path / aborted_reason).</td></tr>
     <tr><td><code>mark_ready(...)</code></td><td>Writes <code>scraped_count</code>, <code>credits_spent</code>, <code>export_csv_path</code>, <code>export_xlsx_path</code>; flips to <code>ready</code>.</td></tr>
     <tr><td><code>mark_failed(...)</code></td><td>Writes <code>error_message</code>, flips to <code>failed</code>. Used by every exception path.</td></tr>
+    <tr><td><code>apply_mass_approval()</code></td><td>Runs every poll before the move step. For any request where Jam has set <code>scrape_requests.approval='approved'</code> on the parent row, flips every <code>lead_approval='pending'</code> child to <code>'approved'</code> in one UPDATE. Already-rejected leads stay rejected. Idempotent.</td></tr>
     <tr><td><code>find_requests_with_pending_moves()</code></td><td>Returns scrape_request ids that have <em>any</em> lead with <code>lead_approval='approved'</code> and <code>lead_moved_at IS NULL</code>. Cheap via the partial index.</td></tr>
     <tr><td><code>move_approved_leads_for_request(rid)</code></td><td>Per-request: <code>SELECT ... FOR UPDATE SKIP LOCKED</code> on approved-unmoved rows, <code>INSERT INTO lead_contacts ... ON CONFLICT DO NOTHING</code>, then <code>UPDATE ... SET lead_moved_at=now()</code> on the source rows. Increments <code>scrape_requests.moved_count</code> by the number of NEW rows inserted (dedup-skipped rows are still stamped moved_at but don't increment the counter — Jam sees only fresh contributions to the pool).</td></tr>
     <tr><td><code>finalize_request_if_done(rid)</code></td><td>Atomically flips <code>status='moved'</code> when no <code>lead_approval='pending'</code> rows remain AND every approved row has <code>lead_moved_at</code> set. Idempotent — coalesces <code>moved_at</code> so re-running doesn't reset the timestamp.</td></tr>
     <tr><td><code>process_pending_lead_moves()</code></td><td>Loops over every request with pending moves, moves each, then attempts finalize. Returns True if any work was done this cycle.</td></tr>
-    <tr><td><code>main()</code></td><td>Endless loop: <code>sweep</code> once, then <code>process_one_pending_request</code> + <code>process_pending_lead_moves</code> every <code>POLL_INTERVAL_S</code> (default 60s). Catches transient DB errors and reconnects.</td></tr>
+    <tr><td><code>main()</code></td><td>Endless loop: <code>sweep</code> once, then per cycle <code>process_one_pending_request</code> + <code>apply_mass_approval</code> + <code>process_pending_lead_moves</code> every <code>POLL_INTERVAL_S</code> (default 60s). Catches transient DB errors and reconnects. The order matters: mass-approve runs before the move so flipped leads get moved on the same cycle without waiting for the next poll.</td></tr>
   </tbody>
 </table>
 
@@ -347,8 +353,13 @@ create index prospeo_new_leads_pending_move_idx
 <h3>Polling instead of a webhook from NocoDB</h3>
 <p>NocoDB's webhook story is fragile (auth, retries, NocoDB version drift). A 60s poll is simpler, robust to Railway restarts, and the latency cost (~30s average) doesn't matter when scrapes take 1–10 minutes anyway.</p>
 
-<h3>Per-lead approval, not batch approval</h3>
-<p>BC's filter does most of the obvious-reject work but isn't perfect — in the E2E test it accepted "Owner, small business bookkeeper @ Crocs" (not a real Crocs employee). A batch-approve workflow would force Jam to either ship those false positives into the 200K pool or reject the whole batch over a handful of bad leads. Per-lead approval lets her cherry-pick. The downside is more clicks per batch; we mitigate by defaulting all BC-accepted leads to <code>pending</code> (no work needed if she approves everything) and letting NocoDB do bulk-row select for mass-approve.</p>
+<h3>Per-lead approval, with a mass-approve shortcut</h3>
+<p>BC's filter does most of the obvious-reject work but isn't perfect — in the E2E test it accepted "Owner, small business bookkeeper @ Crocs" (not a real Crocs employee). A batch-approve-only workflow would force Jam to either ship those false positives into the 200K pool or reject the whole batch over a handful of bad leads. Per-lead approval lets her cherry-pick.</p>
+<p>The downside is clicks per batch. Two mitigations:</p>
+<ul>
+  <li><strong>Native NocoDB per-page select-all</strong> — header checkbox selects every visible row; she edits one cell, NocoDB asks "apply to N rows?" and propagates. A 500-lead batch with the page size bumped to 100 is ~5 page-selects to mass-edit.</li>
+  <li><strong>Mass-approve shortcut</strong> — if she trusts BC's filter for this batch, she sets <code>scrape_requests.approval='approved'</code> on the parent row and the worker flips every still-<code>pending</code> lead to <code>approved</code> in one query on the next poll, then runs the move + finalize on the same cycle. Leads she's already individually rejected are NOT overridden. Same UI, two paths.</li>
+</ul>
 
 <h3>Idempotent move via <code>lead_moved_at</code></h3>
 <p>The worker can re-fire <code>process_pending_lead_moves</code> on every poll without double-moving anything: the move query filters on <code>lead_moved_at IS NULL</code>, and the UPDATE after the INSERT stamps moved_at regardless of whether the INSERT's ON CONFLICT skipped a row (the lead already exists in <code>lead_contacts</code>). Either way, the row is marked "processed" and won't appear in the next move query.</p>
@@ -444,6 +455,11 @@ create index prospeo_new_leads_pending_move_idx
       <td>Granular per-lead approval workflow</td>
       <td>Synthetic 5-lead batch through 4 scenarios: no-approval no-op, partial approval (2/5), reject (no move), final approve+reject auto-finalize</td>
       <td><span class="pill ok">PASS</span> moved counts correct, status flips only when batch fully decided</td>
+    </tr>
+    <tr>
+      <td>Mass-approve shortcut via <code>scrape_requests.approval</code></td>
+      <td>5-lead batch with one row pre-approved by Jam, then parent <code>approval='approved'</code>: flips remaining 4 pending → moves all 5 → finalizes. Re-run is no-op.</td>
+      <td><span class="pill ok">PASS</span> mass-approve doesn't override individual rejects; idempotent re-run</td>
     </tr>
   </tbody>
 </table>
