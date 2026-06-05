@@ -418,9 +418,13 @@ create table if not exists bettercontact_scrape_state (
 create table if not exists scrape_requests (
   id              bigserial primary key,
   requested_leads integer  not null check (requested_leads between 1 and 5000),
-  industries      text[]   not null default '{}',          -- empty = all 12
-  skip_industries text[]   not null default '{}',
-  countries       text[]   not null default '{United States,Canada}',
+  -- NocoDB MultiSelect storage format: comma-separated text. Originally
+  -- text[] but NocoDB has no form widget for Postgres array columns, so
+  -- the fields were invisible on the public submit form. Migrated via
+  -- scripts/apply_multiselect_migration.py.
+  industries      text     not null default '',            -- empty = all 12
+  skip_industries text     not null default '',
+  countries       text     not null default 'United States,Canada',
   notes           text,
   status          text     not null default 'pending'
                   check (status in ('pending','running','ready','moved','rejected','failed')),
