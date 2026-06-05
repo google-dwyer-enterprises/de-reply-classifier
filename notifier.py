@@ -36,20 +36,26 @@ RESEND_ENDPOINT = "https://api.resend.com/emails"
 DEFAULT_FROM = "Dwyer Lead Scraper <noreply@dwyer-enterprises.com>"
 
 
-def _build_link(req_id: int) -> str | None:
-    """Build the "open this row in NocoDB" link for the email.
+def _build_link(req_id: int, review_url: str | None = None) -> str | None:
+    """Build the "open this batch in NocoDB" link for the email.
 
-    NocoDB's expanded-row URL varies by version (workspace id, base id, table
-    id, query param vs hash, etc.), so instead of guessing we let the operator
-    supply a template with a literal `{id}` placeholder — they copy the URL
-    of any expanded row from their browser, swap the row id for `{id}`, and
-    paste it as NOCODB_ROW_URL_TEMPLATE.
+    Preference order:
+      1. `review_url` (the per-batch grid view the worker created at
+         mark_ready). Structurally scoped to this batch's leads — Jam's
+         bulk-edit inside it can't reach other batches' rows.
+      2. NOCODB_ROW_URL_TEMPLATE expanded with `{id}` — opens the parent
+         scrape_requests row. Doesn't scope the lead-level view, but at
+         least points Jam at the right batch's metadata.
+      3. NOCODB_BASE_URL — just the NocoDB root, falls back to manual nav.
 
-    Returns None when neither NOCODB_ROW_URL_TEMPLATE nor NOCODB_BASE_URL is
-    configured, so the caller can omit the button entirely rather than
-    rendering a non-URL hint string that mail clients punycode-encode into
-    garbage like `http://xn--(nocodb-link-not-configured)...`.
+    Returns None when nothing is configured, so the caller can render a
+    placeholder instead of a non-URL hint string that mail clients
+    punycode-encode into garbage like `http://xn--(nocodb-link-not-configured)...`.
     """
+    # 1. per-batch review view (most-scoped, preferred)
+    if review_url:
+        return review_url
+
     template = os.environ.get("NOCODB_ROW_URL_TEMPLATE", "").strip()
     if template:
         # Defensive: only replace the literal "{id}" token, not arbitrary
@@ -81,14 +87,22 @@ def _build_html(req: dict[str, Any]) -> str:
         for name, n in by_industry[:5]
     ) or '<li style="color:#6b7280;">(none)</li>'
 
-    link = _build_link(req_id)
+    link = _build_link(req_id, req.get("review_url"))
+    # Label differs by link target: the per-batch view says "review", the
+    # parent-row template says "open request" — so Jam knows what she's
+    # about to land on.
+    btn_label = (
+        f'Review batch #{req_id} in NocoDB →'
+        if req.get("review_url")
+        else f'Open request #{req_id} in NocoDB →'
+    )
     if link:
         button = (
             f'<a href="{link}" '
             f'style="display:inline-block;background:#2563eb;color:white;'
             f'padding:12px 28px;border-radius:6px;text-decoration:none;'
             f'font-weight:600;margin:12px 0;">'
-            f'Open request #{req_id} in NocoDB →</a>'
+            f'{btn_label}</a>'
         )
     else:
         # Operator hasn't set NOCODB_ROW_URL_TEMPLATE / NOCODB_BASE_URL yet.

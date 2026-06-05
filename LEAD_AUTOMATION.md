@@ -137,9 +137,18 @@ Set these on the Railway service (and locally in `.env` if testing):
 | `RESEND_API_KEY` | `re_abc123...` | From Resend dashboard |
 | `NOTIFY_EMAIL` | `jam@dwyer-enterprises.com` | Where the "ready" email goes |
 | `NOTIFY_FROM` | `Dwyer Lead Scraper <noreply@dwyer-enterprises.com>` | Optional; must be a verified sender on your Resend domain |
-| `NOCODB_ROW_URL_TEMPLATE` | `https://vd-master-leads.up.railway.app/dashboard/#/nc/abc/def/?rowId={id}` | Expanded-row URL with literal `{id}` placeholder. To set it: open NocoDB → expand any row in `scrape_requests` → copy the URL bar → replace that row's id with the literal string `{id}`. Avoids guessing the NocoDB URL layout. |
-| `NOCODB_BASE_URL` | `https://vd-master-leads.up.railway.app` | Optional fallback. Used as the email link only when `NOCODB_ROW_URL_TEMPLATE` is unset. |
+| `NOCODB_URL` | `https://vd-master-leads.up.railway.app` | Root URL of the NocoDB instance. Required by `nocodb_views.create_review_view`. |
+| `NOCODB_API_TOKEN` | `nc_pat_...` | NocoDB API token with view + filter + share permissions. Generate at NocoDB → Account → Tokens. |
+| `NOCODB_PROSPEO_TABLE_ID` | `med6a7965as54pz` | Table id of `prospeo_new_leads`. |
+| `NOCODB_LEAD_APPROVAL_COL_ID` | `c7gdobdyt07rgzd` | Column id of `prospeo_new_leads.lead_approval`. |
+| `NOCODB_SCRAPE_REQUEST_ID_COL_ID` | `cujg6tcwgo86wf4` | Column id of `prospeo_new_leads.scrape_request_id`. |
+| `NOCODB_ROW_URL_TEMPLATE` | `https://vd-master-leads.up.railway.app/dashboard/#/nc/abc/def/?rowId={id}` | Fallback when the per-batch view can't be created. Parent-row URL with literal `{id}` placeholder. |
+| `NOCODB_BASE_URL` | `https://vd-master-leads.up.railway.app` | Second fallback. Used only when `review_url` AND `NOCODB_ROW_URL_TEMPLATE` are both unset. |
 | `WORKER_POLL_INTERVAL_S` | `60` (optional) | Defaults to 60 |
+
+**Per-batch review views.** When `NOCODB_API_TOKEN` + the three id env vars above are set, `mark_ready` calls the NocoDB API to create a fresh grid view filtered to `scrape_request_id = N AND lead_approval = 'pending'`, enables public sharing on it, stores the share URL on the `scrape_requests` row, and embeds that URL in the email button. Jam clicks the button and lands inside a view that **structurally** contains only her batch's pending leads — header-checkbox / multi-select / bulk-edit can never reach other batches' rows. The "Apply" step is NocoDB's native "Update lead_approval for N selected rows?" confirmation dialog.
+
+If NocoDB is unreachable or any step fails, the row still flips to `ready`, the email still sends, and the link falls back to `NOCODB_ROW_URL_TEMPLATE`. The worker logs the failure but continues.
 
 ---
 
