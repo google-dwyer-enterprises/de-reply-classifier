@@ -449,3 +449,19 @@ alter table prospeo_new_leads
   add column if not exists scrape_request_id bigint references scrape_requests(id);
 create index if not exists prospeo_new_leads_scrape_request_id_idx
   on prospeo_new_leads (scrape_request_id) where scrape_request_id is not null;
+
+-- Per-lead approval (Flavor C / granular workflow).
+-- NULL on rows from the CLI scraper. For worker-tagged rows: starts
+-- 'pending' for BC-accepted leads, 'rejected' for BC-auto-rejected ones.
+-- Jam moves leads to 'approved' or 'rejected' inside a NocoDB per-batch
+-- grid; the worker keeps moving approved leads into lead_contacts until
+-- every lead has a decision, then flips scrape_requests.status='moved'.
+alter table prospeo_new_leads
+  add column if not exists lead_approval text
+    check (lead_approval is null or
+           lead_approval in ('pending', 'approved', 'rejected'));
+alter table prospeo_new_leads
+  add column if not exists lead_moved_at timestamptz;
+create index if not exists prospeo_new_leads_pending_move_idx
+  on prospeo_new_leads (scrape_request_id)
+  where lead_approval = 'approved' and lead_moved_at is null;

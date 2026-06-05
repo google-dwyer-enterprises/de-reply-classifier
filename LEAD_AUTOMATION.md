@@ -19,14 +19,33 @@ pool" flow. Implementation plan lives in
 State machine:
 
 ```
-  pending ──(worker scrapes)──► running ──► ready ──(Jam approves)──► moved
-                                  │            │                       
-                                  │            └──(Jam rejects)─► rejected
+  pending ──(worker scrapes)──► running ──► ready ──(all leads decided)──► moved
+                                  │
                                   └─(error)──► failed
 ```
 
-`approval` is a separate field (pending/approved/rejected) that Jam edits
-in NocoDB. The worker only acts on `status='ready' AND approval='approved'`.
+`status` stays `ready` while Jam reviews. Per-lead approval drives the move:
+
+- Each row in `prospeo_new_leads` tagged with a `scrape_request_id` has its
+  own `lead_approval` (`pending` / `approved` / `rejected`).
+- BC-accepted leads start at `pending`; BC-auto-rejected leads (the
+  `rejected=true` audit rows) are seeded `rejected`.
+- Jam reviews each row in the per-batch NocoDB grid and toggles to `approved`
+  or `rejected`. The worker keeps moving newly-approved leads into
+  `lead_contacts` every poll (within ~60s) and stamps `lead_moved_at`.
+- When no row is still `pending` AND every approved row has been moved,
+  the worker auto-finalizes the request: `status='moved'`.
+
+**Mass-approve shortcut.** `scrape_requests.approval` is also wired as a
+batch-level convenience: when Jam sets the parent row's `approval='approved'`
+in NocoDB, the worker flips every `lead_approval='pending'` lead for that
+request to `'approved'` on the next poll, and the move/finalize chain takes
+over on the same cycle. Gives her two paths in the same UI:
+- "I trust BC's filter, take everything" → flip the parent row's approval.
+- "I want to cherry-pick" → use the per-lead grid.
+
+The leads Jam has already individually rejected are NOT overridden by the
+mass-approve — only `lead_approval='pending'` rows get flipped.
 
 ---
 
@@ -36,10 +55,13 @@ in NocoDB. The worker only acts on `status='ready' AND approval='approved'`.
 
 ```bash
 python scripts/apply_scrape_requests_schema.py
+python scripts/apply_lead_approval_schema.py
 ```
 
-Idempotent — safe to re-run. Creates the `scrape_requests` table and adds
-`prospeo_new_leads.scrape_request_id`.
+Both idempotent — safe to re-run. The first creates the `scrape_requests`
+table and adds `prospeo_new_leads.scrape_request_id`. The second adds
+`prospeo_new_leads.lead_approval` + `lead_moved_at` for the per-lead
+workflow (Flavor C).
 
 ### 2. Set up Resend (one-time, ~10 minutes)
 
@@ -54,27 +76,40 @@ If domain verification is blocked, the worker will still complete jobs and
 mark them ready — emails just won't send. Operate fine without them while
 DNS propagates.
 
-### 3. Configure NocoDB views (one-time, ~15 minutes)
+### 3. Configure NocoDB views (one-time, ~20 minutes)
 
-The `scrape_requests` table now exists in Supabase but NocoDB caches
-metadata, so:
+The schema is in Supabase but NocoDB caches metadata, so first:
 
 1. Open NocoDB at https://vd-master-leads.up.railway.app
 2. **Reload metadata** for the Supabase data source (Data Sources → ⋮ → Sync Now).
-3. Open the `scrape_requests` table.
-4. **Form view for Jam:**
-   - Click `+` next to "Views" → "Form view" → name it **"Submit a request"**
-   - Show only these fields: `requested_leads`, `industries`, `skip_industries`,
-     `countries`, `notes`. Hide everything else.
-   - Make the form public (View Settings → "Public Form") and give the URL
-     to Jam to bookmark.
-5. **Grid view for tracking:**
-   - Default Grid view → rename to **"All requests"**. Sort by `created_at DESC`.
-   - Configure cell coloring on `status`: yellow for `ready`, green for
-     `moved`, red for `failed`.
-6. **Approval dropdown:**
-   - On the `approval` column, change the field type from Text to
-     SingleSelect with options `pending`, `approved`, `rejected`.
+
+Then configure three views — two on `scrape_requests`, one on `prospeo_new_leads`:
+
+**A. Submit form (on `scrape_requests`)** — what Jam fills out.
+- Click `+` next to "Views" → "Form view" → name it **"Submit a request"**
+- Show only: `requested_leads`, `industries`, `skip_industries`, `countries`, `notes`.
+- Hide everything else.
+- Make the form public (View Settings → "Public Form") and give the URL to Jam to bookmark.
+
+**B. Track requests (on `scrape_requests`)** — Jam's overview.
+- Default Grid view → rename to **"All requests"**. Sort by `created_at DESC`.
+- Configure cell coloring on `status`: yellow for `ready`, green for `moved`, red for `failed`.
+
+**C. Per-batch review grid (on `prospeo_new_leads`)** — where Jam reviews each lead.
+- Click `+` next to "Views" → "Grid view" → name it **"Review batch"**.
+- Filter: `scrape_request_id` IS NOT NULL AND `lead_approval` = 'pending'.
+  - Optional: a second filter row Jam can edit to pin to one specific request
+    id (or use Toolbar → "Search in view" by request id).
+- Show these columns: `email`, `first_name`, `last_name`, `title`,
+  `company_name`, `source_industry`, `lead_approval`, `lead_moved_at`,
+  `scrape_request_id`.
+- On the `lead_approval` column, change field type from Text to SingleSelect
+  with options `pending`, `approved`, `rejected`. Default `pending`.
+- Cell coloring on `lead_approval`: green for `approved`, red for `rejected`.
+
+**Bulk-edit tip for Jam:** in NocoDB she can shift-click multiple rows and
+bulk-edit `lead_approval` for the lot — useful when she trusts a whole
+industry's results or wants to reject everything from one company.
 
 ### 4. Deploy the worker to Railway
 
@@ -121,9 +156,14 @@ transition, e.g.:
 [2026-06-04 14:31:02] req #14: scraping target=500, countries=['US','CA'], skip=['Food and Beverage Manufacturing']
 [2026-06-04 14:48:33] req #14: scrape done, accepted=487, rejected=12
 [2026-06-04 14:48:34] req #14: email sent
-[2026-06-04 14:52:15] req #14: approved, moving into lead_contacts
-[2026-06-04 14:52:16] req #14: moved 487 rows -> status=moved
+[2026-06-04 14:55:02] req #14: moved 22 approved lead(s) into lead_contacts
+[2026-06-04 15:12:14] req #14: moved 105 approved lead(s) into lead_contacts
+[2026-06-04 16:03:08] req #14: moved 360 approved lead(s) into lead_contacts
+[2026-06-04 16:03:08] req #14: all leads decided — status=moved
 ```
+
+(In the per-lead workflow each "moved N approved leads" line corresponds to
+a batch of approvals Jam saved in NocoDB since the last poll.)
 
 ### What Jam sees
 
@@ -131,9 +171,14 @@ transition, e.g.:
 2. Within ~60s the worker picks it up; `status` flips to `running`. The
    `scraped_count` field updates as the BC scraper runs (visible on each
    refresh).
-3. When complete, `status=ready` and she gets an email.
-4. She opens the row in NocoDB, sees a preview, sets `approval=approved`.
-5. Within ~60s the worker moves the leads; `status=moved`, `moved_count` is set.
+3. When complete, `status=ready` and she gets an email with a link.
+4. She opens the **"Review batch"** grid view on `prospeo_new_leads`,
+   filters to this request id, and toggles each row's `lead_approval`
+   to `approved` or `rejected`. She can do this in batches across multiple
+   sessions — the worker keeps moving approved leads as they appear.
+5. Once every row has a decision and every approved lead has been moved,
+   `status='moved'` automatically. She doesn't have to manually close the
+   batch.
 
 ---
 
@@ -209,7 +254,6 @@ drop table if exists scrape_requests;
 ## What this doesn't do (deferred)
 
 - No editing a request after submission (Jam can submit a new one).
-- No partial approval — whole batch or none.
 - No automatic load into Instantly — leads land in `lead_contacts`; the
   existing flow takes over.
 - No multi-workspace `sent_messages` sync (separate ticket — see

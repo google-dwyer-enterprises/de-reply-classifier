@@ -383,8 +383,15 @@ def _insert_leads(conn, leads: list[dict],
     """Bulk-insert leads (accepted or rejected). Caller sets each row's
     `rejected` field explicitly. When `scrape_request_id` is set, every row
     is tagged so the lead-scrape-automation worker can later move just the
-    rows from a specific request into `lead_contacts`. Returns rows actually
-    inserted."""
+    rows from a specific request into `lead_contacts`.
+
+    For worker-tagged rows, `lead_approval` is seeded:
+      - BC-accepted (rejected=false) -> 'pending' (Jam reviews in NocoDB)
+      - BC-auto-rejected (rejected=true) -> 'rejected' (no manual review)
+    Non-worker rows (CLI) leave lead_approval NULL, which the worker's
+    move query excludes by definition.
+
+    Returns rows actually inserted."""
     if not leads:
         return 0
     cols = ["email", "first_name", "last_name", "title", "company_name",
@@ -393,10 +400,16 @@ def _insert_leads(conn, leads: list[dict],
             "mobile", "mobile_status",
             "agency_filter_result", "agency_filter_method",
             "agency_filter_reason", "rejected", "bettercontact_raw",
-            "scrape_request_id"]
+            "scrape_request_id", "lead_approval"]
+
+    def _approval_for(lead: dict) -> str | None:
+        if scrape_request_id is None:
+            return None
+        return "rejected" if lead.get("rejected") else "pending"
+
     rows = [
         [l.get(c) if c != "bettercontact_raw" else json.dumps(l.get(c) or {})
-         for c in cols[:-1]] + [scrape_request_id]
+         for c in cols[:-2]] + [scrape_request_id, _approval_for(l)]
         for l in leads
     ]
     placeholders = ",".join(["%s"] * len(cols))
