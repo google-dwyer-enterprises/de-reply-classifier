@@ -36,41 +36,38 @@ RESEND_ENDPOINT = "https://api.resend.com/emails"
 DEFAULT_FROM = "Dwyer Lead Scraper <noreply@dwyer-enterprises.com>"
 
 
-def _build_link(req_id: int, review_url: str | None = None) -> str | None:
-    """Build the "open this batch in NocoDB" link for the email.
+def _build_link(req_id: int, review_token: str | None = None) -> str | None:
+    """Build the "open this batch" link for the email.
 
-    Preference order:
-      1. `review_url` (the per-batch grid view the worker created at
-         mark_ready). Structurally scoped to this batch's leads — Jam's
-         bulk-edit inside it can't reach other batches' rows.
+    Preference order (most-scoped first):
+      1. lead-reviewer per-batch URL — <LEAD_REVIEWER_BASE_URL>/batch/<review_token>.
+         The lead-reviewer Flask app structurally scopes the page to this batch
+         (route-based isolation, not filter-based). This is the production path.
       2. NOCODB_ROW_URL_TEMPLATE expanded with `{id}` — opens the parent
-         scrape_requests row. Doesn't scope the lead-level view, but at
-         least points Jam at the right batch's metadata.
-      3. NOCODB_BASE_URL — just the NocoDB root, falls back to manual nav.
+         scrape_requests row in NocoDB. Legacy fallback for the old NocoDB-only
+         flow; only used if LEAD_REVIEWER_BASE_URL isn't set.
+      3. NOCODB_BASE_URL — just the NocoDB root, manual navigation.
 
-    Returns None when nothing is configured, so the caller can render a
+    Returns None when nothing is configured, so the caller renders a
     placeholder instead of a non-URL hint string that mail clients
-    punycode-encode into garbage like `http://xn--(nocodb-link-not-configured)...`.
+    punycode-encode into garbage.
     """
-    # 1. per-batch review view (most-scoped, preferred)
-    if review_url:
-        return review_url
+    # 1. lead-reviewer per-batch URL (preferred)
+    base = os.environ.get("LEAD_REVIEWER_BASE_URL", "").strip().rstrip("/")
+    if base and review_token:
+        return f"{base}/batch/{review_token}"
 
     template = os.environ.get("NOCODB_ROW_URL_TEMPLATE", "").strip()
     if template:
-        # Defensive: only replace the literal "{id}" token, not arbitrary
-        # str.format() syntax — the URL may contain {} characters.
         if "{id}" in template:
             return template.replace("{id}", str(req_id))
-        # Operator forgot the placeholder. Append ?rowId= as best-effort and
-        # log a hint to stderr so the worker log shows it.
         print(f"notifier: NOCODB_ROW_URL_TEMPLATE has no {{id}} placeholder; "
               f"appending ?rowId={req_id} as a guess", file=sys.stderr)
         sep = "&" if "?" in template else "?"
         return f"{template}{sep}rowId={req_id}"
-    base = os.environ.get("NOCODB_BASE_URL", "").rstrip("/")
-    if base:
-        return base
+    nocodb_base = os.environ.get("NOCODB_BASE_URL", "").rstrip("/")
+    if nocodb_base:
+        return nocodb_base
     return None
 
 
@@ -87,13 +84,17 @@ def _build_html(req: dict[str, Any]) -> str:
         for name, n in by_industry[:5]
     ) or '<li style="color:#6b7280;">(none)</li>'
 
-    link = _build_link(req_id, req.get("review_url"))
-    # Label differs by link target: the per-batch view says "review", the
-    # parent-row template says "open request" — so Jam knows what she's
-    # about to land on.
+    link = _build_link(req_id, req.get("review_token"))
+    # Label differs by which link target: the lead-reviewer is "Review batch",
+    # the NocoDB row-template fallback is "Open request" — so Jam knows where
+    # she's about to land.
+    using_lead_reviewer = bool(
+        req.get("review_token")
+        and os.environ.get("LEAD_REVIEWER_BASE_URL", "").strip()
+    )
     btn_label = (
-        f'Review batch #{req_id} in NocoDB →'
-        if req.get("review_url")
+        f'Review batch #{req_id} →'
+        if using_lead_reviewer
         else f'Open request #{req_id} in NocoDB →'
     )
     if link:
