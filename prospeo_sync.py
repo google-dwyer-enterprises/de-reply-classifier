@@ -278,6 +278,29 @@ def service_business(*signals: str | None) -> str | None:
     return m.group(0) if m else None
 
 
+# Allowlist: known legitimate product brands the deterministic matchers wrongly
+# flag — e.g. haircare brands that sell TO salons (so they carry "salon" in their
+# keywords), or a baseball-bat maker whose museum sits on Kentucky's Bourbon
+# Trail. These are exempt from the prohibited + service RULES; the LLM brand-gate
+# still classifies them normally. Substring match on company name + domain,
+# lowercased — keep entries specific enough not to collide with real garbage.
+QA_ALLOWLIST: tuple[str, ...] = (
+    "paul mitchell", "jpms",            # John Paul Mitchell Systems — haircare
+    "aloxxi",                           # Aloxxi — hair color
+    "shurtape",                         # Shurtape — adhesive/kinesiology tape
+    "zebra athletics",                  # Zebra Athletics — martial-arts mats
+    "louisville slugger", "hillerich",  # Louisville Slugger — baseball bats
+    "vortex optics",                    # Vortex Optics — sport optics/binoculars
+)
+
+
+def is_allowlisted(*signals: str | None) -> bool:
+    """True if a name/domain signal matches a known-legit product brand that
+    should be exempt from the deterministic prohibited/service rules."""
+    blob = " ".join(s for s in signals if s).lower()
+    return any(m in blob for m in QA_ALLOWLIST) if blob else False
+
+
 AGENCY_FILTER_MODEL = "claude-haiku-4-5"
 AGENCY_FILTER_PROMPT = Path(__file__).parent / "prompts" / "agency_filter.txt"
 
@@ -860,6 +883,12 @@ def rule_classify(lead: dict) -> tuple[str, str, str] | None:
     name = (lead.get("company_name") or "").lower()
     site = _norm_domain(lead.get("company_website")) or ""
     email_dom = _email_domain(lead.get("email")) or ""
+
+    # Allowlisted legit product brands skip the deterministic rules entirely and
+    # defer to the LLM brand-gate (which classifies them correctly as "brand").
+    if is_allowlisted(lead.get("company_name"), lead.get("company_domain"),
+                      lead.get("company_website")):
+        return None
 
     # Prohibited product categories (cannabis / alcohol / firearms) — hard reject
     # before any other rule, checked against every text signal we have. Keywords

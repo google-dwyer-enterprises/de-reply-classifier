@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from prospeo_sync import prohibited_category, service_business
+from prospeo_sync import prohibited_category, service_business, is_allowlisted
 
 # Above this fraction of flagged/total, refuse to export. Any prohibited lead at
 # all (cannabis/alcohol/firearms) blocks regardless of rate — zero tolerance.
@@ -59,6 +59,11 @@ def scan(leads: list[dict]) -> dict:
         dom = ld.get("company_domain")
         desc = ld.get("company_description")
         kb = _kw_blob(ld)
+
+        # Allowlisted legit product brands are exempt from the deterministic
+        # rules (the LLM brand-gate still classifies them at scrape time).
+        if is_allowlisted(name, dom, web):
+            continue
 
         # Prohibited categories: full signal set incl. description.
         ph = prohibited_category(name, web, dom, desc, kb)

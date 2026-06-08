@@ -4,10 +4,10 @@
 DB cleaned: BetterContact 564 / Prospeo 1,417 accepted after quarantining all
 prohibited + service + (BC) LLM-caught reseller/agency/marketplace leads; the
 Jun-3 BetterContact export was re-cut to a clean 538-brand sheet. P4 still
-blocked pending a product decision (see §3). Remaining: a known-FP **allowlist**
-(Paul Mitchell, Aloxxi, Shurtape, Zebra Athletics, Louisville Slugger, Vortex)
-so the deterministic gate stops flagging those legit product brands — was
-deliberately deferred, so the gate still reports those 9 rows.
+blocked pending a product decision (see §3). A known-FP **allowlist** (Paul
+Mitchell, Aloxxi, Shurtape, Zebra Athletics, Louisville Slugger, Vortex) now
+exempts those legit product brands from the deterministic rules — the full-DB QA
+gate is **green (0 flagged / 1,981 accepted)**.
 **Trigger:** Audit found Hassan's BetterContact batch full of irrelevant companies
 (cannabis, acupuncture, service businesses). Jamie paused use of all of Hassan's
 scraped lists until a QA process is in place. New requirement from Jamie:
