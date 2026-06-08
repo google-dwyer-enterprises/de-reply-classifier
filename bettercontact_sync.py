@@ -739,6 +739,19 @@ def _run_category(conn, api_key: str, *,
     if aborted_reason:
         print(f"\n!!! Run aborted: {aborted_reason}", file=sys.stderr)
 
+    # P5: independent QA scan of this run's accepted leads (warn-only here —
+    # the enforcing gate is `run.py export-leads`). Catches anything that
+    # slipped the scrape-time filters before it reaches the per-run CSV.
+    try:
+        import lead_qa
+        qa = lead_qa.scan(accepted)
+        if qa["flagged"]:
+            lead_qa.print_report(qa)
+            print("  ! QA flagged leads in this run — review before loading; "
+                  "`run.py qa-leads --fix` will quarantine them.", file=sys.stderr)
+    except Exception as e:  # QA must never break a scrape run
+        print(f"  ! QA scan skipped: {e}", file=sys.stderr)
+
     # --- Final export -------------------------------------------------------
     os.makedirs("exports", exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

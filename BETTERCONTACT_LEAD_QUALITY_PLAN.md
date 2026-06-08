@@ -1,7 +1,13 @@
 # BetterContact Lead-Quality Remediation — Findings & Plan
 
-**Status:** P1, P2, P3 implemented (not committed, not yet run live). P4
-reassessed — blocked pending a product decision (see §3). P5 not started.
+**Status:** P1, P2, P3 committed. P5 (QA gate + `qa-leads` CLI) implemented.
+DB cleaned: BetterContact 564 / Prospeo 1,417 accepted after quarantining all
+prohibited + service + (BC) LLM-caught reseller/agency/marketplace leads; the
+Jun-3 BetterContact export was re-cut to a clean 538-brand sheet. P4 still
+blocked pending a product decision (see §3). Remaining: a known-FP **allowlist**
+(Paul Mitchell, Aloxxi, Shurtape, Zebra Athletics, Louisville Slugger, Vortex)
+so the deterministic gate stops flagging those legit product brands — was
+deliberately deferred, so the gate still reports those 9 rows.
 **Trigger:** Audit found Hassan's BetterContact batch full of irrelevant companies
 (cannabis, acupuncture, service businesses). Jamie paused use of all of Hassan's
 scraped lists until a QA process is in place. New requirement from Jamie:
