@@ -21,6 +21,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -117,8 +118,13 @@ PROSPEO_INDUSTRIES = [
     "Pet Services",
     # Verified 2026-05-15 (3 additions from ecom + gaps probes)
     "Retail Groceries",                          # probe on ecom_industries sheet
-    "Alternative Medicine",                      # gaps probe, total_count=128K
     "Retail Health and Personal Care Products",  # gaps probe, total_count=141K
+    # REMOVED 2026-06-08 (P1, BETTERCONTACT_LEAD_QUALITY_PLAN.md):
+    #   "Alternative Medicine" — audit of accepted leads in this industry found
+    #   ~83% cannabis dispensaries/brands and ~9% clinics/spas; only ~8% were
+    #   legitimate product brands (most of which also surface under other
+    #   industries). Highest-precision single removal. Existing
+    #   category_scrape_state rows for it are harmless (just no longer queried).
 ]
 
 # Minimum company annual revenue applied to every Prospeo search.
@@ -160,6 +166,117 @@ MARKETPLACE_DOMAINS = {
     "amazon.com", "walmart.com", "etsy.com", "ebay.com",
     "faire.com", "shopify.com", "alibaba.com", "aliexpress.com",
 }
+
+# Prohibited product categories (Jamie's rule, 2026-06): leads selling cannabis,
+# alcohol, or firearms must never be exported, regardless of provider or source
+# industry. Matched as WHOLE WORDS (case-insensitive) against every available
+# text signal — company name, domain, keyword list, and description — because
+# coy cannabis brand names ("710 Labs", "Muha Meds") only reveal the category in
+# their keywords/description, not the name. Whole-word matching keeps short
+# tokens like "gun"/"rum" from firing on "begun"/"drum".
+#
+# Token lists lean toward recall (a false positive only drops one lead, of which
+# we have a surplus; a false negative ships a prohibited lead to the client).
+# Tokens that proved to cause real false positives in the measured impact pass
+# (BETTERCONTACT_LEAD_QUALITY_PLAN.md P5) are intentionally excluded — e.g. bare
+# "beer" (root beer / beer-battered foods) and "wine" (wine racks / glassware).
+PROHIBITED_CATEGORY_TOKENS: dict[str, tuple[str, ...]] = {
+    "cannabis": (
+        "cannabis", "marijuana", "dispensary", "dispensaries", "thc", "cbd",
+        "cannabinoid", "cannabinoids", "kratom", "psilocybin", "live rosin",
+        "pre-roll", "pre-rolls", "preroll", "prerolls", "edibles", "delta-8",
+        "delta 8", "delta-9", "delta 9", "vape", "vaping", "dab rig", "weed",
+        "hemp", "cannabidiol", "indica", "sativa",
+    ),
+    "alcohol": (
+        "liquor", "whiskey", "whisky", "bourbon", "vodka", "tequila", "mezcal",
+        "winery", "wineries", "vineyard", "vineyards", "distillery",
+        "distilleries", "distilling", "distilled spirits", "brewery",
+        "breweries", "brewing", "moonshine", "cognac", "spirits brand",
+        "alcoholic beverage", "alcoholic beverages",
+    ),
+    "firearms": (
+        "firearm", "firearms", "ammunition", "ammo", "handgun", "handguns",
+        "rifle", "rifles", "pistol", "pistols", "shotgun", "shotguns",
+        "gunsmith", "silencer", "suppressor", "gun shop", "guns",
+    ),
+}
+
+# Precompiled whole-word regex per category (built once at import).
+_PROHIBITED_RX: dict[str, "re.Pattern[str]"] = {
+    category: re.compile(
+        r"\b(?:" + "|".join(re.escape(t) for t in tokens) + r")\b", re.IGNORECASE
+    )
+    for category, tokens in PROHIBITED_CATEGORY_TOKENS.items()
+}
+
+
+def prohibited_category(*signals: str | None) -> tuple[str, str] | None:
+    """Return (category, matched_token) if any text signal contains a prohibited
+    product category (cannabis / alcohol / firearms), else None.
+
+    Whole-word, case-insensitive. Pass any signals available for the lead:
+    company name, website, domain, description, and a space-joined keyword blob.
+    """
+    blob = " ".join(s for s in signals if s).lower()
+    if not blob:
+        return None
+    for category, rx in _PROHIBITED_RX.items():
+        m = rx.search(blob)
+        if m:
+            return category, m.group(0)
+    return None
+
+
+# Consumer-facing / local SERVICE businesses that don't sell a physical product
+# (salons, spas, daycares, clinics, studios, gyms, etc.). NOT "prohibited" — just
+# out of scope, since the goal is product brands ("make sure all domains sell
+# products"). This is a cheap deterministic backstop to the LLM brand-gate.
+#
+# High-precision tokens ONLY: phrases that almost never appear in a real product
+# brand's NAME or keyword list. We deliberately do NOT scan the free-text
+# description with these (a dog-bed brand might mention "kennel" or "daycare" in
+# passing) — the LLM brand-gate handles description-level nuance. Ambiguous bare
+# words that product brands use ("spa", "studio", "salon", "gym", "clinic",
+# "wellness", "grooming", "dentist") are intentionally excluded here and left to
+# the LLM, which has full context.
+SERVICE_TOKENS: tuple[str, ...] = (
+    "daycare", "day care", "doggy daycare", "dog daycare", "pet resort",
+    "kennel", "kennels", "cattery",
+    "grooming salon", "pet grooming", "dog grooming",
+    "acupuncture", "chiropractic", "chiropractor",
+    # NB: bare "orthodontic(s)/orthodontist" removed — oral-care PRODUCT brands
+    # (e.g. Burst toothbrushes) carry it as a keyword. Use the clinic phrasing.
+    "orthodontic clinic", "orthodontist office",
+    "physiotherapy",
+    "med spa", "medspa", "medical spa", "day spa",
+    "hair salon", "nail salon", "beauty salon",
+    "barbershop", "barber shop",
+    "yoga studio", "pilates studio", "fitness studio",
+    "tattoo parlor", "tattoo studio",
+    "dental clinic", "dental practice", "dental office", "dentist office",
+    "veterinary clinic", "animal hospital", "vet clinic",
+    "wellness clinic", "medical clinic", "urgent care",
+)
+
+_SERVICE_RX = re.compile(
+    r"\b(?:" + "|".join(re.escape(t) for t in SERVICE_TOKENS) + r")\b", re.IGNORECASE
+)
+
+
+def service_business(*signals: str | None) -> str | None:
+    """Return the matched token if a signal names a SERVICE business
+    (salon/spa/daycare/clinic/studio…), else None. Whole-word, case-insensitive.
+
+    Pass HIGH-PRECISION signals only — name, domain, joined keywords — NOT the
+    free-text description (too noisy); the LLM brand-gate covers that.
+    """
+    blob = " ".join(s for s in signals if s).lower()
+    if not blob:
+        return None
+    m = _SERVICE_RX.search(blob)
+    return m.group(0) if m else None
+
 
 AGENCY_FILTER_MODEL = "claude-haiku-4-5"
 AGENCY_FILTER_PROMPT = Path(__file__).parent / "prompts" / "agency_filter.txt"
@@ -744,12 +861,35 @@ def rule_classify(lead: dict) -> tuple[str, str, str] | None:
     site = _norm_domain(lead.get("company_website")) or ""
     email_dom = _email_domain(lead.get("email")) or ""
 
+    # Prohibited product categories (cannabis / alcohol / firearms) — hard reject
+    # before any other rule, checked against every text signal we have. Keywords
+    # come as a list from BetterContact; Prospeo leads have none (blob is empty).
+    kw = lead.get("company_keywords")
+    kw_blob = " ".join(str(k) for k in kw) if isinstance(kw, (list, tuple)) else (kw or "")
+    prohib = prohibited_category(
+        lead.get("company_name"), lead.get("company_website"),
+        lead.get("company_domain"), lead.get("company_description"), kw_blob,
+    )
+    if prohib:
+        category, token = prohib
+        return ("prohibited", "rule", f"prohibited_{category}: matched '{token}'")
+
     if site in MARKETPLACE_DOMAINS or email_dom in MARKETPLACE_DOMAINS:
         return ("marketplace", "rule", "known marketplace domain")
 
     for tok in AGENCY_TOKENS:
         if tok in name or tok in site:
             return ("agency", "rule", f"matched agency token '{tok}'")
+
+    # Service businesses (salon/spa/daycare/clinic/studio…). High-precision
+    # tokens only, on name/domain/keywords (NOT description). The LLM brand-gate
+    # is the backstop for the ambiguous cases this deliberately doesn't catch.
+    svc = service_business(
+        lead.get("company_name"), lead.get("company_website"),
+        lead.get("company_domain"), kw_blob,
+    )
+    if svc:
+        return ("service", "rule", f"service business: matched '{svc}'")
 
     # Email-domain mismatch is NOT a reliable reseller signal (many brands use
     # legacy/short email domains different from their website). Defer to LLM.

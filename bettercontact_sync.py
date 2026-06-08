@@ -32,8 +32,16 @@ API shape (verified 2026-06-01 via debug/bettercontact_verify_all.py):
   Pricing: 0.1 credit per limit slot when results exist + 1 credit per
   *deliverable* email returned. undeliverable / not_found = free.
 
-Layer 1 only — no SmartScout revenue cross-check (BetterContact has no
-revenue filter so we use `company_headcount_min=5` as a coarse proxy).
+Quality gates (BETTERCONTACT_LEAD_QUALITY_PLAN.md):
+  - P1: "Alternative Medicine" industry dropped from the shared industry list.
+  - P2: prohibited-category blocklist (cannabis/alcohol/firearms) via
+        rule_classify, matched on name + domain + keywords + description.
+  - P3: LLM brand/agency/reseller/marketplace gate on rule-passed leads —
+        only "brand" (sells its own product) is kept. Mirrors Prospeo.
+  - P4 (pending): no usable revenue/size floor. BetterContact returns no
+        revenue and its size fields are 0% populated; `company_headcount_min=5`
+        is the only server-side proxy. SmartScout can't be a hard floor (it
+        only covers Amazon sellers, so a non-match ≠ too small).
 """
 from __future__ import annotations
 
@@ -47,6 +55,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+import anthropic
 import requests
 from dotenv import load_dotenv
 
@@ -57,7 +66,9 @@ from dotenv import load_dotenv
 from prospeo_sync import (
     PROSPEO_INDUSTRIES as BC_INDUSTRIES,
     DECISION_MAKER_TITLES,
-    rule_classify,           # agency-token + marketplace-domain rule filter
+    rule_classify,           # prohibited-category + agency-token + marketplace rule filter
+    llm_classify_batch,      # P3: LLM brand/agency/reseller/marketplace gate
+    AGENCY_FILTER_PROMPT,
     write_csv,
     write_xlsx,
 )
@@ -278,6 +289,12 @@ def _parse_bc_lead(bc: dict, industry: str) -> dict | None:
         "company_name": bc.get("company_name"),
         "company_website": website,
         "company_domain": domain,
+        # Surfaced for the prohibited-category blocklist (rule_classify reads
+        # these). BetterContact returns rich keywords + description that catch
+        # coy cannabis brands whose names give nothing away. Not DB columns —
+        # _insert_leads / write_csv pick a fixed column set and ignore extras.
+        "company_description": bc.get("company_description"),
+        "company_keywords": bc.get("company_keywords") or [],
         "source_domain": domain,
         "source_industry": industry,
         "scrape_mode": "category",
@@ -430,6 +447,7 @@ def _run_category(conn, api_key: str, *,
                    skip_industries: list[str] | None = None,
                    page_limit: int = BC_PAGE_LIMIT,
                    dry_run: bool, max_credits: int | None,
+                   skip_llm: bool = False,
                    scrape_request_id: int | None = None) -> dict:
     """Round-robin over BC_INDUSTRIES, advancing each industry's offset by
     BC_PAGE_LIMIT each cycle until target/budget/exhaustion.
@@ -495,6 +513,11 @@ def _run_category(conn, api_key: str, *,
     accepted: list[dict] = []
     rejected: list[dict] = []
     rejected_counts: dict[str, int] = {}
+    # P3: lazy LLM brand-gate client (only created on first grey lead). Mirrors
+    # Prospeo — leads that clear the rule layer are run through the
+    # brand/agency/reseller/marketplace classifier; only "brand" is kept.
+    llm_client: anthropic.Anthropic | None = None
+    llm_system: str | None = None
     # Credit accounting: pre-charged budget. `credits_spent` is the running
     # confirmed cost (from completed calls). `in_flight_credits` is the
     # worst-case reservation for submitted-but-unread calls. We check the cap
@@ -637,6 +660,32 @@ def _run_category(conn, api_key: str, *,
                 batch_accepted.append(lead)
                 existing_emails.add(lead["email"])
 
+            # P3: LLM brand-gate on rule-passed leads. Only "brand" (sells its
+            # own physical product) survives; agency / reseller / marketplace /
+            # unknown — the last of which catches consumer-service businesses
+            # (clinics, daycares, gyms) that fit no product bucket — are
+            # rejected. Same classifier Prospeo uses. LLM-rejected rows are still
+            # inserted (as rejected) for audit and stay in existing_emails.
+            if batch_accepted and not skip_llm:
+                if llm_client is None:
+                    llm_client = anthropic.Anthropic()
+                    llm_system = AGENCY_FILTER_PROMPT.read_text(encoding="utf-8")
+                outcomes = llm_classify_batch(llm_client, llm_system, batch_accepted)
+                survivors: list[dict] = []
+                for lead, (result, reason) in zip(batch_accepted, outcomes):
+                    lead["agency_filter_method"] = "llm"
+                    lead["agency_filter_result"] = result
+                    if result == "brand":
+                        lead["agency_filter_reason"] = reason
+                        survivors.append(lead)
+                    else:
+                        lead["agency_filter_reason"] = f"{result}: {reason}"
+                        lead["rejected"] = True
+                        batch_rejected.append(lead)
+                        key = f"llm_{result}"
+                        rejected_counts[key] = rejected_counts.get(key, 0) + 1
+                batch_accepted = survivors
+
             if batch_accepted or batch_rejected:
                 _insert_leads(conn, batch_accepted + batch_rejected,
                               scrape_request_id=scrape_request_id)
@@ -735,6 +784,7 @@ def main(*, mode: str = "category", target_leads: int | None = None,
          skip_industries: list[str] | None = None,
          page_limit: int = BC_PAGE_LIMIT,
          dry_run: bool = False, max_credits: int | None = None,
+         skip_llm: bool = False,
          scrape_request_id: int | None = None) -> dict:
     """Entry point for `run.py scrape-leads --provider bettercontact`.
 
@@ -767,6 +817,7 @@ def main(*, mode: str = "category", target_leads: int | None = None,
                              skip_industries=skip_industries,
                              page_limit=page_limit,
                              dry_run=dry_run, max_credits=max_credits,
+                             skip_llm=skip_llm,
                              scrape_request_id=scrape_request_id)
     finally:
         conn.close()
