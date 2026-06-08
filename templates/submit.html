@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Submit a lead batch · Lead Reviewer{% endblock %}
+{% block content %}
+
+<h1>Submit a lead batch request</h1>
+<p class="lede">Fill in what you need. You'll get an email when results are ready to review.</p>
+
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<form method="POST" class="submit-form" autocomplete="off">
+  <div class="form-field">
+    <label for="requested_leads">How many leads do you need?</label>
+    <input type="number" id="requested_leads" name="requested_leads"
+           min="1" max="5000" required
+           value="{{ form.requested_leads if form else 500 }}">
+    <p class="hint">Between 1 and 5000. Typical hit rate is ~80% of requested.</p>
+  </div>
+
+  <div class="form-field">
+    <label>Industries to target <span class="hint-inline">(leave none selected for all 12)</span></label>
+    <div class="chip-group">
+      {% for ind in industries %}
+        <label class="chip-label">
+          <input type="checkbox" name="industries" value="{{ ind }}"
+                 {% if form and ind in form.getlist('industries') %}checked{% endif %}>
+          <span>{{ ind }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="form-field">
+    <label>Industries to skip <span class="hint-inline">(optional)</span></label>
+    <div class="chip-group">
+      {% for ind in industries %}
+        <label class="chip-label">
+          <input type="checkbox" name="skip_industries" value="{{ ind }}"
+                 {% if form and ind in form.getlist('skip_industries') %}checked{% endif %}>
+          <span>{{ ind }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="form-field">
+    <label>Countries</label>
+    <div class="chip-group">
+      {% for c in countries %}
+        <label class="chip-label">
+          <input type="checkbox" name="countries" value="{{ c }}"
+                 {% if not form or c in form.getlist('countries') %}checked{% endif %}>
+          <span>{{ c }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="form-field">
+    <label for="notes">Notes <span class="hint-inline">(optional)</span></label>
+    <textarea id="notes" name="notes" rows="2"
+              placeholder="Anything specific about this batch?">{{ form.notes if form else '' }}</textarea>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Submit batch request →</button>
+  </div>
+</form>
+
+{% endblock %}

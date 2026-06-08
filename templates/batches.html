@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Your batches · Lead Reviewer{% endblock %}
+{% block content %}
+
+<h1>Your lead batches</h1>
+<p class="lede">Most recent first. Click "Review" on any batch that's ready.</p>
+
+{% if just_submitted %}
+  <div class="alert alert-ok">
+    Batch <strong>#{{ just_submitted }}</strong> queued. You'll get an email when results are ready (typically 5–10 minutes).
+  </div>
+{% endif %}
+
+<table class="batch-list">
+  <thead>
+    <tr>
+      <th>#</th><th>Status</th><th>Approval</th>
+      <th>Scraped</th><th>Moved</th><th>Credits</th>
+      <th>Created</th><th>Notes</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td><strong>#{{ r.id }}</strong></td>
+      <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
+      <td>
+        {% if r.approval == 'pending' %}<span class="badge badge-pending">{{ r.approval }}</span>
+        {% elif r.approval == 'approved' %}<span class="badge badge-approved">{{ r.approval }}</span>
+        {% else %}<span class="badge badge-rejected">{{ r.approval }}</span>
+        {% endif %}
+      </td>
+      <td class="num">{{ r.scraped_count }}</td>
+      <td class="num">{{ r.moved_count }}</td>
+      <td class="num">{{ r.credits_spent }}</td>
+      <td class="datecell">{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td>
+      <td class="notes">{{ (r.notes or '')[:60] }}</td>
+      <td>
+        {% if r.review_token %}
+          <a class="btn btn-secondary btn-small"
+             href="{{ url_for('batch_review', token=r.review_token) }}">Review →</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="empty">No batches yet. <a href="{{ url_for('submit_form') }}">Submit one →</a></td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% endblock %}
