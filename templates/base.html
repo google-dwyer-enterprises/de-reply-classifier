@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Lead Reviewer{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% block head %}{% endblock %}
+</head>
+<body>
+<div class="container">
+  <nav class="top-nav">
+    <a href="{{ url_for('batches') }}" class="brand">Lead Reviewer</a>
+    <div class="nav-spacer"></div>
+    <a href="{{ url_for('batches') }}">Batches</a>
+    <a href="{{ url_for('submit_form') }}">Submit</a>
+  </nav>
+  {% block content %}{% endblock %}
+  <footer class="footer">
+    <span>Lead Scrape Automation · Dwyer Enterprises</span>
+  </footer>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

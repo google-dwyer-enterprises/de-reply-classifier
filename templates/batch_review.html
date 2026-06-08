@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Review batch #{{ batch.id }} · Lead Reviewer{% endblock %}
+{% block content %}
+
+<h1>Review batch #{{ batch.id }}</h1>
+<p class="lede">Approve the leads you want in the 200K pool. Reject the rest. The batch closes itself once every lead has a decision.</p>
+
+<div class="info-card">
+  <div class="item"><div class="k">Status</div><div class="v"><span class="badge badge-{{ batch.status }}">{{ batch.status }}</span></div></div>
+  <div class="item"><div class="k">Scraped</div><div class="v">{{ counts.total }}</div></div>
+  <div class="item"><div class="k">Pending</div><div class="v">{{ counts.pending }}</div></div>
+  <div class="item"><div class="k">Approved</div><div class="v">{{ counts.approved }}</div></div>
+  <div class="item"><div class="k">Rejected</div><div class="v">{{ counts.rejected }}</div></div>
+  <div class="item"><div class="k">Moved to pool</div><div class="v">{{ counts.moved }}</div></div>
+  <div class="item"><div class="k">Credits</div><div class="v">{{ batch.credits_spent }}</div></div>
+</div>
+
+<div class="quick-actions" data-token="{{ batch.review_token }}">
+  <button id="qa-all" type="button">☑ Select all visible</button>
+  <button id="qa-pending" type="button">Select pending only</button>
+  <button id="qa-none" type="button">☐ Deselect all</button>
+  <span class="qa-sep">|</span>
+  <button id="qa-mass-approve" type="button" class="btn-success-text">Mass-approve batch →</button>
+  <button id="qa-mass-reject" type="button" class="btn-danger-text">Mass-reject batch →</button>
+</div>
+
+<div class="action-bar" id="action-bar" data-token="{{ batch.review_token }}">
+  <span id="selected-count" class="selected-count">0 leads selected</span>
+  <span class="helper">Set status to</span>
+  <select id="bulk-status">
+    <option value="approved">approved</option>
+    <option value="rejected">rejected</option>
+    <option value="pending">pending</option>
+  </select>
+  <button id="apply-btn" type="button" class="btn btn-primary" disabled>Apply →</button>
+  <span class="spacer"></span>
+  <span class="helper-keys">
+    <kbd>Shift</kbd>+click for range · click header to select all
+  </span>
+</div>
+
+<div id="toast" class="toast" style="display:none;"></div>
+
+<table class="lead-table" id="lead-table">
+  <thead>
+    <tr>
+      <th class="check-col"><input type="checkbox" id="header-check"></th>
+      <th>Email</th>
+      <th>Name</th>
+      <th>Title</th>
+      <th>Company</th>
+      <th>Industry</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ld in leads %}
+    <tr data-id="{{ ld.id }}" data-status="{{ ld.lead_approval }}">
+      <td class="check-col"><input type="checkbox" class="row-check" value="{{ ld.id }}"></td>
+      <td class="email">{{ ld.email }}</td>
+      <td>{{ ld.first_name or '' }} {{ ld.last_name or '' }}</td>
+      <td>{{ ld.title or '' }}</td>
+      <td>{{ ld.company_name or '' }}</td>
+      <td class="industry">{{ ld.source_industry or '' }}</td>
+      <td><span class="badge badge-{{ ld.lead_approval or 'pending' }}">{{ ld.lead_approval or 'pending' }}</span>
+        {% if ld.lead_moved_at %}<span class="moved-tag" title="moved to lead_contacts">✓ moved</span>{% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="empty">No leads in this batch.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='review.js') }}"></script>
+{% endblock %}

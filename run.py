@@ -16,6 +16,7 @@ import argparse
 import subprocess
 import sys
 
+import lead_qa
 from backfill_lead_status import main as backfill_lead_status_main
 from backfill_tags import main as backfill_tags_main
 from excel_writer import export_fresh, export_writeback
@@ -117,6 +118,43 @@ def cmd_export(args) -> None:
         sys.exit(f"Unknown mode: {mode}")
 
 
+def cmd_qa_leads(args) -> None:
+    """Scan accepted prospeo_new_leads for prohibited/service garbage and report.
+    With --fix, quarantine every flagged row (rejected=true) — also remediates
+    leads accepted by an older pipeline version."""
+    from db import connect
+    conn = connect()
+    try:
+        report = lead_qa.scan_db_accepted(conn, provider=args.provider)
+        lead_qa.print_report(report)
+        if args.fix:
+            n = lead_qa.fix_flagged(conn, report)
+            print(f"\n  quarantined {n} flagged lead(s) (rejected=true, "
+                  f"method='qa_gate').")
+        elif not report["passed"]:
+            print("\n  Re-run with --fix to quarantine these before exporting.")
+    finally:
+        conn.close()
+
+
+def cmd_export_leads(args) -> None:
+    """Gate then export. Blocks if accepted leads fail the QA gate, unless
+    --force. Flagged rows must be quarantined (`qa-leads --fix`) first."""
+    from db import connect
+    conn = connect()
+    try:
+        report = lead_qa.scan_db_accepted(conn, mode=args.mode)
+        lead_qa.print_report(report)
+    finally:
+        conn.close()
+    if not report["passed"] and not args.force:
+        lead_qa.enforce(report)  # raises QAGateError with guidance
+    elif not report["passed"]:
+        print("\n  --force set: exporting despite QA failure (flagged leads "
+              "are still included unless quarantined).")
+    prospeo_export_all(mode=args.mode)
+
+
 def main() -> None:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -210,10 +248,22 @@ def main() -> None:
                          "Lower values are useful for cheap smoke tests.")
 
     el = sub.add_parser("export-leads",
-                        help="Dump prospeo_new_leads into a fresh CSV + XLSX")
+                        help="Dump prospeo_new_leads into a fresh CSV + XLSX "
+                             "(runs the QA gate first)")
     el.add_argument("--mode", choices=["domain", "category"], default=None,
                     help="Filter export to one scrape_mode. "
                          "Omit to export both modes together (default).")
+    el.add_argument("--force", action="store_true",
+                    help="Export even if the QA gate fails (not recommended).")
+
+    qa = sub.add_parser("qa-leads",
+                        help="QA gate: scan accepted leads for prohibited/service "
+                             "garbage; --fix quarantines flagged rows")
+    qa.add_argument("--provider", choices=["prospeo", "bettercontact"], default=None,
+                    help="Scan only one provider's leads (default: all).")
+    qa.add_argument("--fix", action="store_true",
+                    help="Quarantine flagged rows (rejected=true). Also cleans up "
+                         "leads accepted by an older pipeline version.")
 
     em = sub.add_parser("enrich-mobile",
                         help="Catch-up: add mobile numbers to all accepted leads in DB that don't have one yet")
@@ -292,7 +342,9 @@ def main() -> None:
     elif args.command == "enrich-mobile":
         prospeo_enrich_mobile(limit=args.limit, dry_run=args.dry_run)
     elif args.command == "export-leads":
-        prospeo_export_all(mode=args.mode)
+        cmd_export_leads(args)
+    elif args.command == "qa-leads":
+        cmd_qa_leads(args)
     elif args.command == "llm-resolve-smartscout":
         llm_resolve_smartscout_main(min_score=args.min_score, max_score=args.max_score,
                                     limit=args.limit, yes=args.yes, dry_run=args.dry_run)

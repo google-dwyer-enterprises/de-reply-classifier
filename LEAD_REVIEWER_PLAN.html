@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Lead Reviewer — static page replacement plan</title>
+<style>
+  :root {
+    --fg: #1a1d23;
+    --muted: #5e6470;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e1e4e8;
+    --accent: #0550ae;
+    --accent-soft: #ddeefc;
+    --green: #1a7f37;
+    --green-soft: #ddf4e3;
+    --amber: #9a6700;
+    --amber-soft: #fff4cc;
+    --red: #cf222e;
+    --red-soft: #ffeef0;
+    --pill-bg: #f0f4f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.55;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 28px 80px;
+  }
+  header {
+    text-align: center;
+    padding: 22px 0 26px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+  }
+  header h1 { font-size: 28px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header .tag { color: var(--muted); font-size: 14px; }
+
+  h2 {
+    font-size: 21px;
+    font-weight: 700;
+    margin: 44px 0 14px;
+    padding-bottom: 6px;
+    border-bottom: 3px solid var(--accent);
+  }
+  h2 .num {
+    display: inline-block;
+    width: 30px; height: 30px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 30px;
+    font-size: 13px;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  h3 { font-size: 15px; font-weight: 600; margin: 22px 0 8px; color: #374151; }
+
+  .callout { border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+  .callout.note { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.warn { background: #fff8c5; border-left: 4px solid #d4a72c; }
+  .callout.ok { background: var(--green-soft); border-left: 4px solid var(--green); }
+  .callout h4 { margin: 0 0 6px; font-size: 14px; }
+  .callout p { margin: 0; font-size: 13px; }
+
+  code { font-family: ui-monospace, "SF Mono", Consolas, monospace; background: var(--pill-bg); padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+  pre { background: var(--pill-bg); border: 1px solid var(--border); padding: 12px 16px; border-radius: 6px; overflow-x: auto; font-size: 12px; line-height: 1.5; }
+
+  /* Mockup browser frame */
+  .browser { background: white; border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.06); margin: 18px 0; }
+  .browser-bar { background: #f3f4f6; padding: 8px 14px; border-bottom: 1px solid #e5e7eb; display: flex; gap: 6px; align-items: center; font-size: 12px; font-family: ui-monospace, monospace; }
+  .browser-bar .dot { width: 9px; height: 9px; border-radius: 50%; background: #fca5a5; }
+  .browser-bar .dot:nth-child(2) { background: #fde68a; }
+  .browser-bar .dot:nth-child(3) { background: #86efac; }
+  .browser-bar .url { flex: 1; background: white; padding: 3px 12px; border-radius: 4px; border: 1px solid #e5e7eb; color: #374151; overflow-x: auto; white-space: nowrap; }
+  .browser-body { padding: 22px 26px; min-height: 200px; }
+
+  .page-header { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+  .page-sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+
+  /* Submit form */
+  .submit-form { max-width: 580px; }
+  .form-field { margin-bottom: 18px; }
+  .form-field label { display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }
+  .form-field input, .form-field textarea { width: 100%; padding: 8px 12px; border: 1.5px solid #d1d5db; border-radius: 6px; font: inherit; }
+  .chip-picker { padding: 6px; border: 1.5px solid #d1d5db; border-radius: 6px; background: white; min-height: 38px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .chip-tag { background: #dbeafe; color: #1e40af; padding: 2px 10px 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; display: inline-flex; gap: 4px; align-items: center; }
+  .chip-tag .x { cursor: pointer; opacity: 0.6; font-weight: 700; }
+  .chip-picker-input { color: #9ca3af; font-size: 12px; padding: 4px; }
+  .btn-primary { background: #2563eb; color: white; border: none; padding: 10px 24px; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer; font-size: 14px; }
+  .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+  .btn-secondary { background: white; color: #2563eb; border: 1.5px solid #2563eb; padding: 8px 16px; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer; font-size: 13px; }
+
+  /* Batch list */
+  table.batch-list { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.batch-list th { background: #f9fafb; color: #6b7280; padding: 10px 12px; text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; border-bottom: 1px solid #e5e7eb; }
+  table.batch-list td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; }
+  .badge-pending { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+  .badge-running { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+  .badge-ready { background: #fef9c3; color: #854d0e; border: 1px solid #fcd34d; }
+  .badge-moved { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+  .badge-failed { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
+  /* Review batch — the important one */
+  .info-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 18px; margin-bottom: 18px; display: flex; gap: 28px; }
+  .info-card .item { font-size: 13px; }
+  .info-card .item .k { color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px; }
+  .info-card .item .v { font-weight: 700; color: #111827; font-size: 15px; }
+
+  .action-bar { position: sticky; top: 0; background: white; border: 2px solid #2563eb; border-radius: 8px; padding: 12px 18px; margin: 14px 0; display: flex; gap: 14px; align-items: center; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15); }
+  .action-bar .selected-count { font-weight: 700; color: #2563eb; }
+  .action-bar select { padding: 7px 32px 7px 12px; border: 1.5px solid #d1d5db; border-radius: 6px; font: inherit; font-size: 13px; background: white; }
+  .action-bar .spacer { flex: 1; }
+  .action-bar .helper { color: #6b7280; font-size: 12px; }
+
+  .lead-table { width: 100%; border-collapse: collapse; font-size: 13px; background: white; }
+  .lead-table th { background: #f9fafb; color: #6b7280; padding: 9px 12px; text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; border-bottom: 1px solid #e5e7eb; }
+  .lead-table td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
+  .lead-table tr.selected { background: #eff6ff; }
+  .lead-table tr:hover { background: #f9fafb; cursor: pointer; }
+  .lead-table tr.selected:hover { background: #dbeafe; }
+  .lead-table .check-col { width: 36px; text-align: center; }
+  .checkbox { display: inline-block; width: 16px; height: 16px; border: 2px solid #9ca3af; border-radius: 4px; background: white; vertical-align: middle; position: relative; }
+  .checkbox.checked { background: #2563eb; border-color: #2563eb; }
+  .checkbox.checked::after { content: "✓"; color: white; position: absolute; top: -3px; left: 2px; font-size: 13px; font-weight: 700; }
+
+  .quick-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+  .quick-actions button { padding: 5px 12px; border: 1px solid #d1d5db; background: white; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer; color: #374151; }
+  .quick-actions button:hover { background: #f9fafb; }
+
+  /* Architecture diagram */
+  .arch {
+    background: var(--pill-bg);
+    border: 1px solid var(--border);
+    padding: 18px;
+    border-radius: 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  table.comp { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+  table.comp th, table.comp td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+  table.comp th { background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 12px; }
+  table.comp code { font-size: 11px; }
+
+  .pill { display: inline-block; background: var(--pill-bg); border-radius: 999px; padding: 2px 10px; font-size: 11px; color: var(--muted); margin-right: 4px; }
+  .pill.ok { background: var(--green-soft); color: var(--green); }
+  .pill.warn { background: var(--amber-soft); color: var(--amber); }
+  .pill.no { background: var(--red-soft); color: var(--red); }
+
+  details { margin: 10px 0; }
+  details summary { cursor: pointer; font-weight: 600; padding: 6px 0; font-size: 13px; }
+
+  ul { padding-left: 22px; }
+  li { margin: 3px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Lead Reviewer — Static Page Plan</h1>
+  <div class="tag">Replace Jam's NocoDB interactions with a purpose-built Flask page. NocoDB stays read-only for audit / 200K pool. Design only — sign off here before any code lands.</div>
+</header>
+
+<div class="callout note">
+  <h4>Goal</h4>
+  <p>Give Jam a CRM-style review UI for batches — true select all / deselect all / range select / non-consecutive multi-select with a real <strong>Apply</strong> button — that doesn't depend on NocoDB's filter-based "hiding" or its quirky bulk-edit confirmation modal.</p>
+</div>
+
+<!-- ========================================================================
+     SECTION 1 — WHY
+     ======================================================================== -->
+<h2><span class="num">1</span>Why we're moving off NocoDB for Jam's surface</h2>
+
+<table class="comp">
+  <thead><tr><th>Concern</th><th>NocoDB today</th><th>Static page</th></tr></thead>
+  <tbody>
+    <tr><td>Cross-batch isolation</td><td>Filter <code>scrape_request_id=N</code> — view structurally bound to one batch, but still <em>filter-based</em></td><td>Route <code>/batch/&lt;token&gt;</code> — backend only queries leads for that batch. Filter can't be removed.</td></tr>
+    <tr><td>Select-all / range / non-consecutive</td><td>Works but uses NocoDB's row checkboxes + edit-one-cell + confirm modal</td><td>First-class checkbox UI. <code>Shift+click</code> range, <code>Ctrl+click</code> individual, header checkbox, "Select pending only" button.</td></tr>
+    <tr><td>Apply button</td><td>Modal: "Update lead_approval for N rows?" → confirm</td><td>Sticky action bar with explicit <code>[Status ▾] [Apply]</code> widget.</td></tr>
+    <tr><td>Visual feedback</td><td>Rows vanish on edit (because filter excludes them)</td><td>Rows fade then disappear with confirmation toast.</td></tr>
+    <tr><td>Sidebar clutter</td><td>One per-batch view per batch (auto-cleaned but still flicker)</td><td>Nothing in NocoDB to clean. URLs are routes.</td></tr>
+    <tr><td>Maintenance</td><td>NocoDB version drift can break filters / column edits / column IDs</td><td>One small Flask app we own end to end.</td></tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <h4>What stays in NocoDB (read-only)</h4>
+  <p><strong>All requests grid</strong> on <code>scrape_requests</code> — audit / history view for batches. <strong>lead_contacts</strong> table — the 200K pool. <strong>prospeo_new_leads</strong> default Grid — full audit table. None of these are interactive in the new model; they're for inspection.</p>
+</div>
+
+<!-- ========================================================================
+     SECTION 2 — ARCHITECTURE
+     ======================================================================== -->
+<h2><span class="num">2</span>Architecture</h2>
+
+<div class="arch">┌────────────────────┐
+│  Jam's browser     │
+│  (Chrome / Edge)   │
+└────────────────────┘
+         │
+         ▼  bookmarks: lead-reviewer.up.railway.app/submit
+┌────────────────────────────────────────────────────────────────┐
+│  lead-reviewer  (NEW Railway service, this proposal)          │
+│  Flask + Jinja templates + vanilla JS + minimal CSS           │
+│                                                                │
+│  Routes:                                                       │
+│    GET  /              → redirect /batches                    │
+│    GET  /submit        → submit form                          │
+│    POST /submit        → insert scrape_requests, redirect     │
+│    GET  /batches       → list of recent batches               │
+│    GET  /batch/&lt;token&gt; → per-batch review page (token-only)   │
+│    POST /batch/&lt;token&gt;/bulk-update → set N leads' lead_approval│
+│    POST /batch/&lt;token&gt;/mass-approve → set parent approval=approved│
+│    POST /batch/&lt;token&gt;/mass-reject  → set parent approval=rejected│
+└────────────────────────────────────────────────────────────────┘
+         │                                  │
+         │  writes scrape_requests          │  reads prospeo_new_leads
+         │  + reads prospeo_new_leads       │  + updates lead_approval
+         ▼                                  ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Supabase (same DB the worker uses)                          │
+│  scrape_requests + prospeo_new_leads + lead_contacts         │
+└──────────────────────────────────────────────────────────────┘
+         ▲
+         │ polls + moves approved → lead_contacts
+         │
+┌──────────────────────────────────────────────────────────────┐
+│  lead-scrape-worker  (EXISTING — unchanged)                  │
+│  pending → ready, mass-approve, move, finalize, ...          │
+└──────────────────────────────────────────────────────────────┘
+         │
+         ▼  Resend email (UPDATED: links to lead-reviewer /batch/&lt;token&gt;)
+┌────────────────────┐
+│   Jam's email      │
+└────────────────────┘
+</div>
+
+<h3>Tech stack (all current-stack)</h3>
+<ul>
+  <li><strong>Backend:</strong> Flask (no FastAPI, no Django) — minimal, single file feasible</li>
+  <li><strong>Templates:</strong> Jinja2 (Flask default)</li>
+  <li><strong>Frontend:</strong> Vanilla JS for selection state + AJAX. No React, no build step.</li>
+  <li><strong>CSS:</strong> Single hand-written stylesheet, ~200 lines. Same color palette as NocoDB chips.</li>
+  <li><strong>DB:</strong> psycopg2 (reuse <code>db.py</code>)</li>
+  <li><strong>Deploy:</strong> New Railway service <code>lead-reviewer</code> in <code>perfect-learning</code>, separate Dockerfile.web, runs <code>gunicorn app:app</code>.</li>
+</ul>
+
+<!-- ========================================================================
+     SECTION 3 — PAGE MOCKUPS
+     ======================================================================== -->
+<h2><span class="num">3</span>Page mockups</h2>
+
+<!-- Page 1: Submit -->
+<h3>Page 1 — <code>/submit</code></h3>
+<p style="font-size:13px;color:#6b7280;">Jam bookmarks this. HTTP Basic protects the page once (browser remembers).</p>
+
+<div class="browser">
+  <div class="browser-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <div class="url">lead-reviewer.up.railway.app/submit</div>
+  </div>
+  <div class="browser-body">
+    <p class="page-header">Submit a lead batch request</p>
+    <p class="page-sub">Fill in what you need. You'll get an email when results are ready to review.</p>
+
+    <div class="submit-form">
+      <div class="form-field">
+        <label>How many leads do you need?</label>
+        <input type="number" placeholder="e.g. 500" value="500">
+      </div>
+      <div class="form-field">
+        <label>Industries to target (leave empty for all)</label>
+        <div class="chip-picker">
+          <span class="chip-tag">Cosmetics <span class="x">×</span></span>
+          <span class="chip-tag">Retail Apparel and Fashion <span class="x">×</span></span>
+          <span class="chip-picker-input">Type to add…</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label>Industries to skip (optional)</label>
+        <div class="chip-picker">
+          <span class="chip-picker-input">Type to add…</span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label>Countries</label>
+        <div class="chip-picker">
+          <span class="chip-tag">United States <span class="x">×</span></span>
+          <span class="chip-tag">Canada <span class="x">×</span></span>
+        </div>
+      </div>
+      <div class="form-field">
+        <label>Notes (optional)</label>
+        <textarea rows="2" placeholder="Anything specific about this batch?">Q3 push — focus on cosmetics</textarea>
+      </div>
+      <button class="btn-primary">Submit batch request →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Page 2: Batch list -->
+<h3>Page 2 — <code>/batches</code></h3>
+<p style="font-size:13px;color:#6b7280;">All her recent batches at a glance. Each row clickable. Auth: HTTP Basic.</p>
+
+<div class="browser">
+  <div class="browser-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <div class="url">lead-reviewer.up.railway.app/batches</div>
+  </div>
+  <div class="browser-body">
+    <p class="page-header">Your lead batches</p>
+    <p class="page-sub">Most recent first. Click any "Review" link to open that batch.</p>
+    <table class="batch-list">
+      <thead><tr><th>#</th><th>Status</th><th>Scraped</th><th>Moved</th><th>Credits</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><strong>#28</strong></td><td><span class="badge badge-ready">ready</span></td><td>487</td><td>0</td><td>1,124</td><td>2026-06-07 09:14</td><td><button class="btn-secondary">Review →</button></td></tr>
+        <tr><td>#27</td><td><span class="badge badge-running">running</span></td><td>—</td><td>—</td><td>—</td><td>2026-06-07 09:02</td><td style="color:#9ca3af;font-size:12px;">in progress…</td></tr>
+        <tr><td>#26</td><td><span class="badge badge-moved">moved</span></td><td>312</td><td>295</td><td>724</td><td>2026-06-06 16:30</td><td><button class="btn-secondary" style="opacity:0.5;">View →</button></td></tr>
+        <tr><td>#25</td><td><span class="badge badge-failed">failed</span></td><td>0</td><td>0</td><td>0</td><td>2026-06-06 14:55</td><td style="color:#dc2626;font-size:12px;">see notes</td></tr>
+        <tr><td>#24</td><td><span class="badge badge-moved">moved</span></td><td>198</td><td>198</td><td>456</td><td>2026-06-05 11:00</td><td><button class="btn-secondary" style="opacity:0.5;">View →</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Page 3: Per-batch review (the key page) -->
+<h3>Page 3 — <code>/batch/&lt;token&gt;</code> — <strong>the headline page</strong></h3>
+<p style="font-size:13px;color:#6b7280;">Email button takes Jam directly here. URL contains a random UUID token; backend only loads leads for that batch. Filter can't be bypassed.</p>
+
+<div class="browser">
+  <div class="browser-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <div class="url">lead-reviewer.up.railway.app/batch/<strong style="color:#1d4ed8;">66651e67-417c-4c7d-a1f6-8b7f130378a9</strong></div>
+  </div>
+  <div class="browser-body">
+    <p class="page-header">Review batch #28</p>
+    <p class="page-sub">Approve the leads you want in the 200K pool. Reject the rest. The batch closes itself once every lead has a decision.</p>
+
+    <div class="info-card">
+      <div class="item"><div class="k">Status</div><div class="v"><span class="badge badge-ready">ready</span></div></div>
+      <div class="item"><div class="k">Scraped</div><div class="v">487</div></div>
+      <div class="item"><div class="k">Decided</div><div class="v">0 / 487</div></div>
+      <div class="item"><div class="k">Moved to pool</div><div class="v">0</div></div>
+      <div class="item"><div class="k">Credits spent</div><div class="v">1,124</div></div>
+    </div>
+
+    <div class="quick-actions">
+      <button>☑ Select all 487</button>
+      <button>☐ Deselect all</button>
+      <button>Approve all → (mass-approve)</button>
+      <button>Reject all → (mass-reject)</button>
+    </div>
+
+    <div class="action-bar">
+      <span class="selected-count">3 leads selected</span>
+      <span class="helper">Set status to</span>
+      <select>
+        <option>approved</option>
+        <option>rejected</option>
+        <option>pending</option>
+      </select>
+      <button class="btn-primary">Apply →</button>
+      <span class="spacer"></span>
+      <span class="helper"><code>Shift+click</code> for range · <code>Ctrl+click</code> for individual</span>
+    </div>
+
+    <table class="lead-table">
+      <thead>
+        <tr>
+          <th class="check-col"><span class="checkbox checked"></span></th>
+          <th>Email</th><th>Name</th><th>Title</th><th>Company</th><th>Industry</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="selected"><td class="check-col"><span class="checkbox checked"></span></td><td>ar@fashionnova.com</td><td>Alicia Rodriguez</td><td>CEO</td><td>Fashion Nova</td><td>Retail Apparel and Fashion</td><td><span class="badge badge-pending">pending</span></td></tr>
+        <tr><td class="check-col"><span class="checkbox"></span></td><td>tyler@thenorthface.com</td><td>Tyler Strange</td><td>Chief Executive</td><td>The North Face</td><td>Retail Apparel and Fashion</td><td><span class="badge badge-pending">pending</span></td></tr>
+        <tr class="selected"><td class="check-col"><span class="checkbox checked"></span></td><td>bryanc@dbolabs.com</td><td>Bryan Common</td><td>Owner</td><td>DBO Labs</td><td>Cosmetics</td><td><span class="badge badge-pending">pending</span></td></tr>
+        <tr class="selected"><td class="check-col"><span class="checkbox checked"></span></td><td>aanderson@brightside.com</td><td>Alex Anderson</td><td>CEO</td><td>Brightside</td><td>Cosmetics</td><td><span class="badge badge-pending">pending</span></td></tr>
+        <tr><td class="check-col"><span class="checkbox"></span></td><td>bbaker@coastalco.com</td><td>Beth Baker</td><td>Founder</td><td>Coastal Co.</td><td>Retail Apparel and Fashion</td><td><span class="badge badge-pending">pending</span></td></tr>
+        <tr><td class="check-col"><span class="checkbox"></span></td><td>ccarter@dailyglow.com</td><td>Chris Carter</td><td>Owner</td><td>Daily Glow</td><td>Personal Care Product Manufacturing</td><td><span class="badge badge-pending">pending</span></td></tr>
+      </tbody>
+    </table>
+    <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:16px;">… 481 more rows · pagination 1 of 10</p>
+  </div>
+</div>
+
+<div class="callout note">
+  <h4>UX details for the review page</h4>
+  <ul style="margin:8px 0;">
+    <li><strong>Sticky action bar:</strong> stays at top as Jam scrolls. Apply button disabled until at least one row is selected.</li>
+    <li><strong>Selection state in JS:</strong> Set of row ids; updates on checkbox toggle, shift-click, header-checkbox.</li>
+    <li><strong>"Select pending only" button:</strong> in case she lands on a re-opened batch with mixed states.</li>
+    <li><strong>Apply behavior:</strong> POST to <code>/batch/&lt;token&gt;/bulk-update</code> with <code>{lead_ids: [...], status: "approved"}</code>. Backend updates DB. Page refreshes that section (selected rows show new chip color, then fade out if filter excludes them).</li>
+    <li><strong>Toast confirmation:</strong> "3 leads approved. Worker will move them within 30 seconds."</li>
+    <li><strong>Mass-approve / mass-reject buttons:</strong> Same effect as setting <code>scrape_requests.approval='approved'</code> — the existing worker logic handles the rest.</li>
+    <li><strong>Empty state:</strong> when all leads have a decision, show "Batch closed. All decisions recorded."</li>
+  </ul>
+</div>
+
+<!-- ========================================================================
+     SECTION 4 — BACKEND ROUTES
+     ======================================================================== -->
+<h2><span class="num">4</span>Backend route map</h2>
+
+<table class="comp">
+  <thead><tr><th>Method · Route</th><th>Auth</th><th>Behavior</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET /</code></td><td>none</td><td>redirect <code>/batches</code></td></tr>
+    <tr><td><code>GET /submit</code></td><td>HTTP Basic</td><td>render submit form (industry/country options hardcoded from <code>BC_INDUSTRIES</code>)</td></tr>
+    <tr><td><code>POST /submit</code></td><td>HTTP Basic</td><td>validate, insert <code>scrape_requests</code> row, redirect to <code>/batches</code> with toast</td></tr>
+    <tr><td><code>GET /batches</code></td><td>HTTP Basic</td><td>query last 50 <code>scrape_requests</code>, render table. Each row's "Review" button links to <code>/batch/&lt;token&gt;</code> using the row's <code>review_token</code>.</td></tr>
+    <tr><td><code>GET /batch/&lt;token&gt;</code></td><td>token only</td><td>look up <code>scrape_requests</code> by <code>review_token</code>. Query leads for that <code>scrape_request_id</code>. Render review page.</td></tr>
+    <tr><td><code>POST /batch/&lt;token&gt;/bulk-update</code></td><td>token only</td><td>body: <code>{lead_ids: [int], status: "approved" | "rejected" | "pending"}</code>. Validate token, validate ids belong to that batch, run single UPDATE. Return JSON <code>{ok: true, updated: N}</code>.</td></tr>
+    <tr><td><code>POST /batch/&lt;token&gt;/mass-approve</code></td><td>token only</td><td>set <code>scrape_requests.approval='approved'</code> for this batch. Existing worker logic handles the rest.</td></tr>
+    <tr><td><code>POST /batch/&lt;token&gt;/mass-reject</code></td><td>token only</td><td>set <code>scrape_requests.approval='rejected'</code>. Same flow.</td></tr>
+  </tbody>
+</table>
+
+<h3>Auth model</h3>
+<ul>
+  <li><strong>HTTP Basic</strong> on <code>/submit</code> and <code>/batches</code> — one shared username/password (env vars), Jam enters once per device, browser remembers.</li>
+  <li><strong>Per-batch token</strong> on <code>/batch/&lt;token&gt;</code> — random UUID stored in <code>scrape_requests.review_token</code>, embedded in the email. Same security model as NocoDB share URLs. Anyone with the token can review that batch; nobody else.</li>
+  <li>No login UI to build. No session management. No CSRF complications.</li>
+</ul>
+
+<!-- ========================================================================
+     SECTION 5 — DB CHANGES
+     ======================================================================== -->
+<h2><span class="num">5</span>DB changes</h2>
+
+<p>One small addition; everything else stays as-is.</p>
+
+<pre>alter table scrape_requests
+  add column if not exists review_token uuid default gen_random_uuid();
+create unique index if not exists scrape_requests_review_token_idx
+  on scrape_requests (review_token);</pre>
+
+<p style="font-size:13px;color:#6b7280;">Generated at insert time. UUID is unguessable. Used as the URL token for <code>/batch/&lt;token&gt;</code>. Replaces <code>review_view_id</code> / <code>review_share_uuid</code> / <code>review_url</code> (those get removed in Phase 5).</p>
+
+<!-- ========================================================================
+     SECTION 6 — DEPLOYMENT
+     ======================================================================== -->
+<h2><span class="num">6</span>Deployment</h2>
+
+<h3>New Railway service: <code>lead-reviewer</code></h3>
+<ul>
+  <li>Same Git repo, separate <code>Dockerfile.web</code></li>
+  <li>Runs <code>gunicorn -w 2 -b 0.0.0.0:$PORT app:app</code></li>
+  <li>Public HTTPS endpoint: <code>lead-reviewer.up.railway.app</code> (or a custom domain)</li>
+</ul>
+
+<h3>Env vars</h3>
+<table class="comp">
+  <thead><tr><th>Var</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td><code>SUPABASE_DB_URL</code></td><td>copy from existing services</td></tr>
+    <tr><td><code>LEAD_REVIEWER_USERNAME</code></td><td>e.g. <code>jam</code></td></tr>
+    <tr><td><code>LEAD_REVIEWER_PASSWORD</code></td><td>strong random string</td></tr>
+    <tr><td><code>LEAD_REVIEWER_BASE_URL</code></td><td><code>https://lead-reviewer.up.railway.app</code> — used by the worker's <code>notifier.py</code> to build email button URL</td></tr>
+  </tbody>
+</table>
+
+<h3>Worker change (one line)</h3>
+<p>Already mostly in place — <code>notifier._build_link</code> picks up <code>review_url</code>. We change the worker to build <code>https://&lt;LEAD_REVIEWER_BASE_URL&gt;/batch/&lt;review_token&gt;</code> instead of creating a NocoDB share URL.</p>
+
+<!-- ========================================================================
+     SECTION 7 — ROLLOUT
+     ======================================================================== -->
+<h2><span class="num">7</span>Rollout plan (your "decide → plan → build → test → remove")</h2>
+
+<table class="comp">
+  <thead><tr><th>Phase</th><th>What ships</th><th>Reversible?</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>1. Schema</strong></td>
+      <td>Migration script adds <code>scrape_requests.review_token</code> with UUID default. Backfills tokens for existing rows.</td>
+      <td>Yes — <code>drop column</code> if needed.</td>
+    </tr>
+    <tr>
+      <td><strong>2. Build static page</strong></td>
+      <td>Flask app, all 3 pages, all routes, vanilla JS. Run locally first, then deploy to Railway as <code>lead-reviewer</code>. <span class="pill warn">parallel</span> with NocoDB — both surfaces work.</td>
+      <td>Yes — pause the Railway service.</td>
+    </tr>
+    <tr>
+      <td><strong>3. Switch email link</strong></td>
+      <td>Worker's <code>notifier.py</code> embeds <code>/batch/&lt;token&gt;</code> URL instead of NocoDB share. NocoDB per-batch view creation REMAINS for now (belt-and-suspenders).</td>
+      <td>Yes — env-var toggle.</td>
+    </tr>
+    <tr>
+      <td><strong>4. Test live</strong></td>
+      <td>Submit one real batch via the new <code>/submit</code> page. Worker scrapes. Email lands. Jam reviews via the new UI. Verify select-all / range / non-consecutive / bulk-update / mass-approve / mass-reject / auto-finalize all work end-to-end. <span class="pill ok">No production traffic yet</span> — only Jam knows the new URL.</td>
+      <td>Yes — keep using NocoDB if anything's off.</td>
+    </tr>
+    <tr>
+      <td><strong>5. Remove NocoDB interactives</strong></td>
+      <td>Delete NocoDB Submit form view. Delete <code>nocodb_views.create_review_view</code> + cleanup code. Drop <code>review_view_id</code> / <code>review_share_uuid</code> / <code>review_url</code> columns. NocoDB "All requests" grid stays as read-only audit. <span class="pill no">Only after Phase 4 is green</span>.</td>
+      <td>Soft — keep code in a deletion PR you can revert.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ========================================================================
+     SECTION 8 — WHAT THIS DOES NOT DO
+     ======================================================================== -->
+<h2><span class="num">8</span>What this plan does NOT do</h2>
+<ul>
+  <li>Doesn't replace the Railway worker. It stays unchanged.</li>
+  <li>Doesn't replace NocoDB for audit / browsing the 200K pool. NocoDB stays as a read-only viewer.</li>
+  <li>Doesn't change the database schema beyond adding <code>review_token</code>.</li>
+  <li>Doesn't change BetterContact / Resend integrations.</li>
+  <li>Doesn't add a real login system — token + HTTP Basic is the security model.</li>
+</ul>
+
+<!-- ========================================================================
+     SECTION 9 — DECISIONS PENDING
+     ======================================================================== -->
+<h2><span class="num">9</span>Decisions pending (sign off below)</h2>
+
+<table class="comp">
+  <thead><tr><th>Decision</th><th>Recommended</th><th>Your call</th></tr></thead>
+  <tbody>
+    <tr><td>Framework</td><td>Flask</td><td>—</td></tr>
+    <tr><td>Auth</td><td>HTTP Basic for submit/batches + per-batch token for review</td><td>—</td></tr>
+    <tr><td>Pages</td><td>3 (submit, batches list, batch review)</td><td>—</td></tr>
+    <tr><td>Per-batch token storage</td><td>UUID column on <code>scrape_requests</code></td><td>—</td></tr>
+    <tr><td>Hosting</td><td>New Railway service in <code>perfect-learning</code></td><td>—</td></tr>
+    <tr><td>Pagination</td><td>50 rows per page on the review page</td><td>—</td></tr>
+    <tr><td>Visual style</td><td>Same color palette as NocoDB chips (yellow / green / red)</td><td>—</td></tr>
+    <tr><td>NocoDB "All requests" grid</td><td>Keep for audit (read-only)</td><td>—</td></tr>
+    <tr><td>What to do about old test batches (#15, #19) in NocoDB</td><td>Leave alone — they have no review_token; the static page just won't show them</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<div class="callout ok" style="margin-top:30px;">
+  <h4>Ready to sign off?</h4>
+  <p>If the mockups, architecture, routes, and rollout phases all look right — say "build it" and I'll start with Phase 1 (schema migration + Flask scaffold). If anything's off (wrong page, wrong auth model, missing feature, different style) — tell me what to change and I'll revise this doc before any code lands.</p>
+</div>
+
+</body>
+</html>
