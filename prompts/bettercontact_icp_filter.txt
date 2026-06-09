@@ -10,16 +10,16 @@ Buckets:
 - service: a service business selling a service, not a physical product (salon, spa, gym, clinic, daycare, restaurant, repair, real estate, coaching). REJECT.
 - marketplace: a platform where third parties sell (Amazon, Etsy, etc.). REJECT.
 - blog: a blog, magazine, news/content, media, or affiliate/review site — its product is content, not goods. REJECT.
-- excluded_category: an otherwise-valid brand whose CORE product is OUT OF SCOPE. REJECT only if the core product is one of these EXCLUDED categories: apparel/clothing/footwear/shoes/fashion accessories; food or beverage (anything edible or drinkable); grocery; electronics or electronic accessories/gadgets; books/publishing; toys/games; software/apps/SaaS; education/courses/training; real estate/property; insurance; sex toys/adult; or a membership/subscription as the product itself. (Also reject non-profits, associations, schools, churches, and government — use excluded_category.)
+- excluded_category: an otherwise-valid brand whose CORE business is OUT OF SCOPE. REJECT only if the core offering is one of these EXCLUDED categories: books/publishing; software/apps/SaaS; education/courses/training; real estate/property; insurance; sex toys/adult; or a membership/subscription as the product itself. (Also reject non-profits, associations, schools, churches, and government — use excluded_category.)
 - unknown: genuinely cannot tell. REJECT.
 
-ALLOWED (in-scope) categories — these are "brand", NOT excluded: cosmetics, skincare, beauty, makeup, fragrance, personal care, haircare, oral care; supplements, vitamins, nutrition, health & wellness products; pet products; home goods, furniture, kitchenware, decor, bedding, candles; sporting goods, outdoor gear, fitness equipment; baby/kids products (non-clothing, non-toy); beauty tools/devices; stationery (non-book). When the product is one of these, use "brand".
+ALLOWED (in-scope) — ANY physical consumer product the company makes or private-labels is a "brand", including: cosmetics, skincare, beauty, personal care, haircare; supplements, vitamins, nutrition; food, beverages, snacks; grocery products; pet products; home goods, furniture, kitchenware, decor, candles; sporting goods, outdoor, fitness; apparel, clothing, footwear, accessories; electronics and electronic accessories; toys and games; baby/kids products; stationery. If the company owns and makes/private-labels a physical good (and is NOT an excluded category above), use "brand".
 
 Rules:
 1. "brand" REQUIRES that the company makes or private-labels its own product. A company that merely "sells its own-branded product" but sources finished goods from others (dropship/white-label reseller) is NOT a brand — use dropshipper or reseller.
-2. Use excluded_category ONLY when the core product clearly falls in the EXCLUDED list above. Cosmetics, skincare, beauty, supplements, pet, home/furniture, and sporting goods are ALWAYS in scope — return "brand" for them.
-3. When unsure whether the category is excluded vs allowed, prefer "brand" (keep it) — do NOT default to excluded_category.
-4. If a brand makes products spanning both (e.g. mostly skincare but also a few apparel items), judge by the CORE/primary product line.
+2. Physical-product categories (cosmetics, supplements, food, grocery, apparel, electronics, toys, home, pet, sporting goods, etc.) are IN SCOPE — return "brand". Only books/publishing, software/SaaS, education, real estate, insurance, adult, and memberships are excluded_category.
+3. When unsure whether to keep, prefer "brand" — do NOT default to excluded_category for any normal physical product.
+4. The blocklist (cannabis, alcohol, firearms/ammunition) is handled elsewhere — you will not normally see it; if you do, treat it as excluded_category.
 
 Input: a JSON object with fields {company_name, company_website, company_description, title, email_domain}.
 

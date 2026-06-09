@@ -148,6 +148,11 @@ BC_GENERIC_EMAIL_PREFIXES = frozenset({
 # Merged from the BetterContact spec + the team's documented exclusions
 # (real estate, insurance, education, orgs, books, toys, software).
 BC_EXCLUDED_CATEGORY_TOKENS: dict[str, tuple[str, ...]] = {
+    # NB: apparel/food/grocery/electronics/toys are ALLOWED (valid e-commerce
+    # products). Excluded: the dangerous blocklist (cannabis/alcohol/firearms via
+    # prohibited_category, + adult here), books/publishing, and non-product
+    # categories (real estate/insurance, + software/education/memberships via
+    # the LLM gate).
     "adult": ("sex toy", "sex toys", "adult toy", "adult toys", "dildo",
               "vibrator", "lingerie", "adult novelty", "pleasure product",
               "pleasure products", "bdsm"),

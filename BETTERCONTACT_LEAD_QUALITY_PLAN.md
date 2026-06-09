@@ -14,10 +14,13 @@ team's meeting transcripts — ≤100 employees (size buckets 1-10/11-50), work
 emails only (no info@/sales@…), decision-maker titles only (owner/CMO/marketing/
 e-com), manufacturer/private-label only (BC-specific LLM gate
 `prompts/bettercontact_icp_filter.txt`), max 3 contacts/company, US/global TLDs
-only (drop `.au`/`.co.uk`/foreign + malformed domains), and a merged
-excluded-category list (apparel, food, grocery, electronics, books, toys,
-software, education, real estate, insurance, orgs, sex toys, memberships).
-Applied retroactively: BetterContact accepted now **163**. NB the documented
+only (drop `.au`/`.co.uk`/foreign + malformed domains). Category policy
+(2026-06-09 decision): physical-product categories are ALLOWED (apparel, food,
+grocery, electronics, toys, cosmetics, supplements, home, pet, sporting goods);
+EXCLUDED = the dangerous blocklist (cannabis, alcohol, firearms — via
+prohibited_category) plus sex toys, books/publishing, software, education, real
+estate, insurance, memberships, orgs. Applied retroactively, then 43
+category-restored leads re-added: BetterContact accepted now **206**. NB the documented
 company size rule is **revenue ≥ $500K** (matches Prospeo's
 `PROSPEO_MIN_REVENUE`); BC has no revenue field so the ≤100-employee headcount is
 a proxy — reconciling to a SmartScout revenue cross-check is a pending decision.
