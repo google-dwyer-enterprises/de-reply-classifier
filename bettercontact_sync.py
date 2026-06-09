@@ -58,6 +58,11 @@ from typing import Iterable
 import anthropic
 import requests
 from dotenv import load_dotenv
+from langdetect import DetectorFactory, LangDetectException, detect_langs
+
+# langdetect is non-deterministic by default; pin the seed so the same
+# description always yields the same verdict (reproducible filtering).
+DetectorFactory.seed = 0
 
 # Reuse Prospeo's exporter + industries list + shared rule/LLM helpers.
 # Industries are identical (verified — every Prospeo enum string resolves in
@@ -103,10 +108,23 @@ BC_TITLE_KEYWORDS = [
 # bracket in BC's data; 20 cuts ~44%. 5 excludes only solo-founder shops.
 BC_HEADCOUNT_MIN = 5
 
+# Server-side MAX headcount. CRITICAL cost lever — verified 2026-06-09 via
+# debug/_probe_headcount.py: with only headcount_min set, BC's default ordering
+# surfaces the BIGGEST companies first (offset 0 of Cosmetics = 100% 5k-10k-
+# employee firms), so we were paying to enrich enterprise emails and discarding
+# them all via the client-side ≤100 filter. `company_headcount_max` IS honored
+# (max=50 → only 11-50 buckets, leads_found 15,127→7,618). Setting it to 50
+# matches our effective ICP (the 51-200 bucket was already rejected client-side)
+# and stops us paying for oversized leads at the source. enrich-free probe = 0
+# credits. NB: changing this changes BC's result ordering, so the saved
+# bettercontact_scrape_state offsets must be reset when you flip it on.
+BC_HEADCOUNT_MAX = 50
+
 # ICP: company must be 1-100 employees. BC returns LinkedIn-style size BUCKETS
 # (company_employees_range_start/_end), not exact counts. The clean sub-100
 # buckets are 1-10 and 11-50; 51-200 straddles 100 so STRICT mode rejects it.
-# A lead passes only if its range_end is a number ≤ 100.
+# A lead passes only if its range_end is a number ≤ 100. Kept as a backstop even
+# with BC_HEADCOUNT_MAX server-side (defends against bucket-edge surprises).
 BC_MAX_HEADCOUNT = 100
 
 # Decision-maker titles in PRIORITY order (best first). Used both to gate (a
@@ -173,6 +191,13 @@ BC_ALLOWED_TLDS: frozenset[str] = frozenset({
     "com", "co", "net", "us", "ca", "shop", "store",
 })
 
+# Min description length before we trust langdetect, and min probability before
+# we treat a non-English verdict as real. Short/ambiguous text → keep (don't
+# over-reject). Verified against 610 accepted: 5 non-English (fr/it), 0 false
+# positives, 0 detect errors.
+BC_LANG_MIN_CHARS = 40
+BC_LANG_MIN_PROB = 0.85
+
 
 def _local_part(email: str | None) -> str:
     return (email or "").split("@", 1)[0].lower().strip()
@@ -195,6 +220,24 @@ def bc_size_ok(bc: dict) -> bool:
     except (TypeError, ValueError):
         return False  # open-ended (10001+) or unknown → can't confirm ≤100
     return end <= BC_MAX_HEADCOUNT
+
+
+def bc_language_ok(bc: dict) -> bool:
+    """True unless the company_description is confidently non-English. BC returns
+    the description in the site's own language, so this is our proxy for site
+    language (Victor's 'different language' rule). Short/ambiguous/undetectable
+    text → True (don't over-reject)."""
+    desc = (bc.get("company_description") or "").strip()
+    if len(desc) < BC_LANG_MIN_CHARS:
+        return True
+    try:
+        langs = detect_langs(desc)
+    except LangDetectException:
+        return True
+    if not langs:
+        return True
+    top = langs[0]
+    return not (top.lang != "en" and top.prob >= BC_LANG_MIN_PROB)
 
 
 def bc_title_rank(title: str | None) -> int | None:
@@ -342,6 +385,7 @@ def _industry_filters(industry: str, countries: list[str] | None) -> dict:
         "company_industry": {"include": [industry]},
         "lead_job_title": {"include": BC_TITLE_KEYWORDS},
         "company_headcount_min": BC_HEADCOUNT_MIN,
+        "company_headcount_max": BC_HEADCOUNT_MAX,
     }
     if countries:
         filters["lead_location"] = {"include": list(countries)}
@@ -477,6 +521,13 @@ def _post_filter(lead: dict) -> tuple[bool, str | None]:
         "company_employees_range_end": lead.get("company_size_end")}
     if not bc_size_ok(raw):
         return False, f"size_over_100:{lead.get('company_size_start')}-{lead.get('company_size_end')}"
+
+    # Site must be English (Victor's 'different language' rule) — detected from
+    # BC's native-language company_description. NB: foreign companies whose BC
+    # description is in English (e.g. a UK/AU brand) are intentionally KEPT — the
+    # rule is language, not geography (decision 2026-06-09).
+    if not bc_language_ok(raw):
+        return False, "non_english_site"
 
     # Work email only — no shared/role mailboxes (info@, sales@…)
     if is_generic_email(lead.get("email")):

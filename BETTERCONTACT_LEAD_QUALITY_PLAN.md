@@ -24,6 +24,17 @@ category-restored leads re-added: BetterContact accepted now **206**. NB the doc
 company size rule is **revenue ≥ $500K** (matches Prospeo's
 `PROSPEO_MIN_REVENUE`); BC has no revenue field so the ≤100-employee headcount is
 a proxy — reconciling to a SmartScout revenue cross-check is a pending decision.
+
+**Site-language filter (2026-06-09, Victor's "different language" rule):** the
+pipeline now rejects non-English brands deterministically via `bc_language_ok`
+(langdetect on BC's native-language `company_description`, ≥40 chars, prob ≥0.85
+→ `non_english_site`). Verified against 610 accepted: 5 non-English (fr/it), 0
+false positives. The rule is **language, not geography** — an HQ-country
+(US/Canada-only) filter was prototyped and rejected: it would have cut ~16
+English-language foreign brands (UK/AU/DE) that are in-ICP, so foreign companies
+with an English site are intentionally kept. Elite-type cases (foreign HQ + an
+*English* BC description) therefore pass the automated gate; they relied on the
+manual audit.
 **Trigger:** Audit found Hassan's BetterContact batch full of irrelevant companies
 (cannabis, acupuncture, service businesses). Jamie paused use of all of Hassan's
 scraped lists until a QA process is in place. New requirement from Jamie:

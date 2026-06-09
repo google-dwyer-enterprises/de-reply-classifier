@@ -7,3 +7,4 @@ rapidfuzz>=3.6
 psycopg2-binary>=2.9
 flask>=3.0
 gunicorn>=21.2
+langdetect>=1.0.9
