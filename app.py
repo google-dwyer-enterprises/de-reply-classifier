@@ -118,7 +118,7 @@ def fetch_recent_batches(limit: int = 50) -> list[dict]:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 select id, status, approval, scraped_count, moved_count,
-                       credits_spent, created_at, ready_at, moved_at,
+                       credits_spent, max_credits, created_at, ready_at, moved_at,
                        review_token, notes
                   from scrape_requests
                  order by id desc
@@ -145,8 +145,8 @@ def fetch_batch_by_token(token: str) -> dict | None:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 select id, status, approval, scraped_count, moved_count,
-                       credits_spent, created_at, ready_at, moved_at,
-                       review_token, notes,
+                       credits_spent, max_credits, created_at, ready_at, moved_at,
+                       review_token, notes, requested_leads,
                        industries, skip_industries, countries
                   from scrape_requests
                  where review_token = %s
@@ -174,17 +174,23 @@ def fetch_leads_for_batch(scrape_request_id: int) -> list[dict]:
 
 def insert_scrape_request(
     requested_leads: int, industries: list[str], skip_industries: list[str],
-    countries: list[str], notes: str,
+    countries: list[str], notes: str, max_credits: int | None = None,
 ) -> dict:
     """Insert a new scrape_requests row at status='pending'. Returns the
-    row (incl. the auto-generated review_token)."""
+    row (incl. the auto-generated review_token).
+
+    `max_credits=None` means "let the worker auto-compute the budget cap
+    from requested_leads". An explicit value overrides that — Jam picks
+    it when she wants a tighter ceiling or more headroom than the default.
+    """
     conn = connect()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 insert into scrape_requests
-                  (requested_leads, industries, skip_industries, countries, notes)
-                values (%s, %s, %s, %s, %s)
+                  (requested_leads, industries, skip_industries, countries,
+                   notes, max_credits)
+                values (%s, %s, %s, %s, %s, %s)
                 returning id, review_token
             """, (
                 requested_leads,
@@ -192,6 +198,7 @@ def insert_scrape_request(
                 _csv(skip_industries),
                 _csv(countries),
                 notes or None,
+                max_credits,
             ))
             return cur.fetchone()
     finally:
@@ -262,13 +269,42 @@ def healthz():
         return jsonify(ok=False, error=str(e)), 500
 
 
+def _parse_int_or_none(value, lo: int = 1, hi: int = 100000) -> int | None:
+    """Best-effort int parse with bounds. Returns None for empty / invalid /
+    out-of-range — used so optional form fields stay None when omitted."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        n = int(s)
+    except ValueError:
+        return None
+    if lo <= n <= hi:
+        return n
+    return None
+
+
 @app.route("/submit", methods=["GET"])
 @require_basic_auth
 def submit_form():
+    # Query-string prefill — used by the "Re-run with same filters" button
+    # on the per-batch review page. Lets Jam start a continuation batch
+    # without retyping industries / countries / max_credits.
+    prefill = {
+        "requested_leads": request.args.get("requested_leads"),
+        "industries":      _parse_csv_list(request.args.get("industries")),
+        "skip_industries": _parse_csv_list(request.args.get("skip_industries")),
+        "countries":       _parse_csv_list(request.args.get("countries")),
+        "max_credits":     request.args.get("max_credits"),
+        "notes":           "",   # intentionally NOT prefilled — new batch, new context
+    }
     return render_template(
         "submit.html",
         industries=BC_INDUSTRIES,
         countries=COUNTRIES,
+        prefill=prefill,
     )
 
 
@@ -292,9 +328,13 @@ def submit_post():
     skip_industries = request.form.getlist("skip_industries")
     countries = request.form.getlist("countries") or COUNTRIES.copy()
     notes = (request.form.get("notes") or "").strip()
+    # Max-credits: optional. Empty -> NULL -> worker auto-computes the
+    # default budget. Out-of-bounds also -> NULL (silently ignored).
+    max_credits = _parse_int_or_none(request.form.get("max_credits"))
 
     row = insert_scrape_request(
         requested_leads, industries, skip_industries, countries, notes,
+        max_credits=max_credits,
     )
     return redirect(url_for("batches", submitted=row["id"]))
 

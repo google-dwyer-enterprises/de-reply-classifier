@@ -137,7 +137,7 @@ def claim_pending_request(conn) -> dict | None:
               from claimed
              where r.id = claimed.id
             returning r.id, r.requested_leads, r.industries, r.skip_industries,
-                      r.countries, r.notes
+                      r.countries, r.notes, r.max_credits
             """
         )
         row = cur.fetchone()
@@ -151,6 +151,7 @@ def claim_pending_request(conn) -> dict | None:
         "skip_industries": _csv_to_list(row[3]),
         "countries": _csv_to_list(row[4]),
         "notes": row[5],
+        "max_credits": row[6],   # None -> worker auto-computes; int -> explicit cap
     }
 
 
@@ -213,16 +214,23 @@ def run_scrape(req: dict) -> dict:
     # ceiling. Anything in between scales ~5 raw leads per requested lead so
     # the post-filter survival rate has slack.
     page_limit = max(10, min(DEFAULT_PAGE_LIMIT, req["requested_leads"] * 5))
-    # Budget cap is a runaway guard, not the primary stop. Floor it at THREE
-    # pages so the first cycle can fan out across enough industries to make
-    # progress — one tapped-out industry (high offset / heavy dedup) shouldn't
-    # be able to swallow the whole budget. For target=3, page=15, this gives
-    # max_credits=50: 3 industries get a fair shot at finding the 3 leads.
-    max_credits = max(req["requested_leads"] * CREDITS_PER_LEAD_BUDGET,
-                      page_limit * 3 + 5)
+    # Budget cap is a runaway guard, not the primary stop.
+    # 1. If the submitter set an explicit max_credits, honor it verbatim.
+    # 2. Otherwise floor at THREE pages so the first cycle can fan out across
+    #    enough industries to make progress — one tapped-out industry (high
+    #    offset / heavy dedup) shouldn't be able to swallow the whole budget.
+    #    For target=3, page=15, this gives max_credits=50: 3 industries get a
+    #    fair shot at finding the 3 leads.
+    if req.get("max_credits") is not None:
+        max_credits = int(req["max_credits"])
+        cap_src = "user"
+    else:
+        max_credits = max(req["requested_leads"] * CREDITS_PER_LEAD_BUDGET,
+                          page_limit * 3 + 5)
+        cap_src = "auto"
     log(f"req #{req['id']}: scraping target={req['requested_leads']}, "
         f"countries={req['countries']}, skip={skip}, "
-        f"page_limit={page_limit}, max_credits={max_credits}")
+        f"page_limit={page_limit}, max_credits={max_credits} ({cap_src})")
     return bettercontact_sync.main(
         mode="category",
         target_leads=req["requested_leads"],

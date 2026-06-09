@@ -153,6 +153,32 @@ If NocoDB is unreachable or any step fails, the row still flips to `ready`, the 
 
 ---
 
+## Continuing a batch (a.k.a. "resume")
+
+There's no explicit per-batch resume because **BetterContact's offsets are global, persisted per industry in `bettercontact_scrape_state`**. Every time the worker reads from BC for a given industry, the offset advances. Future batches start from the new offset automatically.
+
+What this means in practice:
+
+| Scenario | What happens |
+|---|---|
+| Batch hits its `target_leads` and stops | Offsets for the consumed industries advance. A subsequent batch with overlapping industries picks up after those offsets. |
+| Batch hits its `max_credits` cap and aborts early | Same — offsets advance for every page consumed. The "lost" leads (target − accepted) are still waiting in BC's queue at the new offsets. |
+| Jam wants more leads with the same filters | Submit a new batch. The worker continues from the existing offsets. From the lead-reviewer, the **"↻ Re-run with same filters"** button on the per-batch review page pre-fills the submit form with all the previous batch's parameters in one click. |
+
+So: every submit is effectively a continuation unless the offsets are reset. If you ever want to re-scrape an industry from scratch, manually reset `bettercontact_scrape_state.last_offset_consumed = 0` for that industry.
+
+### `max_credits` field
+
+Optional. When NULL the worker auto-computes the budget cap from
+`requested_leads × CREDITS_PER_LEAD_BUDGET` (currently `× 3`), floored at `page_limit × 3 + 5`. When set the cap is honored verbatim.
+
+Use cases for the explicit override:
+- **Sparse filter, want headroom**: 50 leads from a tight industry might take 200+ credits; set `max_credits=400`.
+- **Tight budget**: cap a runaway scrape at a known dollar amount.
+- **Re-run continuation**: the Re-run button copies the previous batch's `max_credits` by default.
+
+The worker logs which source was used: `max_credits=80 (user)` vs `max_credits=80 (auto)`.
+
 ## Day-to-day operation
 
 ### Watching jobs

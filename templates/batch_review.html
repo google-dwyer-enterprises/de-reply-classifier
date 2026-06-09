@@ -12,7 +12,26 @@
   <div class="item"><div class="k">Approved</div><div class="v">{{ counts.approved }}</div></div>
   <div class="item"><div class="k">Rejected</div><div class="v">{{ counts.rejected }}</div></div>
   <div class="item"><div class="k">Moved to pool</div><div class="v">{{ counts.moved }}</div></div>
-  <div class="item"><div class="k">Credits</div><div class="v">{{ batch.credits_spent }}</div></div>
+  <div class="item">
+    <div class="k">Credits</div>
+    <div class="v">
+      {{ batch.credits_spent }}{% if batch.max_credits %} / {{ batch.max_credits }}{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="quick-actions" style="margin-top:0;">
+  <a href="{{ url_for('submit_form',
+                       requested_leads=batch.requested_leads,
+                       industries=batch.industries or '',
+                       skip_industries=batch.skip_industries or '',
+                       countries=batch.countries or '',
+                       max_credits=batch.max_credits or '') }}"
+     class="btn btn-secondary btn-small">↻ Re-run with same filters</a>
+  <span class="qa-sep">|</span>
+  <span style="color:var(--muted); font-size:12px;">
+    Continues from BetterContact's current offsets — won't re-scrape this batch's leads.
+  </span>
 </div>
 
 <div class="quick-actions" data-token="{{ batch.review_token }}">

@@ -7,22 +7,40 @@
 
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
+{% set p = prefill if prefill is defined and prefill else {} %}
+{% set rerun = (p.industries or p.skip_industries or p.countries or p.requested_leads or p.max_credits) %}
+{% if rerun %}
+<div class="alert alert-ok">
+  Pre-filled from a previous batch. BetterContact remembers where it left off per-industry, so this submission picks up after the last one finishes.
+</div>
+{% endif %}
+
 <form method="POST" class="submit-form" autocomplete="off">
   <div class="form-field">
     <label for="requested_leads">How many leads do you need?</label>
     <input type="number" id="requested_leads" name="requested_leads"
            min="1" max="5000" required
-           value="{{ form.requested_leads if form else 500 }}">
+           value="{{ p.requested_leads if p.requested_leads else (form.requested_leads if form else 500) }}">
     <p class="hint">Between 1 and 5000. Typical hit rate is ~80% of requested.</p>
+  </div>
+
+  <div class="form-field">
+    <label for="max_credits">Max credits <span class="hint-inline">(optional — leave empty for auto-compute)</span></label>
+    <input type="number" id="max_credits" name="max_credits"
+           min="1" max="100000"
+           value="{{ p.max_credits if p.max_credits else (form.max_credits if form else '') }}"
+           placeholder="e.g. 2000">
+    <p class="hint">Hard cap on BetterContact credits this batch can burn. Leave empty and the worker computes <code>requested_leads × 3</code> automatically (e.g. 500 leads → 1500 credit cap).</p>
   </div>
 
   <div class="form-field">
     <label>Industries to target <span class="hint-inline">(leave none selected for all 12)</span></label>
     <div class="chip-group">
+      {% set chosen_ind = p.industries if p.industries else (form.getlist('industries') if form else []) %}
       {% for ind in industries %}
         <label class="chip-label">
           <input type="checkbox" name="industries" value="{{ ind }}"
-                 {% if form and ind in form.getlist('industries') %}checked{% endif %}>
+                 {% if ind in chosen_ind %}checked{% endif %}>
           <span>{{ ind }}</span>
         </label>
       {% endfor %}
@@ -32,10 +50,11 @@
   <div class="form-field">
     <label>Industries to skip <span class="hint-inline">(optional)</span></label>
     <div class="chip-group">
+      {% set chosen_skip = p.skip_industries if p.skip_industries else (form.getlist('skip_industries') if form else []) %}
       {% for ind in industries %}
         <label class="chip-label">
           <input type="checkbox" name="skip_industries" value="{{ ind }}"
-                 {% if form and ind in form.getlist('skip_industries') %}checked{% endif %}>
+                 {% if ind in chosen_skip %}checked{% endif %}>
           <span>{{ ind }}</span>
         </label>
       {% endfor %}
@@ -45,10 +64,11 @@
   <div class="form-field">
     <label>Countries</label>
     <div class="chip-group">
+      {% set chosen_c = p.countries if p.countries else (form.getlist('countries') if form else countries) %}
       {% for c in countries %}
         <label class="chip-label">
           <input type="checkbox" name="countries" value="{{ c }}"
-                 {% if not form or c in form.getlist('countries') %}checked{% endif %}>
+                 {% if c in chosen_c %}checked{% endif %}>
           <span>{{ c }}</span>
         </label>
       {% endfor %}
