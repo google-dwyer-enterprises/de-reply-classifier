@@ -164,13 +164,13 @@ BC_EXCLUDED_CATEGORY_TOKENS: dict[str, tuple[str, ...]] = {
                   "insurance company", "life insurance", "health insurance"),
 }
 
-# Domain / TLD filter: the ICP is US Amazon e-commerce brands, so we keep only
-# US/global-neutral commerce TLDs and drop foreign ccTLDs (.au, .co.uk, .ca, …)
-# and malformed domains. The final dot-segment is the registrable TLD, so
-# "brand.com.au" → "au" (dropped) while "brand.co" (US startup) → "co" (kept).
-# Tunable: add a TLD here if a legit US brand is wrongly dropped.
+# Domain / TLD filter: the ICP is US + Canada Amazon e-commerce brands, so we
+# keep US/global-neutral commerce TLDs plus Canada (.ca) and drop other foreign
+# ccTLDs (.au, .co.uk, .de, …) and malformed domains. The final dot-segment is
+# the registrable TLD, so "brand.com.au" → "au" (dropped) while "brand.ca" →
+# "ca" (kept). Tunable: add a TLD here if a legit brand is wrongly dropped.
 BC_ALLOWED_TLDS: frozenset[str] = frozenset({
-    "com", "co", "net", "us", "shop", "store",
+    "com", "co", "net", "us", "ca", "shop", "store",
 })
 
 
