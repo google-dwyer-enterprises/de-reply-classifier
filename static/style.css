@@ -84,6 +84,7 @@ h1 { font-size: 24px; font-weight: 700; margin: 8px 0 4px; letter-spacing: -0.01
 .badge-approved { background: var(--green-soft); color: #166534; border: 1px solid #86efac; }
 .badge-rejected { background: var(--red-soft); color: #991b1b; border: 1px solid #fca5a5; }
 .badge-failed   { background: var(--red-soft); color: #991b1b; border: 1px solid #fca5a5; }
+.badge-queue    { background: var(--accent-soft); color: var(--accent); border: 1px solid #93c5fd; margin-left: 4px; font-size: 10px; }
 
 /* ------- submit form ------- */
 .submit-form { max-width: 720px; }

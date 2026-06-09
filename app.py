@@ -339,13 +339,48 @@ def submit_post():
     return redirect(url_for("batches", submitted=row["id"]))
 
 
+def fetch_queue_position(scrape_request_id: int) -> int:
+    """Return how many batches ahead of this one are still in flight.
+
+    'Ahead' = rows with status in ('running', 'pending') and id <= self.id.
+    Used to render the 'queued behind N batches' UX. The worker is single-
+    threaded so this is also the literal wait order.
+    """
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                select count(*) from scrape_requests
+                 where id <= %s
+                   and status in ('running', 'pending')
+            """, (scrape_request_id,))
+            return cur.fetchone()[0]
+    finally:
+        conn.close()
+
+
 @app.route("/batches")
 @require_basic_auth
 def batches():
     submitted = request.args.get("submitted", type=int)
     rows = fetch_recent_batches()
+
+    # Annotate each pending/running row with its queue position (1 = next up).
+    # The worker is single-threaded, so position = literal wait order.
+    inflight_ids = [r["id"] for r in rows
+                    if r["status"] in ("pending", "running")]
+    inflight_ids.sort()
+    queue_pos = {rid: i + 1 for i, rid in enumerate(inflight_ids)}
+    for r in rows:
+        r["queue_position"] = queue_pos.get(r["id"])
+
+    # If the user just submitted, tell them whether they're next-up or queued.
+    submit_queue_pos = queue_pos.get(submitted) if submitted else None
+
     return render_template("batches.html",
-                           rows=rows, just_submitted=submitted)
+                           rows=rows,
+                           just_submitted=submitted,
+                           submit_queue_pos=submit_queue_pos)
 
 
 @app.route("/batch/<token>")

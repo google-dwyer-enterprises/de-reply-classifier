@@ -54,7 +54,17 @@ POLL_INTERVAL_S = int(os.environ.get("WORKER_POLL_INTERVAL_S", "60"))
 RUNNING_STUCK_THRESHOLD_S = 60 * 60   # 1 hour: anything older is presumed dead
 # Safety margin for the credit budget. observed rate is ~2 credits / accepted
 # lead; 3 gives a cushion without letting a runaway burn the account.
+# Note: as of the "flat default cap" change this constant is no longer used
+# by run_scrape (replaced by DEFAULT_MAX_CREDITS_WHEN_BLANK below). Kept
+# here for backward-reference + in case we ever want a multiplier-driven
+# cap mode again.
 CREDITS_PER_LEAD_BUDGET = 3
+# Flat default cap when the user leaves max_credits blank on the form.
+# Read as "if Jam forgets, the worst-case spend is bounded to this many
+# credits regardless of how many leads she asked for". Decoupled from the
+# target on purpose — the target is the primary stop, this is just the
+# runaway guard. Override per-batch by setting max_credits explicitly.
+DEFAULT_MAX_CREDITS_WHEN_BLANK = 1000
 # Default page size for the BC scraper. 50 balances diversity (cycle covers
 # all industries) against round-trip overhead.
 DEFAULT_PAGE_LIMIT = 50
@@ -216,17 +226,20 @@ def run_scrape(req: dict) -> dict:
     page_limit = max(10, min(DEFAULT_PAGE_LIMIT, req["requested_leads"] * 5))
     # Budget cap is a runaway guard, not the primary stop.
     # 1. If the submitter set an explicit max_credits, honor it verbatim.
-    # 2. Otherwise floor at THREE pages so the first cycle can fan out across
-    #    enough industries to make progress — one tapped-out industry (high
-    #    offset / heavy dedup) shouldn't be able to swallow the whole budget.
-    #    For target=3, page=15, this gives max_credits=50: 3 industries get a
-    #    fair shot at finding the 3 leads.
+    # 2. Otherwise: flat DEFAULT_MAX_CREDITS_WHEN_BLANK (currently 1000).
+    #    Flat default reads as "if Jam forgets, don't burn more than ~$200
+    #    worth". A scaling-with-target default (the old behaviour) could
+    #    silently burn 5x more on a target=2000 submission. The cap is
+    #    decoupled from the target on purpose — the target is the primary
+    #    stop; this is just the runaway guard.
+    # Floor at page_limit*3+5 so a small target (e.g. target=3 with
+    # page_limit=15 -> floor=50) still gets enough budget to fan out
+    # across 3 industries in cycle 1.
     if req.get("max_credits") is not None:
         max_credits = int(req["max_credits"])
         cap_src = "user"
     else:
-        max_credits = max(req["requested_leads"] * CREDITS_PER_LEAD_BUDGET,
-                          page_limit * 3 + 5)
+        max_credits = max(DEFAULT_MAX_CREDITS_WHEN_BLANK, page_limit * 3 + 5)
         cap_src = "auto"
     log(f"req #{req['id']}: scraping target={req['requested_leads']}, "
         f"countries={req['countries']}, skip={skip}, "
