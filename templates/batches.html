@@ -6,9 +6,17 @@
 <p class="lede">Most recent first. Click "Review" on any batch that's ready.</p>
 
 {% if just_submitted %}
-  <div class="alert alert-ok">
-    Batch <strong>#{{ just_submitted }}</strong> queued. You'll get an email when results are ready (typically 5–10 minutes).
-  </div>
+  {% if submit_queue_pos and submit_queue_pos > 1 %}
+    <div class="alert alert-ok">
+      Batch <strong>#{{ just_submitted }}</strong> queued — <strong>position #{{ submit_queue_pos }}</strong> in line.
+      The worker processes one batch at a time, so this will start once the {{ submit_queue_pos - 1 }} ahead of it finish.
+      You'll get an email when results are ready.
+    </div>
+  {% else %}
+    <div class="alert alert-ok">
+      Batch <strong>#{{ just_submitted }}</strong> queued. You'll get an email when results are ready (typically 5–10 minutes).
+    </div>
+  {% endif %}
 {% endif %}
 
 <table class="batch-list">
@@ -23,7 +31,12 @@
     {% for r in rows %}
     <tr>
       <td><strong>#{{ r.id }}</strong></td>
-      <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
+      <td>
+        <span class="badge badge-{{ r.status }}">{{ r.status }}</span>
+        {% if r.queue_position and r.status == 'pending' %}
+          <span class="badge badge-queue" title="Worker processes one batch at a time">#{{ r.queue_position }} in queue</span>
+        {% endif %}
+      </td>
       <td>
         {% if r.approval == 'pending' %}<span class="badge badge-pending">{{ r.approval }}</span>
         {% elif r.approval == 'approved' %}<span class="badge badge-approved">{{ r.approval }}</span>

@@ -169,8 +169,9 @@ So: every submit is effectively a continuation unless the offsets are reset. If 
 
 ### `max_credits` field
 
-Optional. When NULL the worker auto-computes the budget cap from
-`requested_leads × CREDITS_PER_LEAD_BUDGET` (currently `× 3`), floored at `page_limit × 3 + 5`. When set the cap is honored verbatim.
+Optional. When NULL the worker uses a **flat 1,000-credit default** (`DEFAULT_MAX_CREDITS_WHEN_BLANK` in worker.py), floored at `page_limit × 3 + 5` so small-target batches still have room to fan out across 3 industries. When set the cap is honored verbatim.
+
+The flat default is decoupled from `requested_leads` on purpose — the target is the primary stop signal; this is just the runaway guard for "Jam forgot to set a cap on a target=5000 batch."
 
 Use cases for the explicit override:
 - **Sparse filter, want headroom**: 50 leads from a tight industry might take 200+ credits; set `max_credits=400`.
