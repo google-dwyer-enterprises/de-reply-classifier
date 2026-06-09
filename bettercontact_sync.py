@@ -59,16 +59,15 @@ import anthropic
 import requests
 from dotenv import load_dotenv
 
-# Reuse Prospeo's exporter + industries list + decision-maker title fallback.
+# Reuse Prospeo's exporter + industries list + shared rule/LLM helpers.
 # Industries are identical (verified — every Prospeo enum string resolves in
-# BetterContact's enum). DECISION_MAKER_TITLES is the post-filter we apply if
-# BC returns a non-owner-level title slipping past `lead_seniority`.
+# BetterContact's enum). Decision-maker title gating is BC-specific now
+# (bc_title_rank); the LLM gate uses the BC-specific BC_ICP_PROMPT, not
+# Prospeo's agency_filter.txt.
 from prospeo_sync import (
     PROSPEO_INDUSTRIES as BC_INDUSTRIES,
-    DECISION_MAKER_TITLES,
-    rule_classify,           # prohibited-category + agency-token + marketplace rule filter
-    llm_classify_batch,      # P3: LLM brand/agency/reseller/marketplace gate
-    AGENCY_FILTER_PROMPT,
+    rule_classify,           # prohibited-category + service + agency + marketplace rule
+    llm_classify_batch,      # LLM gate (driven here by BC_ICP_PROMPT)
     write_csv,
     write_xlsx,
 )
@@ -81,19 +80,156 @@ from db import connect
 
 BC_BASE = "https://app.bettercontact.rocks/api/v2"
 
+# BC-specific ICP brand-gate prompt (manufacturer/private-label only, excluded
+# categories, no blogs). Separate from Prospeo's shared agency_filter.txt so
+# Prospeo's gate is unaffected.
+BC_ICP_PROMPT = Path(__file__).parent / "prompts" / "bettercontact_icp_filter.txt"
+
 # Title strategy (revised after 2026-06-01 smoke tests):
 #   - `lead_seniority` enum is multi-lingual + overloaded (returns Stockholders,
 #     salon-owners, Cargill "data product owners", "Arbeidsgiver" etc.)
 #   - `lead_job_title` substring match is fuzzy/semantic (matches "VP marketing"
 #     when querying "President" — BC treats them as related)
 #   - "President" in the include list draws VPs we have to throw away
-# Net: substring-match owner-level titles (no President), pay for the VP noise
-# BC slips through, post-filter (DECISION_MAKER_TITLES) drops it.
-BC_TITLE_KEYWORDS = ["CEO", "Founder", "Owner"]
+# Net: substring-match the decision-maker titles, pay for the VP/junior noise
+# BC slips through, post-filter (bc_title_rank) drops it.
+BC_TITLE_KEYWORDS = [
+    "CEO", "Founder", "Owner", "President",
+    "CMO", "Marketing Manager", "Head of Marketing",
+    "Ecommerce Director", "Ecommerce Manager",
+]
 
 # Headcount min as revenue-floor proxy. Verified: 5 and 10 are the same
 # bracket in BC's data; 20 cuts ~44%. 5 excludes only solo-founder shops.
 BC_HEADCOUNT_MIN = 5
+
+# ICP: company must be 1-100 employees. BC returns LinkedIn-style size BUCKETS
+# (company_employees_range_start/_end), not exact counts. The clean sub-100
+# buckets are 1-10 and 11-50; 51-200 straddles 100 so STRICT mode rejects it.
+# A lead passes only if its range_end is a number ≤ 100.
+BC_MAX_HEADCOUNT = 100
+
+# Decision-maker titles in PRIORITY order (best first). Used both to gate (a
+# lead's title must match a tier) and to rank which contacts to keep under the
+# per-company cap. Owner-level outranks marketing, which outranks e-commerce.
+BC_TITLE_TIERS: list[tuple[str, tuple[str, ...]]] = [
+    ("owner", ("chief executive", "ceo", "founder", "co-founder", "cofounder",
+               "owner", "co-owner", "president", "managing director", "principal")),
+    ("cmo", ("cmo", "chief marketing")),
+    ("marketing", ("head of marketing", "vp marketing", "vp of marketing",
+                   "marketing director", "director of marketing", "marketing manager",
+                   "head of growth", "growth manager")),
+    ("ecom", ("head of e-commerce", "head of ecommerce", "director of e-commerce",
+              "director of ecommerce", "ecommerce director", "e-commerce director",
+              "vp e-commerce", "vp of ecommerce", "ecommerce manager",
+              "e-commerce manager", "chief e-commerce", "chief digital",
+              "digital director", "head of digital")),
+]
+
+# Per-company contact cap (keep the 3 highest-priority decision-makers).
+BC_MAX_CONTACTS_PER_COMPANY = 3
+
+# Generic / role-based mailbox local-parts — we want a real person's work email
+# (victor@brand.com), never a shared inbox (info@brand.com).
+BC_GENERIC_EMAIL_PREFIXES = frozenset({
+    "info", "sales", "support", "hello", "contact", "admin", "team", "office",
+    "orders", "order", "help", "service", "services", "marketing", "careers",
+    "jobs", "press", "media", "newsletter", "noreply", "no-reply", "donotreply",
+    "mail", "email", "enquiries", "enquiry", "inquiries", "inquiry", "general",
+    "accounts", "accounting", "billing", "finance", "hr", "legal", "privacy",
+    "webmaster", "postmaster", "shop", "store", "wholesale", "customerservice",
+    "customercare", "care", "hi", "hey", "ask", "connect", "reception",
+})
+
+# Deterministic out-of-scope categories matched on name + keywords (HIGH
+# PRECISION only — phrases that almost never appear in a real product brand).
+# The broad/contextual ones (apparel, food, grocery, electronics, toys,
+# software, education) are left to the BC ICP LLM gate, which has full context.
+# Merged from the BetterContact spec + the team's documented exclusions
+# (real estate, insurance, education, orgs, books, toys, software).
+BC_EXCLUDED_CATEGORY_TOKENS: dict[str, tuple[str, ...]] = {
+    "adult": ("sex toy", "sex toys", "adult toy", "adult toys", "dildo",
+              "vibrator", "lingerie", "adult novelty", "pleasure product",
+              "pleasure products", "bdsm"),
+    "books": ("bookstore", "book store", "book publisher", "publishing house",
+              "publisher of books"),
+    "real_estate": ("real estate", "realty", "realtor", "realtors",
+                    "property management", "brokerage firm"),
+    "insurance": ("insurance agency", "insurance broker", "insurance brokerage",
+                  "insurance company", "life insurance", "health insurance"),
+}
+
+# Domain / TLD filter: the ICP is US Amazon e-commerce brands, so we keep only
+# US/global-neutral commerce TLDs and drop foreign ccTLDs (.au, .co.uk, .ca, …)
+# and malformed domains. The final dot-segment is the registrable TLD, so
+# "brand.com.au" → "au" (dropped) while "brand.co" (US startup) → "co" (kept).
+# Tunable: add a TLD here if a legit US brand is wrongly dropped.
+BC_ALLOWED_TLDS: frozenset[str] = frozenset({
+    "com", "co", "net", "us", "shop", "store",
+})
+
+
+def _local_part(email: str | None) -> str:
+    return (email or "").split("@", 1)[0].lower().strip()
+
+
+def is_generic_email(email: str | None) -> bool:
+    """True for shared/role mailboxes (info@, sales@…), False for personal."""
+    local = _local_part(email)
+    if not local:
+        return True
+    base = local.split("+", 1)[0]
+    return base in BC_GENERIC_EMAIL_PREFIXES
+
+
+def bc_size_ok(bc: dict) -> bool:
+    """True if the company is <= BC_MAX_HEADCOUNT employees (strict: range_end
+    must be a number <= 100, which keeps only the 1-10 and 11-50 buckets)."""
+    try:
+        end = int(bc.get("company_employees_range_end"))
+    except (TypeError, ValueError):
+        return False  # open-ended (10001+) or unknown → can't confirm ≤100
+    return end <= BC_MAX_HEADCOUNT
+
+
+def bc_title_rank(title: str | None) -> int | None:
+    """Return the priority tier index (0 = best) if the title is a target
+    decision-maker, else None."""
+    t = (title or "").lower()
+    if not t:
+        return None
+    for i, (_name, kws) in enumerate(BC_TITLE_TIERS):
+        if any(kw in t for kw in kws):
+            return i
+    return None
+
+
+def bc_excluded_category(name: str | None, keywords) -> str | None:
+    """Deterministic out-of-scope category match (high-precision). Returns the
+    category if matched, else None. Broad categories go to the LLM gate."""
+    kw = " ".join(str(k) for k in keywords) if isinstance(keywords, (list, tuple)) else (keywords or "")
+    blob = f"{name or ''} {kw}".lower()
+    for cat, toks in BC_EXCLUDED_CATEGORY_TOKENS.items():
+        if any(t in blob for t in toks):
+            return cat
+    return None
+
+
+def bc_domain_ok(domain: str | None) -> bool:
+    """True if the domain is a US/global-neutral commerce TLD (BC_ALLOWED_TLDS)
+    and well-formed. Drops foreign ccTLDs (.au, .co.uk, .ca…) and malformed
+    domains. The final dot-segment is the TLD checked."""
+    d = (domain or "").strip().lower()
+    # strip any scheme / path / www that slipped through
+    for pre in ("https://", "http://"):
+        if d.startswith(pre):
+            d = d[len(pre):]
+    if d.startswith("www."):
+        d = d[4:]
+    d = d.split("/", 1)[0].split("?", 1)[0]
+    if not d or "." not in d or " " in d:
+        return False
+    return d.rsplit(".", 1)[1] in BC_ALLOWED_TLDS
 
 BC_PAGE_LIMIT = 200            # API max per submit
 BC_REQUEST_TIMEOUT_S = 30      # HTTP timeout for submit + poll calls
@@ -295,6 +431,9 @@ def _parse_bc_lead(bc: dict, industry: str) -> dict | None:
         # _insert_leads / write_csv pick a fixed column set and ignore extras.
         "company_description": bc.get("company_description"),
         "company_keywords": bc.get("company_keywords") or [],
+        # Size bucket (range_start/_end) drives the ≤100-employee ICP filter.
+        "company_size_start": bc.get("company_employees_range_start"),
+        "company_size_end": bc.get("company_employees_range_end"),
         "source_domain": domain,
         "source_industry": industry,
         "scrape_mode": "category",
@@ -308,34 +447,43 @@ def _parse_bc_lead(bc: dict, industry: str) -> dict | None:
 
 
 def _post_filter(lead: dict) -> tuple[bool, str | None]:
-    """Apply our own quality gates on top of BC's filtering.
-
-    Three layers (mirrors Prospeo's accept/reject pipeline):
-      1. rule_classify — marketplace domain (amazon.com etc.) or agency token
-         in company name/website ("agency", "marketing", "solutions" etc.)
-      2. company_name must be present
-      3. title must contain a DECISION_MAKER_TITLES keyword (CEO/Founder/Owner/
-         CMO/Head of E-com etc.) — drops VPs that BC's substring match slips in
+    """Deterministic ICP gates on top of BC's filtering (the LLM brand/category
+    gate runs afterward in _run_category). Order is cheapest-reject-first.
 
     Returns (accept, reject_reason).
     """
-    # Layer 1: Prospeo-style agency + marketplace rule filter (reused intact)
+    # Prohibited (cannabis/alcohol/firearms) + service + agency + marketplace
     rule_result = rule_classify(lead)
     if rule_result is not None:
         result, _method, reason = rule_result
         return False, f"{result}:{reason}"
 
-    # Layer 2: must have company name
-    company = (lead.get("company_name") or "").strip()
-    if not company:
+    # Out-of-scope category (adult/books/real-estate/insurance — deterministic)
+    cat = bc_excluded_category(lead.get("company_name"), lead.get("company_keywords"))
+    if cat:
+        return False, f"excluded_category:{cat}"
+
+    # Domain must be a US/global-neutral commerce TLD (drop .au/.co.uk/etc.)
+    if not bc_domain_ok(lead.get("company_domain")):
+        return False, f"bad_domain:{lead.get('company_domain')}"
+
+    # Company must be <= 100 employees (1-10 / 11-50 buckets only)
+    raw = lead.get("bettercontact_raw") or {
+        "company_employees_range_end": lead.get("company_size_end")}
+    if not bc_size_ok(raw):
+        return False, f"size_over_100:{lead.get('company_size_start')}-{lead.get('company_size_end')}"
+
+    # Work email only — no shared/role mailboxes (info@, sales@…)
+    if is_generic_email(lead.get("email")):
+        return False, f"generic_email:{_local_part(lead.get('email'))}"
+
+    # Must have a company name
+    if not (lead.get("company_name") or "").strip():
         return False, "no_company_name"
 
-    # Layer 3: title must be a decision-maker keyword
-    title = (lead.get("title") or "").lower()
-    if not title:
-        return False, "no_title"
-    if not any(kw in title for kw in DECISION_MAKER_TITLES):
-        return False, f"title_not_decision_maker:{title[:60]}"
+    # Title must be a target decision-maker (owner / CMO / marketing / e-com)
+    if bc_title_rank(lead.get("title")) is None:
+        return False, f"title_not_decision_maker:{(lead.get('title') or '')[:60]}"
 
     return True, None
 
@@ -349,6 +497,18 @@ def _load_existing_emails(conn) -> set[str]:
     with conn.cursor() as cur:
         cur.execute("select email from prospeo_new_leads")
         return {r[0] for r in cur.fetchall() if r[0]}
+
+
+def _load_company_counts(conn) -> dict[str, int]:
+    """How many accepted BetterContact contacts each company domain already has,
+    to enforce the per-company cap across runs."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select lower(company_domain), count(*) from prospeo_new_leads "
+            "where provider='bettercontact' and not rejected "
+            "and company_domain is not null group by 1"
+        )
+        return {d: c for d, c in cur.fetchall() if d}
 
 
 def _load_state(conn) -> dict[str, dict]:
@@ -510,6 +670,12 @@ def _run_category(conn, api_key: str, *,
     total_existing_before_run = len(existing_emails)
     print(f"  existing emails in DB: {total_existing_before_run:,}")
 
+    # Per-company contact cap: seed with how many accepted BC contacts each
+    # domain already has, so we never exceed BC_MAX_CONTACTS_PER_COMPANY across
+    # runs. Incremented as we accept; survivors are sorted by title priority
+    # per page so the highest-value contacts win the slots.
+    company_counts = _load_company_counts(conn)
+
     accepted: list[dict] = []
     rejected: list[dict] = []
     rejected_counts: dict[str, int] = {}
@@ -660,16 +826,15 @@ def _run_category(conn, api_key: str, *,
                 batch_accepted.append(lead)
                 existing_emails.add(lead["email"])
 
-            # P3: LLM brand-gate on rule-passed leads. Only "brand" (sells its
-            # own physical product) survives; agency / reseller / marketplace /
-            # unknown — the last of which catches consumer-service businesses
-            # (clinics, daycares, gyms) that fit no product bucket — are
-            # rejected. Same classifier Prospeo uses. LLM-rejected rows are still
-            # inserted (as rejected) for audit and stay in existing_emails.
+            # ICP LLM brand-gate on rule-passed leads (BC-specific prompt): only
+            # an in-scope manufacturer/private-label "brand" survives; reseller /
+            # dropshipper / agency / service / marketplace / blog /
+            # excluded_category / unknown are rejected. LLM-rejected rows are
+            # still inserted (as rejected) for audit and stay in existing_emails.
             if batch_accepted and not skip_llm:
                 if llm_client is None:
                     llm_client = anthropic.Anthropic()
-                    llm_system = AGENCY_FILTER_PROMPT.read_text(encoding="utf-8")
+                    llm_system = BC_ICP_PROMPT.read_text(encoding="utf-8")
                 outcomes = llm_classify_batch(llm_client, llm_system, batch_accepted)
                 survivors: list[dict] = []
                 for lead, (result, reason) in zip(batch_accepted, outcomes):
@@ -685,6 +850,26 @@ def _run_category(conn, api_key: str, *,
                         key = f"llm_{result}"
                         rejected_counts[key] = rejected_counts.get(key, 0) + 1
                 batch_accepted = survivors
+
+            # Per-company cap: keep at most BC_MAX_CONTACTS_PER_COMPANY contacts
+            # per domain (highest title priority first), counting contacts already
+            # accepted in earlier pages/runs.
+            if batch_accepted:
+                capped: list[dict] = []
+                for lead in sorted(batch_accepted,
+                                   key=lambda l: bc_title_rank(l.get("title")) or 99):
+                    dom = (lead.get("company_domain") or "").lower()
+                    if dom and company_counts.get(dom, 0) >= BC_MAX_CONTACTS_PER_COMPANY:
+                        lead["agency_filter_result"] = "rejected"
+                        lead["agency_filter_reason"] = "company_contact_cap"
+                        lead["rejected"] = True
+                        batch_rejected.append(lead)
+                        rejected_counts["company_cap"] = rejected_counts.get("company_cap", 0) + 1
+                    else:
+                        if dom:
+                            company_counts[dom] = company_counts.get(dom, 0) + 1
+                        capped.append(lead)
+                batch_accepted = capped
 
             if batch_accepted or batch_rejected:
                 _insert_leads(conn, batch_accepted + batch_rejected,

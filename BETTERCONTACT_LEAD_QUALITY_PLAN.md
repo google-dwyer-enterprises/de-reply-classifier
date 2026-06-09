@@ -8,6 +8,19 @@ blocked pending a product decision (see §3). A known-FP **allowlist** (Paul
 Mitchell, Aloxxi, Shurtape, Zebra Athletics, Louisville Slugger, Vortex) now
 exempts those legit product brands from the deterministic rules — the full-DB QA
 gate is **green (0 flagged / 1,981 accepted)**.
+
+**ICP filters (BetterContact-only, 2026-06-09):** strict ICP applied per the
+team's meeting transcripts — ≤100 employees (size buckets 1-10/11-50), work
+emails only (no info@/sales@…), decision-maker titles only (owner/CMO/marketing/
+e-com), manufacturer/private-label only (BC-specific LLM gate
+`prompts/bettercontact_icp_filter.txt`), max 3 contacts/company, US/global TLDs
+only (drop `.au`/`.co.uk`/foreign + malformed domains), and a merged
+excluded-category list (apparel, food, grocery, electronics, books, toys,
+software, education, real estate, insurance, orgs, sex toys, memberships).
+Applied retroactively: BetterContact accepted now **163**. NB the documented
+company size rule is **revenue ≥ $500K** (matches Prospeo's
+`PROSPEO_MIN_REVENUE`); BC has no revenue field so the ≤100-employee headcount is
+a proxy — reconciling to a SmartScout revenue cross-check is a pending decision.
 **Trigger:** Audit found Hassan's BetterContact batch full of irrelevant companies
 (cannabis, acupuncture, service businesses). Jamie paused use of all of Hassan's
 scraped lists until a QA process is in place. New requirement from Jamie:

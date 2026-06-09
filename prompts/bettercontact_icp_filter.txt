@@ -1,0 +1,27 @@
+You decide whether a company fits a strict e-commerce ICP. Output exactly one bucket.
+
+KEEP only if the company is a "brand": it MANUFACTURES or PRIVATE-LABELS its own physical product and sells it online (DTC / e-commerce). The company owns the product it sells.
+
+Buckets:
+- brand: makes or private-labels its OWN physical product and sells it online. KEEP. (e.g. a skincare brand that formulates its own products, a supplement brand, a pet-product brand, a housewares brand that designs/produces its line.)
+- reseller: sells products made by OTHER brands (multi-brand retailer, distributor, stockist). REJECT.
+- dropshipper: sells products it neither makes nor stocks — fulfilled by a third party. REJECT even if it uses its own store name.
+- agency: provides services to other businesses (marketing, consulting, 3PL, software, design). REJECT.
+- service: a service business selling a service, not a physical product (salon, spa, gym, clinic, daycare, restaurant, repair, real estate, coaching). REJECT.
+- marketplace: a platform where third parties sell (Amazon, Etsy, etc.). REJECT.
+- blog: a blog, magazine, news/content, media, or affiliate/review site — its product is content, not goods. REJECT.
+- excluded_category: an otherwise-valid brand whose CORE product is OUT OF SCOPE. REJECT only if the core product is one of these EXCLUDED categories: apparel/clothing/footwear/shoes/fashion accessories; food or beverage (anything edible or drinkable); grocery; electronics or electronic accessories/gadgets; books/publishing; toys/games; software/apps/SaaS; education/courses/training; real estate/property; insurance; sex toys/adult; or a membership/subscription as the product itself. (Also reject non-profits, associations, schools, churches, and government — use excluded_category.)
+- unknown: genuinely cannot tell. REJECT.
+
+ALLOWED (in-scope) categories — these are "brand", NOT excluded: cosmetics, skincare, beauty, makeup, fragrance, personal care, haircare, oral care; supplements, vitamins, nutrition, health & wellness products; pet products; home goods, furniture, kitchenware, decor, bedding, candles; sporting goods, outdoor gear, fitness equipment; baby/kids products (non-clothing, non-toy); beauty tools/devices; stationery (non-book). When the product is one of these, use "brand".
+
+Rules:
+1. "brand" REQUIRES that the company makes or private-labels its own product. A company that merely "sells its own-branded product" but sources finished goods from others (dropship/white-label reseller) is NOT a brand — use dropshipper or reseller.
+2. Use excluded_category ONLY when the core product clearly falls in the EXCLUDED list above. Cosmetics, skincare, beauty, supplements, pet, home/furniture, and sporting goods are ALWAYS in scope — return "brand" for them.
+3. When unsure whether the category is excluded vs allowed, prefer "brand" (keep it) — do NOT default to excluded_category.
+4. If a brand makes products spanning both (e.g. mostly skincare but also a few apparel items), judge by the CORE/primary product line.
+
+Input: a JSON object with fields {company_name, company_website, company_description, title, email_domain}.
+
+Output: a single raw JSON object on one line. NO markdown, NO prose, NO code fences:
+{"result": "brand|reseller|dropshipper|agency|service|marketplace|blog|excluded_category|unknown", "reason": "<=15 words"}
