@@ -129,6 +129,17 @@ def load_population(conn, where: str, group: str, limit: int | None) -> list[dic
 # Stage 1a — SmartScout / Amazon brand confirm
 # ---------------------------------------------------------------------------
 
+# Company names built from retailer vocabulary collide with same-named Amazon
+# brands ("Epic Sports" the retailer vs "Epic Sports" the brand; "Archery
+# Country" vs "Country Archer"). A name match alone can't prove the company
+# OWNS the brand, so these never auto-pass — they fall through to Stage 2.
+RETAILER_NAME_WORDS = {
+    "sports", "country", "outlet", "warehouse", "depot", "store", "shop",
+    "shoppe", "mart", "emporium", "supply", "supplies", "gear", "equipment",
+    "wholesale", "distributing", "distributors", "trading", "imports",
+}
+
+
 def smartscout_confirm(conn, items: list[dict]) -> None:
     with conn.cursor() as cur:
         cur.execute("select brand_norm from smartscout_brands")
@@ -136,6 +147,8 @@ def smartscout_confirm(conn, items: list[dict]) -> None:
                        if r[0] and len(r[0]) >= MIN_BRAND_LEN]
     print(f"Stage 1a: matching against {len(brand_norms):,} SmartScout brands...")
     for it in items:
+        if "verdict" in it:        # Shopify probe already decided (runs first)
+            continue
         norm = normalize_brand(it["company"] or "")
         if not norm or len(norm) < MIN_BRAND_LEN:
             continue
@@ -149,6 +162,19 @@ def smartscout_confirm(conn, items: list[dict]) -> None:
             continue
         matched, score, _ = result
         if len(matched) / max(len(norm), 1) < MIN_LEN_RATIO:
+            continue
+        # Guard 1: retailer-vocabulary names never auto-pass on a name match.
+        tokens = set(re.findall(r"[a-z]+", (it["company"] or "").lower()))
+        if tokens & RETAILER_NAME_WORDS:
+            it["ss_note"] = (f"name-matched '{matched}' ({score:.0f}) but "
+                             f"retailer-word name -> not auto-passed")
+            continue
+        # Guard 2: the DOMAIN must correspond to the matched brand, so a
+        # brand named 'Ayla' can't vouch for aylabeauty.com the retailer.
+        dom_norm = normalize_brand(it["domain"].split(".")[0])
+        if fuzz.token_sort_ratio(dom_norm, matched) < 85 and dom_norm != norm:
+            it["ss_note"] = (f"name-matched '{matched}' ({score:.0f}) but "
+                             f"domain '{dom_norm}' doesn't corroborate")
             continue
         it["verdict"] = "brand"
         it["method"] = "smartscout"
@@ -164,6 +190,7 @@ def _real_vendors(vendors: Counter, company: str, domain: str) -> list[tuple[str
     """Drop app-noise vendors and same-brand variants; return real ones."""
     comp_norm = normalize_brand(company or "")
     dom_norm = normalize_brand(domain.split(".")[0])
+    comp_raw = (company or "").lower()
     real = []
     for v, n in vendors.items():
         vn = normalize_brand(v or "")
@@ -172,6 +199,11 @@ def _real_vendors(vendors: Counter, company: str, domain: str) -> list[tuple[str
         if comp_norm and fuzz.token_set_ratio(vn, comp_norm) >= 80:
             continue
         if dom_norm and fuzz.token_set_ratio(vn, dom_norm) >= 80:
+            continue
+        # Raw-name token comparison merges sub-labels the concatenated norms
+        # miss ("Cliff Keen Wrestling" vendor on the Cliff Keen Athletic site:
+        # normalized forms differ, but the raw token sets overlap).
+        if comp_raw and fuzz.token_set_ratio((v or "").lower(), comp_raw) >= 85:
             continue
         real.append((v, n))
     return sorted(real, key=lambda t: -t[1])
@@ -204,20 +236,32 @@ def shopify_probe_one(it: dict) -> None:
     vendors.pop("", None)
     real = _real_vendors(vendors, it["company"], dom)
     it["vendor_count"] = len(real)
+    # Share rule: distinct-vendor count alone misfires on brands with an
+    # accessory side-shelf (an e-bike brand stocking 5 helmet/bag vendors).
+    # What defines a reseller is third-party products being the PRIMARY
+    # structure of the catalog, so the verdict keys on their product share.
+    third_party_products = sum(n for _, n in real)
+    share = third_party_products / max(len(products), 1)
     top = ", ".join(f"{v}({n})" for v, n in real[:10])
+    detail = (f"Shopify catalog: {len(products)} products, {len(real)} "
+              f"third-party vendor(s), {share:.0%} third-party share. {top}")
     if len(real) <= 1:
         it["verdict"] = "brand"
         it["method"] = "shopify_probe"
         it["confidence"] = "high"
-        it["evidence"] = (f"Shopify catalog: {len(products)} products, "
-                          f"{len(real)} third-party vendor(s). {top}")
-    elif len(real) >= 4:
+        it["evidence"] = detail
+    elif len(real) >= 4 and share >= 0.5:
         it["verdict"] = "reseller"
         it["method"] = "shopify_probe"
         it["confidence"] = "high"
-        it["evidence"] = (f"Shopify catalog: {len(real)} distinct third-party "
-                          f"vendors: {top}")
-    # 2-3 vendors: leave undecided; vendor_count feeds Stage 2.
+        it["evidence"] = detail
+    elif len(real) >= 2 and share < 0.3:
+        it["verdict"] = "brand"
+        it["method"] = "shopify_probe"
+        it["confidence"] = "high"
+        it["evidence"] = "accessory side-shelf, own brand dominates. " + detail
+    # else: 30-50% share or 2-3 vendors at scale — genuinely mixed; leave
+    # undecided so Stage 2 judges with vendor_count as a feature.
 
 
 # ---------------------------------------------------------------------------
@@ -336,14 +380,14 @@ def write_xlsx(items: list[dict], path: Path) -> None:
     ws.title = "verdicts"
     cols = ["group", "domain", "company", "n_leads", "verdict", "method",
             "confidence", "evidence", "vendor_count", "shopify_status",
-            "fetch_status", "gate_reason", "description"]
+            "fetch_status", "ss_note", "gate_reason", "description"]
     ws.append(cols)
     for it in sorted(items, key=lambda r: (r["group"],
                                            r.get("verdict") or "zz",
                                            r["domain"])):
         ws.append([str(it.get(c, "") or "")[:1000] if c != "n_leads"
                    else it.get(c, 0) for c in cols])
-    for i, w in enumerate([12, 28, 28, 8, 10, 14, 10, 80, 12, 14, 16, 30, 60], 1):
+    for i, w in enumerate([12, 28, 28, 8, 10, 14, 10, 80, 12, 14, 16, 40, 30, 60], 1):
         ws.column_dimensions[chr(64 + i)].width = w
     wb.save(path)
 
@@ -393,20 +437,20 @@ def main() -> None:
     items = accepted + known
     print(f"populations: accepted={len(accepted)} known_reseller={len(known)}")
 
-    # Stage 1a — SmartScout confirm (only meaningful as PASS; run on both
-    # groups so we also measure whether it would wrongly pass a reseller).
+    # Stage 1b first — the probe's structural evidence (a multi-vendor
+    # catalog) must not be overridable by a SmartScout name collision.
+    print(f"Stage 1b: probing {len(items)} domains for Shopify catalogs...")
+    with ThreadPoolExecutor(FETCH_WORKERS) as ex:
+        list(ex.map(shopify_probe_one, items))
+    n = sum(1 for it in items if it.get("method") == "shopify_probe")
+    print(f"Stage 1b resolved: {n}")
+
+    # Stage 1a — SmartScout confirm on the rest (only meaningful as PASS;
+    # run on both groups so we also measure wrongly-passed resellers).
     smartscout_confirm(conn, items)
     conn.close()
     n = sum(1 for it in items if it.get("method") == "smartscout")
     print(f"Stage 1a resolved: {n}")
-
-    # Stage 1b — Shopify probe on everything unresolved.
-    todo = [it for it in items if "verdict" not in it]
-    print(f"Stage 1b: probing {len(todo)} domains for Shopify catalogs...")
-    with ThreadPoolExecutor(FETCH_WORKERS) as ex:
-        list(ex.map(shopify_probe_one, todo))
-    n = sum(1 for it in items if it.get("method") == "shopify_probe")
-    print(f"Stage 1b resolved: {n}")
 
     # Stage 2 — homepage fetch + extract + LLM.
     todo = [it for it in items if "verdict" not in it]
