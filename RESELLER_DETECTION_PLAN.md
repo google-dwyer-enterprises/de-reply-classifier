@@ -310,3 +310,14 @@ on every disagreement.
   rate ≈ **6%, not 36-46%** — so Stage 2 coverage is near-complete and
   Stage 3 stays small. Production fetcher: low concurrency, pacing delay,
   retry-on-429 with backoff.
+- **Vendor-arbitration reseller labels are provisional (2026-06-10 retro
+  run finding).** Vendor names can be the company's own sub-brands or
+  category labels (Vetnique's Glandex, Montana Knife Company's category
+  names) — name-reading alone miscalled 4 of 9 flags. Fix (built into
+  `brand_verify.py`): a provisional reseller flag triggers a
+  **vendor-ownership web search** (`prompts/brand_verify_vendor_ownership.txt`,
+  method `vendor_llm+search`) that checks who owns the share-heavy vendor
+  names; undecidable resolves to `unknown` (review), never a pass. Re-run
+  over the 558: 4/9 flags flipped to brand, 5 confirmed reseller, 0 unknown.
+  Also hardened the verdict-JSON parser (regex field fallback — Haiku
+  occasionally emits an unescaped quote inside `evidence_quote`).

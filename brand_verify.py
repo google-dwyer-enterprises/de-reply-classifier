@@ -51,6 +51,7 @@ MODEL = "claude-haiku-4-5"
 ARBITRATE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_vendor_arbitrate.txt"
 SITE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify.txt"
 AGENTIC_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_agentic.txt"
+OWNERSHIP_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_vendor_ownership.txt"
 
 # Anthropic server-side web search tool (Stage 3). ~$10 per 1,000 searches,
 # billed on the same API key the worker already uses — no extra credential.
@@ -249,7 +250,15 @@ def _llm_client():
 
 
 def _arbitrate_flags(flags: list[dict], on_log) -> None:
-    """One Haiku call per probe-flagged domain, judging the vendor list."""
+    """One Haiku call per probe-flagged domain, judging the vendor list.
+
+    A 'brand' label is final (the false-flag causes — OEM factory names,
+    internal codes — are recognizable from the names alone). A 'reseller'
+    label is PROVISIONAL: vendor names can also be the company's own
+    sub-brands or category labels (Vetnique's Glandex, MKC's category names —
+    found in the 2026-06-10 retro run), which only an ownership lookup can
+    settle. Provisional flags go to _confirm_reseller_flags.
+    """
     if not flags:
         return
     client = _llm_client()
@@ -258,26 +267,88 @@ def _arbitrate_flags(flags: list[dict], on_log) -> None:
         payload = {"company_name": entry["company"],
                    "domain": entry["domain"],
                    "catalog": entry["flag"]}
+        out = None
         try:
             resp = client.messages.create(
                 model=MODEL, max_tokens=200, temperature=0, system=system,
                 messages=[{"role": "user", "content": json.dumps(payload)}],
             )
-            text = resp.content[0].text.strip()
-            text = re.sub(r"^```(json)?|```$", "", text, flags=re.MULTILINE).strip()
-            out = json.loads(text)
-            label = out.get("label")
-            assert label in ("brand", "reseller", "unknown")
+            out = _parse_verdict_json(resp.content[0].text)
         except Exception as e:
             on_log(f"    brand_verify: arbitration failed for "
                    f"{entry['domain']}: {e}")
-            label, out = "unknown", {"confidence": "low",
-                                     "reason": f"arbitration error: {e}"}
-        entry.update(
-            verdict=label, method="vendor_llm",
-            confidence=out.get("confidence", "low"),
-            evidence=f"{out.get('reason', '')} | {entry['flag']}"[:2000],
-        )
+        if not out:
+            out = {"label": "unknown", "confidence": "low",
+                   "reason": "arbitration unparseable"}
+        label = out["label"]
+        reason = out.get("reason") or out.get("evidence_quote") or ""
+        if label == "reseller":
+            entry["reseller_claim"] = f"{reason} | {entry['flag']}"[:2000]
+        else:
+            entry.update(
+                verdict=label, method="vendor_llm",
+                confidence=out.get("confidence", "low"),
+                evidence=f"{reason} | {entry['flag']}"[:2000],
+            )
+
+
+def _confirm_reseller_flags(entries: list[dict], on_log) -> None:
+    """Web-search ownership check on provisional reseller flags.
+
+    Asks specifically whether the catalog's major vendor names are
+    independent third-party brands or the company's own sub-brands/labels.
+    Whatever the outcome, the domain is RESOLVED here — undecidable means
+    'unknown' (human review), never a pass into later stages where a name
+    match or marketing copy could override structural evidence.
+    """
+    if not entries:
+        return
+    on_log(f"    brand_verify: confirming {len(entries)} reseller flag(s) "
+           f"via vendor-ownership search")
+    client = _llm_client()
+    system = OWNERSHIP_PROMPT.read_text(encoding="utf-8")
+    for entry in entries:
+        payload = {"company_name": entry["company"],
+                   "domain": entry["domain"],
+                   "catalog_and_arbitration": entry["reseller_claim"]}
+        messages = [{"role": "user",
+                     "content": json.dumps(payload, ensure_ascii=False)}]
+        out = None
+        try:
+            for _ in range(2):
+                resp = client.messages.create(
+                    model=MODEL, max_tokens=800, temperature=0,
+                    system=system, tools=[WEB_SEARCH_TOOL], messages=messages,
+                )
+                if resp.stop_reason == "pause_turn":
+                    messages = messages[:1] + [
+                        {"role": "assistant", "content": resp.content}]
+                    continue
+                break
+            for b in reversed(resp.content):
+                if b.type == "text" and b.text.strip():
+                    out = _parse_verdict_json(b.text)
+                    break
+        except Exception as e:
+            on_log(f"    brand_verify: ownership check failed for "
+                   f"{entry['domain']}: {e}")
+        if not out:
+            out = {"label": "unknown", "confidence": "low",
+                   "evidence_quote": "ownership check failed"}
+        label, conf = out["label"], out.get("confidence", "low")
+        evidence = (f"vendor-ownership search: {out.get('evidence_quote', '')} "
+                    f"| {entry['reseller_claim']}")[:2000]
+        if label == "reseller" and conf in ("high", "medium"):
+            entry.update(verdict="reseller", method="vendor_llm+search",
+                         confidence=conf, evidence=evidence)
+        elif label == "brand" and conf in ("high", "medium"):
+            entry.update(verdict="brand", method="vendor_llm+search",
+                         confidence=conf, evidence=evidence)
+        else:
+            entry.update(verdict="unknown", method="vendor_llm+search",
+                         confidence="low",
+                         evidence=("conflicting: multi-vendor catalog but "
+                                   "ownership unclear — review. " + evidence)[:2000])
 
 
 # ---------------------------------------------------------------------------
@@ -371,11 +442,9 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
                 messages=[{"role": "user",
                            "content": json.dumps(payload, ensure_ascii=False)}],
             )
-            text = resp.content[0].text.strip()
-            text = re.sub(r"^```(json)?|```$", "", text, flags=re.MULTILINE).strip()
-            out = json.loads(text)
-            label = out.get("label")
-            assert label in ("brand", "reseller", "unknown")
+            out = _parse_verdict_json(resp.content[0].text)
+            assert out, "unparseable verdict"
+            label = out["label"]
         except Exception as e:
             on_log(f"    brand_verify: site-LLM failed for {entry['domain']}: {e}")
             continue
@@ -400,6 +469,13 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
 # ---------------------------------------------------------------------------
 
 def _parse_verdict_json(text: str) -> dict | None:
+    """Parse a verdict JSON object, with a regex fallback.
+
+    Haiku occasionally emits an unescaped quote inside evidence_quote, which
+    breaks strict JSON parsing (8/54 calls in the 2026-06-10 retro run). The
+    enum-valued fields are still trivially extractable, so fall back to
+    field-level regex rather than dropping the verdict.
+    """
     text = re.sub(r"^```(json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         out = json.loads(text)
@@ -407,7 +483,18 @@ def _parse_verdict_json(text: str) -> dict | None:
             return out
     except (json.JSONDecodeError, AttributeError):
         pass
-    return None
+    label = re.search(r'"label"\s*:\s*"(brand|reseller|unknown)"', text)
+    if not label:
+        return None
+    conf = re.search(r'"confidence"\s*:\s*"(high|medium|low)"', text)
+    ev = re.search(
+        r'"(?:evidence_quote|reason)"\s*:\s*"(.*?)"\s*,?\s*[\r\n]', text, re.S)
+    sig = re.search(r'"primary_signal"\s*:\s*"([a-z_]+)"', text)
+    return {"label": label.group(1),
+            "confidence": conf.group(1) if conf else "low",
+            "evidence_quote": ev.group(1)[:1000] if ev else "",
+            "reason": ev.group(1)[:1000] if ev else "",
+            "primary_signal": sig.group(1) if sig else "?"}
 
 
 def _agentic_verdicts(entries: list[dict], on_log) -> None:
@@ -558,6 +645,11 @@ def verify_domains(conn, leads: list[dict], on_log=print) -> dict[str, dict]:
         list(ex.map(_shopify_probe, fresh))
     _arbitrate_flags([e for e in fresh if "flag" in e and "verdict" not in e],
                      on_log)
+    # Provisional reseller flags get a vendor-ownership search; resolved
+    # fully here (reseller / brand / unknown) — they skip the later stages.
+    _confirm_reseller_flags(
+        [e for e in fresh if "reseller_claim" in e and "verdict" not in e],
+        on_log)
 
     # Stage 1a — SmartScout confirm on the remainder.
     _smartscout_confirm(conn, fresh)
