@@ -98,7 +98,7 @@
 <header>
   <h1>Reseller Detection</h1>
   <div class="tag">Implementation plan — keeping reseller websites out of the lead batches<br>
-  Branch <code>feat/reseller-detection</code> · Status: <strong>Phases&nbsp;0–2 done · Phase&nbsp;3 (web-research fallback + review routing) next</strong> · 2026-06-10</div>
+  Branch <code>feat/reseller-detection</code> · Status: <strong>Phases&nbsp;0–3 done — full funnel built · first production batch = acceptance run</strong> · 2026-06-10</div>
 </header>
 
 <h2><span class="num">1</span>The problem (Victor's loom, June 10)</h2>
@@ -203,9 +203,9 @@ human time are spent only where genuinely needed.</p>
   <tr><td><strong>2 — Site read + AI</strong> <span class="pill free">DONE</span></td>
       <td>Homepage fetch (polite pacing), signal extraction, the Haiku verdict call. Rejection requires <em>high</em> AI confidence; uncertain stays flagged-but-kept</td>
       <td>The bulk of coverage; first production batch validates end-to-end on Railway</td></tr>
-  <tr><td><strong>3 — Web research + routing</strong></td>
-      <td>Search-based fallback; ambiguous leads surface in the reviewer with evidence</td>
-      <td>Unreachable-website companies get verdicts too</td></tr>
+  <tr><td><strong>3 — Web research + routing</strong> <span class="pill free">DONE</span></td>
+      <td>Search-based fallback (built-in Anthropic web search, same account); the batch review page now shows a "Brand check" column with the evidence on hover — "? check site" marks the few leads automation couldn't decide</td>
+      <td>Bot-blocked and unreachable websites get verdicts too — verified on a 403-blocked retailer</td></tr>
   <tr><td><strong>4 — Tune</strong></td>
       <td>Per-batch stats: verdicts by stage, cost, unknown-rate</td>
       <td>Adjust thresholds with data; revisit a browser fallback only if needed</td></tr>

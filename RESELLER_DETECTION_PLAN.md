@@ -1,10 +1,11 @@
 # Reseller Detection — Implementation Plan
 
-**Status:** Phases 0–2 DONE (2026-06-10). Phase 0 measured GO (see §10);
-Phase 1 (free layer) and Phase 2 (site fetch + LLM) are built, smoke-verified
-and wired into `bettercontact_sync.py` on this branch. Next: Phase 3
-(web-search fallback for unreachable sites + unknown-flag surfacing in the
-lead reviewer).
+**Status:** Phases 0–3 DONE (2026-06-10). Phase 0 measured GO (see §10);
+Phases 1–3 (free layer, site fetch + LLM, web-search fallback + reviewer
+surfacing) are built, smoke-verified and wired into `bettercontact_sync.py`
+on this branch. Remaining: Phase 4 (per-batch stats + threshold tuning on
+live batches) and the first production batch as the end-to-end acceptance
+run.
 
 **Trigger:** Victor's loom review (2026-06-10) — reseller websites are slipping
 into the accepted batches. Example: a shop selling Snap Circuits where the
@@ -195,10 +196,16 @@ brand list quoted), bdiusa.com + stryd.com → brand/high, epicsports.com
 full scrape batch end-to-end on Railway — happens with the first production
 batch after merge.
 
-### Phase 3 — Agentic escalation + review routing — ~1 session
-`_agentic_verdict` + `unknown`-flag surfacing in the reviewer UI (evidence
-column on the batch page). Acceptance: fetch-failed domains get verdicts via
-search; unknowns appear with evidence attached.
+### Phase 3 — Agentic escalation + review routing — DONE (2026-06-10)
+`_agentic_verdicts` in `brand_verify.py`: one Anthropic `web_search` server
+tool call per domain Stage 2 couldn't judge (`web_search_20250305`,
+`max_uses=2`, same SDK/key as everything else; handles `pause_turn`). Judges
+the company from its web footprint (LinkedIn, Amazon, press) so it works for
+bot-blocked sites. Same asymmetric confidence gate. Reviewer UI: batch page
+gains a "Brand check" column (verdict badge + evidence in the tooltip;
+`unknown` renders as "? check site" so Jam knows to eyeball it).
+Smoke-verified: epicsports.com (403-blocked, the Phase 0 residual risk) →
+reseller/high via search.
 
 ### Phase 4 — Measure and tune — ongoing
 Per-batch log line: domains by stage, verdicts by method, $ spent, unknown-%.

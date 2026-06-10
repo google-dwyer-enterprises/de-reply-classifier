@@ -50,6 +50,12 @@ PROMPT_VERSION = "bv1"
 MODEL = "claude-haiku-4-5"
 ARBITRATE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_vendor_arbitrate.txt"
 SITE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify.txt"
+AGENTIC_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_agentic.txt"
+
+# Anthropic server-side web search tool (Stage 3). ~$10 per 1,000 searches,
+# billed on the same API key the worker already uses — no extra credential.
+WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search",
+                   "max_uses": 2}
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -390,6 +396,87 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Stage 3 — web-search fallback (site unreadable or site-LLM unsure)
+# ---------------------------------------------------------------------------
+
+def _parse_verdict_json(text: str) -> dict | None:
+    text = re.sub(r"^```(json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    try:
+        out = json.loads(text)
+        if out.get("label") in ("brand", "reseller", "unknown"):
+            return out
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    return None
+
+
+def _agentic_verdicts(entries: list[dict], on_log) -> None:
+    """One web-search + verdict call per domain whose site couldn't be judged.
+
+    Judges the company from AROUND its website (LinkedIn, Amazon, press), so
+    it works for unreachable/bot-blocked sites. Same asymmetric confidence
+    gating as Stage 2.
+    """
+    if not entries:
+        return
+    client = _llm_client()
+    system = AGENTIC_PROMPT.read_text(encoding="utf-8")
+    for entry in entries:
+        payload = {
+            "company_name": entry["company"],
+            "domain": entry["domain"],
+            "third_party_description": (entry.get("description") or "")[:800],
+            "why_escalated": entry.get("site_llm_note")
+                or f"site fetch failed: {entry.get('fetch_status', '-')}",
+        }
+        messages = [{"role": "user",
+                     "content": json.dumps(payload, ensure_ascii=False)}]
+        out = None
+        try:
+            # The server runs the search loop; pause_turn means it wants to
+            # be re-invoked to continue. One continuation is plenty for a
+            # max_uses=2 search budget.
+            for _ in range(2):
+                resp = client.messages.create(
+                    model=MODEL, max_tokens=800, temperature=0,
+                    system=system, tools=[WEB_SEARCH_TOOL], messages=messages,
+                )
+                if resp.stop_reason == "pause_turn":
+                    messages = messages[:1] + [
+                        {"role": "assistant", "content": resp.content}]
+                    continue
+                break
+            text = next((b.text for b in resp.content
+                         if b.type == "text" and b.text.strip()), "")
+            # The verdict JSON is in the LAST text block (text blocks before
+            # tool use are narration).
+            for b in reversed(resp.content):
+                if b.type == "text" and b.text.strip():
+                    text = b.text
+                    break
+            out = _parse_verdict_json(text)
+        except Exception as e:
+            on_log(f"    brand_verify: agentic failed for {entry['domain']}: {e}")
+        if not out:
+            entry.setdefault(
+                "site_llm_note",
+                f"agentic: no parseable verdict")
+            continue
+        conf = out.get("confidence", "low")
+        evidence = (f"[{out.get('primary_signal', '?')}] "
+                    f"{out.get('evidence_quote', '')}")[:2000]
+        label = out["label"]
+        if label == "reseller" and conf == "high":
+            entry.update(verdict="reseller", method="agentic",
+                         confidence=conf, evidence=evidence)
+        elif label == "brand" and conf in ("high", "medium"):
+            entry.update(verdict="brand", method="agentic",
+                         confidence=conf, evidence=evidence)
+        else:
+            entry["site_llm_note"] = f"agentic {label}/{conf}: {evidence[:300]}"
+
+
+# ---------------------------------------------------------------------------
 # Stage 1a — SmartScout / Amazon confirm
 # ---------------------------------------------------------------------------
 
@@ -487,14 +574,22 @@ def verify_domains(conn, leads: list[dict], on_log=print) -> dict[str, dict]:
                f"homepages fetched, judging via {MODEL}")
         _site_llm_verdicts(judgeable, on_log)
 
-    # Unresolved -> unknown (Stage 3 in Phase 3; never auto-rejected).
+    # Stage 3 — web-search fallback for what Stage 2 couldn't judge
+    # (fetch-failed sites and low-confidence verdicts).
+    todo = [e for e in fresh if "verdict" not in e]
+    if todo:
+        on_log(f"    brand_verify: stage 3 — web-search fallback for "
+               f"{len(todo)} domain(s)")
+        _agentic_verdicts(todo, on_log)
+
+    # Still unresolved -> unknown; passes through flagged, never auto-rejected.
     for e in fresh:
         if "verdict" not in e:
             note = e.get("site_llm_note") or (
                 f"fetch: {e.get('fetch_status', '-')}, "
                 f"probe: {e.get('probe_status', '-')}")
             e.update(verdict="unknown", method="none", confidence=None,
-                     evidence=f"unresolved (stages 0-2): {note}"[:1000])
+                     evidence=f"unresolved (stages 0-3): {note}"[:1000])
 
     _cache_write(conn, entries)
     counts = Counter(e["verdict"] for e in entries.values())

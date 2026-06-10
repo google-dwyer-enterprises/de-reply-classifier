@@ -162,7 +162,9 @@ def fetch_leads_for_batch(scrape_request_id: int) -> list[dict]:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 select id, email, first_name, last_name, title, company_name,
-                       source_industry, lead_approval, lead_moved_at, rejected
+                       source_industry, lead_approval, lead_moved_at, rejected,
+                       brand_verify_result, brand_verify_method,
+                       brand_verify_evidence
                   from prospeo_new_leads
                  where scrape_request_id = %s
                  order by id
