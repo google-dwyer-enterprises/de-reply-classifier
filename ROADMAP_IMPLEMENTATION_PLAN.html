@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Roadmap Implementation Plan — Automating the Six Gap-Fixes</title>
+<style>
+  :root {
+    --fg: #1a1d23;
+    --muted: #5e6470;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e1e4e8;
+    --accent: #0550ae;
+    --accent-soft: #ddeefc;
+    --green: #1a7f37;
+    --green-soft: #ddf4e3;
+    --amber: #9a6700;
+    --amber-soft: #fff4cc;
+    --red: #cf222e;
+    --red-soft: #ffeef0;
+    --pill-bg: #f0f4f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    max-width: 1020px;
+    margin: 0 auto;
+    padding: 32px 28px 80px;
+  }
+  header {
+    text-align: center;
+    padding: 24px 0 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  header h1 { font-size: 2.1em; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+  header .tag { color: var(--muted); font-size: 1.05em; }
+  h2 { font-size: 1.5em; font-weight: 700; margin: 48px 0 16px; letter-spacing: -0.01em; }
+  h2 .num {
+    display: inline-block; width: 36px; height: 36px;
+    background: var(--accent); color: white; border-radius: 50%;
+    text-align: center; line-height: 36px; font-size: 0.8em;
+    margin-right: 10px; vertical-align: middle;
+  }
+  h3 { font-size: 1.15em; margin: 26px 0 10px; font-weight: 600; }
+  p { margin: 0.6em 0; }
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--pill-bg);
+    padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.95em; }
+  th, td { padding: 9px 11px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--pill-bg); font-weight: 600; font-size: 0.9em; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .callout { border-radius: 10px; padding: 18px 22px; margin: 16px 0; }
+  .callout.insight { background: #fff8c5; border-left: 4px solid #d4a72c; }
+  .callout.note    { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.caution { background: var(--red-soft); border-left: 4px solid var(--red); }
+  .callout.good    { background: var(--green-soft); border-left: 4px solid var(--green); }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 0.78em; font-weight: 600; vertical-align: middle; white-space: nowrap;
+  }
+  .pill.green { background: var(--green-soft); color: var(--green); }
+  .pill.red   { background: var(--red-soft); color: var(--red); }
+  .pill.amber { background: var(--amber-soft); color: var(--amber); }
+  .pill.blue  { background: var(--accent-soft); color: var(--accent); }
+  .item {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px 24px; margin: 18px 0;
+  }
+  .item h3 { margin: 0 0 4px; }
+  .item .sub { color: var(--muted); font-size: 0.92em; margin-bottom: 10px; }
+  .item ol, .item ul { margin: 8px 0; padding-left: 22px; }
+  .item li { margin: 5px 0; }
+  .meta { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; }
+  .gate {
+    background: var(--pill-bg); border-radius: 8px; padding: 10px 14px;
+    margin-top: 12px; font-size: 0.92em;
+  }
+  .gate strong { color: var(--accent); }
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Roadmap Implementation Plan</h1>
+  <div class="tag">How each of the six quality gap-fixes gets built into the fully-automated pipeline —<br>
+  feasibility, approach, cost, and the test each must pass before going live · June 10, 2026</div>
+</header>
+
+<h2><span class="num">1</span>Are these doable with zero manual effort? Yes — all six</h2>
+<p>The pipeline runs unattended on the deployed worker (scrape → filters → website verification → review
+queue). Every fix below runs inside that loop with no human step. Two honest distinctions up front:</p>
+<ul>
+  <li><strong>Items 1–4 are extensions of code that already runs on every batch</strong> — most reuse
+  website fetches and AI calls the pipeline already pays for.</li>
+  <li><strong>Item 5 is the one real build</strong>: today's 312-website audit was a one-off supervised
+  run, not pipeline code. Making it a scheduled, unattended job means porting it — fully doable since
+  every building block already exists, but it's genuine work, not a switch to flip.</li>
+  <li><strong>Item 6 needs no new human behavior at all</strong> — it harvests the approve/reject clicks
+  the reviewer already makes as its training labels.</li>
+</ul>
+
+<table>
+  <tr><th>#</th><th>Enhancement</th><th>Fully automatable?</th><th>Effort</th><th class="num">New monthly cost</th></tr>
+  <tr><td>1</td><td>US/Canada gate</td><td><span class="pill green">Yes</span> deterministic + existing AI stages</td><td>Small</td><td class="num">~$0–5</td></tr>
+  <tr><td>2</td><td>Ownership &amp; true-size check</td><td><span class="pill green">Yes</span> one web search per new company</td><td>Small–medium</td><td class="num">~$60–100</td></tr>
+  <tr><td>3</td><td>MLM detector</td><td><span class="pill green">Yes</span> rules + existing site read</td><td>Small</td><td class="num">~$0</td></tr>
+  <tr><td>4</td><td>Widened site check</td><td><span class="pill green">Yes</span> same AI call, more questions</td><td>Small</td><td class="num">~$0–20</td></tr>
+  <tr><td>5</td><td>Scheduled full-pool audit</td><td><span class="pill amber">Yes, needs porting</span></td><td>Medium</td><td class="num">~$30–200/run</td></tr>
+  <tr><td>6</td><td>Learn from review decisions</td><td><span class="pill green">Yes</span> labels already exist</td><td>Medium</td><td class="num">~$0</td></tr>
+</table>
+
+<div class="callout note">
+<strong>The one rule that governs every new gate:</strong> uncertain never auto-rejects. Each check resolves
+to <em>accept</em>, <em>reject with quoted evidence</em>, or <em>unknown → review queue</em>. A wrongly
+rejected lead is scraping money burned (~$0.40/lead), so rejection always requires hard evidence or high
+confidence — the same asymmetric principle the reseller layers were measured on.
+</div>
+
+<h2><span class="num">2</span>The six fixes — how each one works</h2>
+
+<div class="item">
+  <h3>1 — US/Canada gate</h3>
+  <div class="sub">Closes: 12 foreign-HQ leads (Ksubi/AU, Manukora/NZ, Wild/UK, BAGJUMP/Austria…)</div>
+  <p><strong>Why it's automatable:</strong> three independent signals already exist, no judgment needed —
+  and the audit proved each works:</p>
+  <ol>
+    <li><strong>Scraped country fields</strong> — already stored with every lead. Caveat the audit exposed:
+    occasionally <em>wrong</em> (one company said "Germany", is actually NZ) — so a signal, not a verdict.</li>
+    <li><strong>The homepage the system already fetches</strong> — currency symbols (£, €, AUD), footer
+    addresses, .com.au/.co.uk links. Zero extra cost; the page is already in hand.</li>
+    <li><strong>The web search the system already runs for hard cases</strong> — "where is X headquartered"
+    is exactly what it surfaces.</li>
+  </ol>
+  <p><strong>Build:</strong> a deterministic pre-check at scrape time (all country fields agree on foreign →
+  reject with evidence), geo-signals added to the existing site read, and an HQ-country answer added to the
+  AI's output. Foreign + high confidence → reject; foreign + unsure → flagged "possibly foreign" for review.</p>
+  <div class="meta"><span class="pill blue">Effort: small</span><span class="pill green">Cost: ~$0–5/mo</span></div>
+  <div class="gate"><strong>Go-live test:</strong> must flag ≥10 of the 12 known foreign leads and 0 of the 478 verified passes.</div>
+</div>
+
+<div class="item">
+  <h3>2 — Ownership &amp; true-size check</h3>
+  <div class="sub">Closes: 14 corporate-owned/oversized leads (Briogeo→Wella, PrettyLitter→Mars, Pura Vida ~1,000 employees)</div>
+  <p><strong>Why it's automatable:</strong> the audit found every one of these with a single web search
+  ("&lt;company&gt; acquired parent company employees"). The pipeline already makes identical search calls
+  for reseller confirmation — this is one more question of the same shape. Scraped size data demonstrably
+  lies (Pura Vida was listed as small), so the search is the only reliable source.</p>
+  <p><strong>Build:</strong> one search per <em>new</em> company (results cached forever — a company is
+  never re-paid for), returning parent company, independence, and a size estimate with evidence.
+  Verdict policy: enterprise-size + high confidence → reject; subsidiary of a major parent → <strong>review
+  queue by default</strong>, because "acquired but operating independently" (Back to Nature/Barilla) is a
+  judgment call — <em>this is the one item needing a single policy decision from Victor, encoded once as
+  config.</em></p>
+  <div class="meta"><span class="pill blue">Effort: small–medium</span><span class="pill amber">Cost: ~$60–100/mo (the one new per-company search)</span></div>
+  <div class="gate"><strong>Go-live test:</strong> ≥12 of the 14 known corporate/oversized leads flagged; 0 false positives — sub-brand owners like Vetnique must not trip it.</div>
+</div>
+
+<div class="item">
+  <h3>3 — MLM detector</h3>
+  <div class="sub">Closes: 7 MLM leads (Seacret, Stella &amp; Dot, L'BRI, BELLAME)</div>
+  <p><strong>Why it's automatable:</strong> MLMs self-identify loudly — "Join", "Become a Consultant",
+  "Host Rewards", income-disclosure pages. The audit caught every one from its own website.</p>
+  <p><strong>Build:</strong> two cheap layers — a vocabulary check on the scraped description/keywords
+  (flag only, never reject on a description alone; descriptions lie), then the existing site read answers
+  "is this an MLM?" from the nav/footer links it already extracts. MLM + high confidence → reject;
+  unsure → review.</p>
+  <p><strong>The known trap:</strong> influencer/"brand ambassador" programs are <em>not</em> MLMs — the
+  check must require sales-downline structure, not just the word "ambassador" (Pura Vida-style programs
+  must pass).</p>
+  <div class="meta"><span class="pill blue">Effort: small</span><span class="pill green">Cost: ~$0</span></div>
+  <div class="gate"><strong>Go-live test:</strong> 4/4 known MLM companies flagged, 0 false positives on the 478.</div>
+</div>
+
+<div class="item">
+  <h3>4 — Widened site check: category + name-match + real store</h3>
+  <div class="sub">Closes: 6 not-actually-DTC leads (services, dealer-only catalogs) + Victor's "all three things match" rule</div>
+  <p><strong>Why it's nearly free:</strong> the system already fetches each undecided company's homepage and
+  pays for one AI judgment on it. Widening what that judgment answers costs essentially nothing extra. The
+  same read will now also verify:</p>
+  <ul>
+    <li><strong>Category</strong> against the approved/banned/out-of-scope lists — from the live site, not scraped data</li>
+    <li><strong>Name consistency</strong> — site branding vs company name vs domain (mismatch → review, never
+    auto-reject: a mismatch can be innocent, like Endangered Species Chocolate living at chocolatebar.com)</li>
+    <li><strong>A real online store exists</strong> — cart/checkout present vs dealer-locator or service-booking
+    pages (catches Marge Carson-style "we don't sell direct" sites)</li>
+  </ul>
+  <p><strong>Build:</strong> one prompt upgrade (versioned, regression-tested), shipped together with items
+  1 and 3 so it's a single change and a single test run. One addition recommended: also run this read for
+  companies the free catalog-check already confirmed, so the whole pool gets category/name/store checks
+  (~$15–20/month extra).</p>
+  <div class="meta"><span class="pill blue">Effort: small</span><span class="pill green">Cost: ~$0–20/mo</span></div>
+  <div class="gate"><strong>Go-live test:</strong> the 6 known not-DTC leads flagged; chocolatebar.com lands in review, not rejected; 0 new false rejections.</div>
+</div>
+
+<div class="item">
+  <h3>5 — Scheduled full-pool audit <span class="pill amber">the one real build</span></h3>
+  <div class="sub">Closes: drift — sites that pivot, brands that get acquired after acceptance, and anything novel that slips every gate</div>
+  <p><strong>The honest caveat:</strong> today's 312-website audit ran as a one-off supervised multi-agent
+  session — that exact mechanism is not a deployable scheduled job. Making it zero-touch means porting it
+  into pipeline code. Fully doable: every building block (polite site fetching, signal extraction, the
+  widened AI judgment, web-search fallback) already exists in the verification module — the port is
+  essentially "re-run the widened checks over every accepted company, compare to the stored verdicts,
+  report what changed."</p>
+  <p><strong>Build:</strong> an audit module that re-judges accepted companies in batches (bypassing the
+  verdict cache), diffs new verdicts against stamped ones, emails a change report through the existing
+  notifier, and drops changed companies into the review queue. Scheduled exactly like the existing nightly
+  refresh job — a second cron service on the same infrastructure. Cache-aging rides along: re-judge any
+  verdict older than ~6 months.</p>
+  <p><strong>Cost control:</strong> monthly full pool ≈ $180–200, or a weekly 25% sample ≈ $50/month —
+  sampling is statistically fine for drift detection.</p>
+  <div class="meta"><span class="pill blue">Effort: medium (~2 sessions)</span><span class="pill amber">Cost: $30–200 per run, by sampling</span></div>
+  <div class="gate"><strong>Go-live test:</strong> one scheduled run completes end-to-end unattended and produces a change report with zero human input.</div>
+</div>
+
+<div class="item">
+  <h3>6 — Learn from review decisions</h3>
+  <div class="sub">Closes: no continuous measurement — today accuracy is only known via one-off audits</div>
+  <p><strong>Why this needs zero new manual effort:</strong> the labels already exist as a by-product of
+  normal work. Every approve/reject click in the review page records a human verdict right next to the
+  machine's verdict. Nobody labels anything extra — <em>the work the reviewer already does IS the training
+  signal.</em></p>
+  <p><strong>Build:</strong> when a batch fully closes (a status transition that already happens
+  automatically), compute the agreement table: machine-passed &amp; human-approved, review-flagged &amp;
+  human-rejected (the queue working as designed), and the number that matters most — <strong>escapes</strong>,
+  leads the machine passed but the human rejected. Store per batch, add one accuracy line to the batch
+  email that already goes out, optionally expose a quality-trend view to the client.</p>
+  <p><strong>What stays human (by design):</strong> acting on the trend. When escapes cluster — say three
+  foreign-HQ escapes in a month — that's the signal to tune a threshold, with the regression suite proving
+  the tune before it ships. The measuring is automatic; the steering stays deliberate.</p>
+  <div class="meta"><span class="pill blue">Effort: medium</span><span class="pill green">Cost: ~$0</span></div>
+  <div class="gate"><strong>Go-live test:</strong> after the next two production batches, per-layer accuracy appears in the batch email — with nobody having done anything new.</div>
+</div>
+
+<h2><span class="num">3</span>Build order &amp; the regression gate</h2>
+<table>
+  <tr><th>Ship</th><th>Contents</th><th>Gate before go-live</th></tr>
+  <tr><td><strong>PR 1</strong></td><td>Items 1 + 3 + 4 as one prompt-version bump, plus item 2 — one schema migration, one test run</td>
+      <td>First, persist today's audit labels (478 pass / 39 fail / 36 review) into a reference table so the ground truth survives cleanup. Then: catches ≥90% of the known fails, <strong>zero false rejections</strong> on the known passes.</td></tr>
+  <tr><td><strong>PR 2</strong></td><td>Items 5 + 6 — the audit port + schedule, and the metrics harvest</td>
+      <td>One unattended scheduled run end-to-end; metrics rows appear after two production batches.</td></tr>
+</table>
+
+<div class="callout good">
+<strong>Bottom line:</strong> all six fixes run inside the existing automated worker with zero added manual
+effort. Each one is the automation of the exact check that caught its gap in the audit — and each must pass
+a regression test against the audit's labeled results before it touches production. Total new steady-state
+cost: <strong>~$90–140/month</strong> — under 2% of the scraping spend — after which every layer's accuracy
+is measured continuously on every batch instead of by one-off audit.
+</div>
+
+<footer>
+  Roadmap Implementation Plan · generated 2026-06-10 · technical version with code-level detail:
+  <code>ROADMAP_IMPLEMENTATION_PLAN.md</code> · findings report: <code>QA_LAYERS_REPORT.html</code>
+</footer>
+
+</body>
+</html>
