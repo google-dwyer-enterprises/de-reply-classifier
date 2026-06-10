@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Reseller Detection — Implementation Plan</title>
+<style>
+  :root {
+    --fg: #1a1d23;
+    --muted: #5e6470;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e1e4e8;
+    --accent: #0550ae;
+    --accent-soft: #ddeefc;
+    --green: #1a7f37;
+    --green-soft: #ddf4e3;
+    --amber: #9a6700;
+    --amber-soft: #fff4cc;
+    --red: #cf222e;
+    --red-soft: #ffeef0;
+    --pill-bg: #f0f4f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.6;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 28px 80px;
+  }
+  header {
+    text-align: center;
+    padding: 24px 0 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  header h1 { font-size: 2.2em; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+  header .tag { color: var(--muted); font-size: 1.05em; }
+  h2 { font-size: 1.5em; font-weight: 700; margin: 48px 0 16px; letter-spacing: -0.01em; }
+  h2 .num {
+    display: inline-block; width: 36px; height: 36px;
+    background: var(--accent); color: white; border-radius: 50%;
+    text-align: center; line-height: 36px; font-size: 0.8em;
+    margin-right: 10px; vertical-align: middle;
+  }
+  h3 { font-size: 1.15em; margin: 28px 0 10px; font-weight: 600; }
+  p { margin: 0.6em 0; }
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--pill-bg);
+    padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em;
+  }
+  pre {
+    background: var(--pill-bg); border: 1px solid var(--border);
+    padding: 14px 16px; border-radius: 6px; overflow-x: auto;
+    font-size: 0.85em; line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--pill-bg); font-weight: 600; font-size: 0.9em; }
+  tr:last-child td { border-bottom: none; }
+  .callout { border-radius: 10px; padding: 18px 22px; margin: 16px 0; }
+  .callout.insight { background: #fff8c5; border-left: 4px solid #d4a72c; }
+  .callout.note    { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.caution { background: var(--red-soft); border-left: 4px solid var(--red); }
+  .callout.good    { background: var(--green-soft); border-left: 4px solid var(--green); }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 0.78em; font-weight: 600; vertical-align: middle;
+  }
+  .pill.free   { background: var(--green-soft); color: var(--green); }
+  .pill.cheap  { background: var(--accent-soft); color: var(--accent); }
+  .pill.human  { background: var(--amber-soft); color: var(--amber); }
+  .pill.reject { background: var(--red-soft); color: var(--red); }
+  .stage {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 22px; margin: 14px 0;
+  }
+  .stage h3 { margin: 0 0 6px; }
+  .stage .cost { float: right; }
+  .arrow { text-align: center; color: var(--muted); font-size: 1.3em; margin: 2px 0; }
+  .bignum { font-size: 1.6em; font-weight: 700; color: var(--accent); }
+  .kpis { display: flex; gap: 14px; flex-wrap: wrap; margin: 18px 0; }
+  .kpi {
+    flex: 1 1 200px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px; text-align: center;
+  }
+  .kpi .v { font-size: 1.5em; font-weight: 700; color: var(--accent); }
+  .kpi .l { color: var(--muted); font-size: 0.88em; margin-top: 2px; }
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Reseller Detection</h1>
+  <div class="tag">Implementation plan — keeping reseller websites out of the lead batches<br>
+  Branch <code>feat/reseller-detection</code> · Status: <strong>planned, pending Phase&nbsp;0 measurement</strong> · 2026-06-10</div>
+</header>
+
+<h2><span class="num">1</span>The problem (Victor's loom, June 10)</h2>
+<p>Some accepted leads are <strong>resellers</strong> — shops that sell <em>other companies'</em> products
+(a store selling Snap Circuits, where the brand on the product is Elenco, not the store) — instead of
+brands that make and sell their own product. Victor: <em>"somehow we just need to make sure that they're
+not resellers."</em></p>
+
+<div class="callout insight">
+<strong>Why they get through (verified against all 558 accepted leads):</strong> the current AI filter never
+looks at the company's website. It only sees the company name and a marketing blurb — and the blurb is
+useless for this (a phrase-scan "matched" 110 of 558 companies as resellers, almost all false alarms,
+including one whose blurb literally says it <em>manufactures</em> its products). BetterContact's
+business-type fields are 100% empty. <strong>The evidence lives on the website, so the website must be
+checked.</strong></p>
+</div>
+
+<h2><span class="num">2</span>The solution — a 5-stage funnel</h2>
+<p>Every <em>company</em> (not every lead — people at the same company share one verdict) flows through
+stages ordered cheapest-first. Each stage only sees what the previous one couldn't decide, so money and
+human time are spent only where genuinely needed.</p>
+
+<div class="stage">
+  <span class="pill free cost">FREE</span>
+  <h3>Stage 0 — Group &amp; remember</h3>
+  ~5,000 leads ≈ ~1,700 unique companies. Each company is judged <strong>once, ever</strong> — verdicts
+  are cached in the database, so repeat companies in future batches cost nothing.
+</div>
+<div class="arrow">▼</div>
+<div class="stage">
+  <span class="pill free cost">FREE</span>
+  <h3>Stage 1 — Instant checks, no AI</h3>
+  <strong>(a) Amazon check:</strong> match against our 275k-brand SmartScout table. A registered Amazon
+  brand needs a trademark → confirmed <strong>brand → pass</strong>. (42% of companies match — verified.)<br>
+  <strong>(b) Shopify check:</strong> if the site runs Shopify, one public URL lists every product and its
+  maker. All products their own → <strong>pass</strong>. Products from 4+ different makers →
+  <strong>reseller → reject</strong>. (Verified: every legit brand probed showed exactly one real vendor.)<br>
+  <em>Roughly half of all companies are decided here, deterministically, for $0.</em>
+</div>
+<div class="arrow">▼ undecided half</div>
+<div class="stage">
+  <span class="pill cheap cost">~1¢ / company</span>
+  <h3>Stage 2 — Read the website + one AI call</h3>
+  Fetch the homepage, extract the meaningful text (title, menu, footer, page text) and hard signals —
+  "Shop by Brand" menu? dealer language? how many other brand names? — then ask Haiku once:
+  <strong>brand or reseller?</strong> The answer must include a confidence level and a
+  <strong>quoted piece of evidence</strong> from the page, so every verdict is auditable.
+  High confidence → decided. Resolves ~80% of what reaches it.
+</div>
+<div class="arrow">▼ low confidence, or website wouldn't load</div>
+<div class="stage">
+  <span class="pill cheap cost">~3¢ / company</span>
+  <h3>Stage 3 — Quick web research</h3>
+  For the few hundred still-unclear companies, the AI does what Victor would do by hand: one web search
+  surfacing their LinkedIn page, Amazon storefront, press mentions — then decides from those sources.
+  Works even when the company's own site is unreachable. <strong>No browser needed</strong> (no
+  Playwright in v1).
+</div>
+<div class="arrow">▼ still genuinely ambiguous</div>
+<div class="stage">
+  <span class="pill human cost">HUMAN</span>
+  <h3>Stage 4 — Review queue</h3>
+  The last ~150–300 companies/month land in the existing Lead Reviewer page with the evidence already
+  attached (vendor list, quoted page text, search findings) — seconds per decision instead of minutes of
+  digging. <strong>Nothing ambiguous is ever auto-passed.</strong>
+</div>
+
+<h2><span class="num">3</span>Cost &amp; effort at 20,000 leads/month</h2>
+<div class="kpis">
+  <div class="kpi"><div class="v">~$50–80</div><div class="l">per month total<br>(vs ~$2,400+ for full AI research on everything)</div></div>
+  <div class="kpi"><div class="v">&lt; 1 hr</div><div class="l">added to each weekly 5k batch</div></div>
+  <div class="kpi"><div class="v">~96–98%</div><div class="l">of leads decided with no human involved</div></div>
+  <div class="kpi"><div class="v">150–300</div><div class="l">pre-evidenced human decisions / month<br>(instead of thousands of raw leads)</div></div>
+</div>
+
+<table>
+  <tr><th>Expected outcome</th><th>Estimate</th><th>Basis</th></tr>
+  <tr><td>Resellers caught</td><td>~90–95%</td><td>Stage 1 is deterministic/near-perfect; error budget is Stage 2's AI precision — <strong>measured in Phase 0 before we build</strong></td></tr>
+  <tr><td>Good brands wrongly rejected</td><td>target &lt;2%</td><td>uncertain cases go to <em>review</em>, never auto-reject — a wrongly rejected brand is a paid-for lead lost</td></tr>
+  <tr><td>What still escapes</td><td>1–3 per 550-lead batch</td><td>"clean storefront" resellers that look like a single brand — these fool skim-reading humans too</td></tr>
+</table>
+
+<h2><span class="num">4</span>Fits the current system — nothing new to host</h2>
+<table>
+  <tr><th>Piece</th><th>Where it lives</th></tr>
+  <tr><td>The funnel code</td><td>New module <code>brand_verify.py</code>, called from the existing scrape pipeline (<code>bettercontact_sync.py</code>) right before leads are written — same place the current AI gate runs</td></tr>
+  <tr><td>Runs on</td><td>The <strong>existing Railway worker</strong> — same container, same <code>ANTHROPIC_API_KEY</code>; the Stage-3 web search is a built-in Anthropic tool (no new vendor or credential)</td></tr>
+  <tr><td>New dependency</td><td>One pure-Python library (<code>beautifulsoup4</code>) — no Docker image changes</td></tr>
+  <tr><td>Database</td><td>One new cache table (<code>domain_brand_verdicts</code>) + three audit columns on the leads table</td></tr>
+  <tr><td>Review queue</td><td>The <strong>existing Lead Reviewer app</strong> — flagged leads just show up with evidence attached</td></tr>
+</table>
+
+<h2><span class="num">5</span>Rollout — measure first, then build in safe steps</h2>
+<table>
+  <tr><th>Phase</th><th>What happens</th><th>Gate / outcome</th></tr>
+  <tr><td><strong>0 — Diagnostic</strong> <span class="pill cheap">~$5, read-only</span></td>
+      <td>Run Stages 0–2 retroactively over the 558 leads Victor/Jam already reviewed and score the AI against their real verdicts. Also flags any resellers already sitting in the accepted set.</td>
+      <td><strong>Go/no-go:</strong> build only if precision ≥90% and false rejections &lt;2%; otherwise iterate the prompt and re-measure</td></tr>
+  <tr><td><strong>1 — Free layer</strong></td>
+      <td>Amazon confirm + Shopify probe + verdict cache wired into the pipeline</td>
+      <td>Clearest resellers caught immediately, $0, no new failure modes</td></tr>
+  <tr><td><strong>2 — Site read + AI</strong></td>
+      <td>Homepage fetch, signal extraction, the Haiku verdict call</td>
+      <td>The bulk of coverage; full batch runs end-to-end on Railway</td></tr>
+  <tr><td><strong>3 — Web research + routing</strong></td>
+      <td>Search-based fallback; ambiguous leads surface in the reviewer with evidence</td>
+      <td>Unreachable-website companies get verdicts too</td></tr>
+  <tr><td><strong>4 — Tune</strong></td>
+      <td>Per-batch stats: verdicts by stage, cost, unknown-rate</td>
+      <td>Adjust thresholds with data; revisit a browser fallback only if needed</td></tr>
+</table>
+
+<div class="callout caution">
+<strong>Honest limits.</strong> No filter is 100%. The residual escapes are "clean storefront" resellers
+that present as a single brand (these fool quick human review too), and hybrid companies that both
+manufacture and resell — the latter correctly land in the human queue rather than being guessed.
+We report a catch rate to Victor only after Phase&nbsp;0 produces a <em>measured</em> number, not before.
+</div>
+
+<div class="callout good">
+<strong>Bottom line.</strong> Every scraped company gets its website (or its web footprint) actually
+checked before it reaches a batch — the thing the current filter never does — for tens of dollars a
+month, with every automated verdict carrying a quoted piece of evidence answering
+<em>"why was this one accepted?"</em>
+</div>
+
+<footer>
+  Reseller Detection Implementation Plan · branch <code>feat/reseller-detection</code> ·
+  full technical version in <code>RESELLER_DETECTION_PLAN.md</code> ·
+  diagnosis verified against production data 2026-06-10
+</footer>
+
+</body>
+</html>
