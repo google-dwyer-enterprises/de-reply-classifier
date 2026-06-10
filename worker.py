@@ -51,7 +51,11 @@ import nocodb_views
 
 
 POLL_INTERVAL_S = int(os.environ.get("WORKER_POLL_INTERVAL_S", "60"))
-RUNNING_STUCK_THRESHOLD_S = 60 * 60   # 1 hour: anything older is presumed dead
+# 3 hours: anything older is presumed dead. Raised from 1h when reseller
+# detection (brand_verify) added per-domain probes + polite pacing to the
+# scrape — a large batch can now legitimately run past an hour, and the
+# startup sweep would otherwise re-queue a healthy run after a redeploy.
+RUNNING_STUCK_THRESHOLD_S = 3 * 60 * 60
 # Safety margin for the credit budget. observed rate is ~2 credits / accepted
 # lead; 3 gives a cushion without letting a runaway burn the account.
 # Note: as of the "flat default cap" change this constant is no longer used

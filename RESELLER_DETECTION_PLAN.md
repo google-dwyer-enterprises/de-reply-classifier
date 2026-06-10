@@ -1,8 +1,8 @@
 # Reseller Detection — Implementation Plan
 
-**Status:** PLANNED — no code built yet. Phase 0 (retroactive diagnostic on the
-existing 558 reviewed leads) is the go/no-go gate before any pipeline code is
-written.
+**Status:** Phase 0 DONE — **GO** (2026-06-10, two diagnostic runs over 317
+accepted + 60 known-reseller domains, see §10). Phase 1 (free layer) in
+progress on this branch.
 
 **Trigger:** Victor's loom review (2026-06-10) — reseller websites are slipping
 into the accepted batches. Example: a shop selling Snap Circuits where the
@@ -164,18 +164,22 @@ tool needs no extra credential. No new services, no new env vars.
 
 ## 5. Rollout phases
 
-### Phase 0 — Retroactive diagnostic (go/no-go gate) — ~1 session, ~$5
-Run `scripts/reseller_diagnostic.py` over the 558 reviewed leads.
-**Gate:** Stage 2 precision ≥90% against human verdicts and false-rejection
-rate <2%. Pass → build. Fail → iterate the prompt (bump `bv1` → `bv2`) and
-re-measure before writing pipeline code. Also tells us how many resellers are
-sitting in the current accepted set (immediate cleanup value).
+### Phase 0 — Retroactive diagnostic (go/no-go gate) — DONE, GO
+Ran `scripts/reseller_diagnostic.py` twice over 317 accepted + 60
+known-reseller domains. Gate met: 0 site-LLM false flags on the accepted set,
+75% catch on judged known resellers (most "misses" were the old gate's own
+errors). Full results + the two design amendments in §10.
 
-### Phase 1 — Free layer — ~1 session
-`domain_brand_verdicts` table + Stage 0/1 wired into `bettercontact_sync.py`.
-Zero LLM cost, zero new failure modes (probe errors fall through to "not
-decided", never to a verdict). Ships value alone: the clearest multi-vendor
-resellers are caught immediately.
+### Phase 1 — Free layer — DONE (2026-06-10)
+`brand_verify.py`: domain cache (`domain_brand_verdicts`, applied to the DB)
++ polite Shopify probe with the share rule + vendor-list LLM arbitration of
+probe flags + guarded SmartScout confirm. Wired into `bettercontact_sync.py`
+after the per-company cap; `reseller` rejects (`agency_filter_reason =
+'reseller_site: …'`), `brand`/`unknown` pass through stamped on the new
+`brand_verify_*` columns. CLI opt-out: `--skip-brand-verify`. Worker stuck
+threshold raised 1h → 3h. Smoke-verified on real domains: aire.com →
+reseller, truelinkswear/tuftandpaw (Phase 0 false flags) → brand via
+arbitration, cache short-circuits repeat domains.
 
 ### Phase 2 — Site fetch + LLM — ~1-2 sessions
 `_fetch_homepage` / `_extract_signals` / `_site_llm_verdict` + prompt.
@@ -236,3 +240,57 @@ Nothing quantitative until Phase 0 produces measured precision/recall against
 his own verdicts. Then: the measured catch rate, the measured
 false-rejection rate, and the list of any resellers found retroactively in
 the current accepted set.
+
+---
+
+## 10. Phase 0 results (2026-06-10) — measured, two runs
+
+`scripts/reseller_diagnostic.py`; evidence sheets in
+`exports/reseller_diagnostic_20260610_*.xlsx`. Note: `lead_approval` was null
+on 549/558 accepted leads (no per-lead human review of this batch exists), so
+ground truth = 317 accepted domains (presumed-brand side) + 60 domains the
+existing ICP gate rejected as `reseller` (noisy positives), with hand-checks
+on every disagreement.
+
+**Verdict: GO.** The Stage 2 site-LLM (`bv1`) met the gate:
+
+- **0 false reseller flags** on the accepted set across both runs (~50
+  domains judged per run); unsure cases went to `unknown`, never guessed.
+- Known-reseller set: 24/32 of judged domains caught (75%); of the 8
+  "brand" disagreements, hand-check shows ~6 are the OLD gate's errors
+  (BDI Furniture, Burry Foods, Butler Specialty, Diamond Cosmetics, Blue
+  Peak Creative are real brands it wrongly rejected).
+- One genuine reseller found in the current accepted set: **aire.com**
+  (54% third-party catalog share — NRS, Canyon Coolers, Sawyer…).
+- Cost: ~$0.50 total for both runs.
+
+**Fixes the diagnostic forced (already in the script, carried into the build):**
+
+1. **Stage 1a scorer:** `token_sort_ratio`, not the resolver's
+   `token_set_ratio` — set-ratio scores token subsets as 100 ("704 Supply"
+   matched Amazon brand "Supply").
+2. **Stage 1a guards:** the domain must corroborate the matched brand (brand
+   "Ayla" can't vouch for aylabeauty.com the retailer), and retailer-vocab
+   names (Epic Sports, Archery Country) never auto-pass — they fall to
+   Stage 2. False-passes on known resellers: 10 → 2 (both hand-checked as
+   actually-legit brands).
+3. **Shopify probe share rule:** reseller requires ≥4 third-party vendors AND
+   ≥50% of products; an accessory side-shelf (Ariel Rider's helmets/bags)
+   no longer flags. Brand-confirm (≤1 vendor) stayed perfect: 87 confirms
+   across both runs, zero issues.
+
+**Design amendments (the two things Phase 0 changed in §2/§4):**
+
+- **Probe reseller-verdicts are NOT final.** Each run produced probe
+  false-positives from causes no rule anticipates (run 1: accessory shelves;
+  run 2: OEM factory names in the vendor field — truelinkswear.com lists
+  "Guangzhou Xinhongcheng Outdoor Shoe Company"; tuftandpaw.com uses internal
+  codes "ME/MI/TE"). Probe flags route to **LLM arbitration with the vendor
+  list attached** (the LLM trivially recognizes factory names). The probe's
+  brand-confirm side stays deterministic.
+- **Fetch politely; the web is not the problem.** 142/165 fetch failures were
+  HTTP 429 — self-inflicted by burst-fetching 377 domains (Shopify's shared
+  CDN throttles per-IP). Refetched slowly: 12/12 succeeded. True unreachable
+  rate ≈ **6%, not 36-46%** — so Stage 2 coverage is near-complete and
+  Stage 3 stays small. Production fetcher: low concurrency, pacing delay,
+  retry-on-429 with backoff.

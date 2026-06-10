@@ -98,7 +98,7 @@
 <header>
   <h1>Reseller Detection</h1>
   <div class="tag">Implementation plan — keeping reseller websites out of the lead batches<br>
-  Branch <code>feat/reseller-detection</code> · Status: <strong>planned, pending Phase&nbsp;0 measurement</strong> · 2026-06-10</div>
+  Branch <code>feat/reseller-detection</code> · Status: <strong>Phase&nbsp;0 measured — GO · Phase&nbsp;1 in progress</strong> · 2026-06-10</div>
 </header>
 
 <h2><span class="num">1</span>The problem (Victor's loom, June 10)</h2>
@@ -211,11 +211,30 @@ human time are spent only where genuinely needed.</p>
       <td>Adjust thresholds with data; revisit a browser fallback only if needed</td></tr>
 </table>
 
+<h2><span class="num">6</span>Phase 0 results — measured June 10, 2026</h2>
+<p>We ran the diagnostic <strong>twice</strong> over 317 accepted companies plus 60 companies the old
+filter had rejected as resellers, hand-checking every disagreement (~$0.50 total).</p>
+<div class="kpis">
+  <div class="kpi"><div class="v">0</div><div class="l">false reseller flags by the AI site-read<br>on the accepted set (both runs)</div></div>
+  <div class="kpi"><div class="v">75%</div><div class="l">of judged known resellers caught —<br>most "misses" were the old filter's own errors</div></div>
+  <div class="kpi"><div class="v">1</div><div class="l">genuine reseller found in the current batch:<br><code>aire.com</code> (54% of catalog is other brands)</div></div>
+  <div class="kpi"><div class="v">~6%</div><div class="l">true unreachable-website rate —<br>not the feared 30%+ (the rest was our own fetch speed)</div></div>
+</div>
+<div class="callout good">
+<strong>Go decision.</strong> The accuracy gate (≥90% precision, &lt;2% false rejections) was met.
+Two refinements were earned by the data: (1)&nbsp;the Shopify vendor-count check now <em>flags</em>
+rather than auto-rejects — the AI confirms each flag with the vendor list in hand, because vendor
+fields sometimes contain factory names or internal codes that aren't real brands; (2)&nbsp;website
+fetching must be polite (slow, with retries) — our test bursts triggered rate-limiting that looked
+like unreachable sites. A bonus finding: the old filter had wrongly rejected several real brands
+(BDI Furniture, Butler Specialty, Diamond Cosmetics…) that the new site-read correctly recognizes.
+</div>
+
 <div class="callout caution">
 <strong>Honest limits.</strong> No filter is 100%. The residual escapes are "clean storefront" resellers
 that present as a single brand (these fool quick human review too), and hybrid companies that both
 manufacture and resell — the latter correctly land in the human queue rather than being guessed.
-We report a catch rate to Victor only after Phase&nbsp;0 produces a <em>measured</em> number, not before.
+The numbers above are from the current 558-lead batch; they'll be re-measured on live batches.
 </div>
 
 <div class="callout good">

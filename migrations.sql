@@ -469,3 +469,33 @@ alter table prospeo_new_leads
 create index if not exists prospeo_new_leads_pending_move_idx
   on prospeo_new_leads (scrape_request_id)
   where lead_approval = 'approved' and lead_moved_at is null;
+
+-- ---------------------------------------------------------------------------
+-- Reseller detection (RESELLER_DETECTION_PLAN.md, Phase 1)
+-- ---------------------------------------------------------------------------
+
+-- Per-domain verdict cache. One row per company domain ever judged; repeat
+-- domains across batches are never re-researched. Source of truth for the
+-- verdict; prospeo_new_leads rows carry a denormalized copy for export/audit.
+-- Policy: only decisive verdicts (brand/reseller) are cached — 'unknown' is
+-- re-derivable and caching it would block later stages from re-judging.
+create table if not exists domain_brand_verdicts (
+  domain          text primary key,            -- lowercased, no www
+  verdict         text not null,               -- 'brand' | 'reseller'
+  method          text not null,               -- 'smartscout' | 'shopify_probe'
+                                               -- | 'vendor_llm' | 'site_llm'
+                                               -- | 'agentic' | 'human'
+  confidence      text,                        -- 'high' | 'medium' | 'low'
+  evidence        text,                        -- vendor list / quoted page text
+  shopify_vendor_count int,                    -- null when not Shopify
+  decided_at      timestamptz not null default now(),
+  prompt_version  text                         -- for LLM verdicts (e.g. 'bv1')
+);
+
+-- Denormalized verdict on each lead row (audit + export + reviewer UI).
+alter table prospeo_new_leads
+  add column if not exists brand_verify_result text;
+alter table prospeo_new_leads
+  add column if not exists brand_verify_method text;
+alter table prospeo_new_leads
+  add column if not exists brand_verify_evidence text;

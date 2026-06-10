@@ -77,6 +77,7 @@ from prospeo_sync import (
     write_xlsx,
 )
 from db import connect
+import brand_verify
 
 
 # ---------------------------------------------------------------------------
@@ -632,7 +633,9 @@ def _insert_leads(conn, leads: list[dict],
             "source_industry", "scrape_mode", "provider",
             "mobile", "mobile_status",
             "agency_filter_result", "agency_filter_method",
-            "agency_filter_reason", "rejected", "bettercontact_raw",
+            "agency_filter_reason", "rejected",
+            "brand_verify_result", "brand_verify_method",
+            "brand_verify_evidence", "bettercontact_raw",
             "scrape_request_id", "lead_approval"]
 
     def _approval_for(lead: dict) -> str | None:
@@ -927,6 +930,35 @@ def _run_category(conn, api_key: str, *,
                         capped.append(lead)
                 batch_accepted = capped
 
+            # Reseller detection (RESELLER_DETECTION_PLAN.md): per-domain
+            # brand-vs-reseller verdicts from the free layer (cache, Shopify
+            # share-rule probe + vendor-list LLM arbitration, SmartScout
+            # confirm). 'reseller' rejects; 'brand'/'unknown' pass through
+            # stamped — unknowns are never auto-rejected.
+            if batch_accepted and not skip_brand_verify:
+                verdicts = brand_verify.verify_domains(conn, batch_accepted)
+                survivors = []
+                for lead in batch_accepted:
+                    v = verdicts.get(
+                        brand_verify.norm_domain(lead.get("company_domain")) or "")
+                    if not v:
+                        survivors.append(lead)
+                        continue
+                    lead["brand_verify_result"] = v["verdict"]
+                    lead["brand_verify_method"] = v["method"]
+                    lead["brand_verify_evidence"] = (v.get("evidence") or "")[:1000]
+                    if v["verdict"] == "reseller":
+                        lead["agency_filter_result"] = "reseller"
+                        lead["agency_filter_reason"] = (
+                            f"reseller_site: {v.get('evidence', '')}"[:500])
+                        lead["rejected"] = True
+                        batch_rejected.append(lead)
+                        rejected_counts["reseller_site"] = (
+                            rejected_counts.get("reseller_site", 0) + 1)
+                    else:
+                        survivors.append(lead)
+                batch_accepted = survivors
+
             if batch_accepted or batch_rejected:
                 _insert_leads(conn, batch_accepted + batch_rejected,
                               scrape_request_id=scrape_request_id)
@@ -1038,7 +1070,7 @@ def main(*, mode: str = "category", target_leads: int | None = None,
          skip_industries: list[str] | None = None,
          page_limit: int = BC_PAGE_LIMIT,
          dry_run: bool = False, max_credits: int | None = None,
-         skip_llm: bool = False,
+         skip_llm: bool = False, skip_brand_verify: bool = False,
          scrape_request_id: int | None = None) -> dict:
     """Entry point for `run.py scrape-leads --provider bettercontact`.
 
