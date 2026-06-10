@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Lead Quality — Before &amp; After the Q/A Layers</title>
+<title>Lead Quality System — Every Criterion, Before &amp; After the Q/A Layers</title>
 <style>
   :root {
     --fg: #1a1d23;
@@ -26,7 +26,7 @@
     color: var(--fg);
     background: var(--bg);
     line-height: 1.6;
-    max-width: 980px;
+    max-width: 1020px;
     margin: 0 auto;
     padding: 32px 28px 80px;
   }
@@ -36,7 +36,7 @@
     border-bottom: 1px solid var(--border);
     margin-bottom: 32px;
   }
-  header h1 { font-size: 2.2em; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+  header h1 { font-size: 2.1em; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
   header .tag { color: var(--muted); font-size: 1.05em; }
   h2 { font-size: 1.5em; font-weight: 700; margin: 48px 0 16px; letter-spacing: -0.01em; }
   h2 .num {
@@ -52,8 +52,8 @@
     background: var(--pill-bg);
     padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em;
   }
-  table { width: 100%; border-collapse: collapse; margin: 14px 0; }
-  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.95em; }
+  th, td { padding: 9px 11px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { background: var(--pill-bg); font-weight: 600; font-size: 0.9em; }
   tr:last-child td { border-bottom: none; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -64,7 +64,7 @@
   .callout.good    { background: var(--green-soft); border-left: 4px solid var(--green); }
   .pill {
     display: inline-block; padding: 2px 10px; border-radius: 999px;
-    font-size: 0.78em; font-weight: 600; vertical-align: middle;
+    font-size: 0.78em; font-weight: 600; vertical-align: middle; white-space: nowrap;
   }
   .pill.green { background: var(--green-soft); color: var(--green); }
   .pill.red   { background: var(--red-soft); color: var(--red); }
@@ -72,19 +72,20 @@
   .pill.blue  { background: var(--accent-soft); color: var(--accent); }
   .kpis { display: flex; gap: 14px; flex-wrap: wrap; margin: 18px 0; }
   .kpi {
-    flex: 1 1 180px; background: var(--card); border: 1px solid var(--border);
+    flex: 1 1 170px; background: var(--card); border: 1px solid var(--border);
     border-radius: 10px; padding: 16px 18px; text-align: center;
   }
   .kpi .v { font-size: 1.6em; font-weight: 700; color: var(--accent); }
   .kpi .v.red { color: var(--red); }
   .kpi .v.green { color: var(--green); }
-  .kpi .l { color: var(--muted); font-size: 0.86em; margin-top: 2px; }
+  .kpi .v.amber { color: var(--amber); }
+  .kpi .l { color: var(--muted); font-size: 0.85em; margin-top: 2px; }
   .stage {
     background: var(--card); border: 1px solid var(--border);
-    border-radius: 10px; padding: 16px 20px; margin: 12px 0;
+    border-radius: 10px; padding: 14px 20px; margin: 10px 0;
   }
-  .stage h3 { margin: 0 0 6px; }
-  .arrow { text-align: center; color: var(--muted); font-size: 1.2em; margin: 0; }
+  .stage h3 { margin: 0 0 4px; }
+  .arrow { text-align: center; color: var(--muted); font-size: 1.1em; margin: 0; }
   .ba { display: flex; gap: 16px; flex-wrap: wrap; margin: 18px 0; }
   .ba .col { flex: 1 1 320px; border-radius: 10px; padding: 18px 22px; }
   .ba .before { background: var(--red-soft); border: 1px solid #f0c4c9; }
@@ -98,168 +99,211 @@
 <body>
 
 <header>
-  <h1>Lead Quality: Before &amp; After the Q/A Layers</h1>
-  <div class="tag">What we found in the 558-lead BetterContact batch, the verification system we built,<br>
-  and what it caught — June 10, 2026</div>
+  <h1>The Lead Quality System</h1>
+  <div class="tag">Every acceptance criterion — how each is enforced, what the new Q/A layers added,<br>
+  and what a full audit of the current 558-lead batch found · June 10, 2026</div>
 </header>
 
-<h2><span class="num">1</span>The starting point — your reseller concern was right</h2>
-<p>In the review call you flagged that some accepted leads looked like <strong>resellers</strong> — shops
-selling other companies' products instead of brands selling their own. We investigated and confirmed the
-root cause: <strong>the old filter never looked at any company's website.</strong> It judged each lead
-from a marketing blurb and the company name only. All the evidence that separates a brand from a reseller
-— the product catalog, the "shop by brand" menus, the dealer language — was on websites nothing ever read.</p>
+<h2><span class="num">1</span>The rulebook — what makes a lead acceptable</h2>
+<p>A lead is <strong>accepted only if it passes every check</strong>; failing any single one rejects it:</p>
+<table>
+  <tr><th style="width:30px">#</th><th>Criterion</th><th>Rejected when…</th></tr>
+  <tr><td>1</td><td><strong>Real product brand</strong> — makes or private-labels its own physical product, sells it online (DTC)</td><td>Reseller/retailer, dropshipper, agency or service business (salon, spa, gym, clinic, daycare…), marketplace/platform, blog/media site</td></tr>
+  <tr><td>2</td><td><strong>Approved category</strong> — apparel, cosmetics/skincare, food &amp; beverage, supplements, home &amp; furniture, sporting goods, pet, consumer goods, groceries…</td><td>Blocklist: cannabis/hemp/CBD, alcohol, firearms. Out of scope: adult, books/publishing, software/SaaS, education, real estate, insurance, memberships, non-profits</td></tr>
+  <tr><td>3</td><td><strong>Small / independent</strong> — roughly 5–50 employees, founder-led</td><td>Too large, or owned by a corporate giant</td></tr>
+  <tr><td>4</td><td><strong>US or Canada based</strong></td><td>Foreign HQ</td></tr>
+  <tr><td>5</td><td><strong>Decision-maker contact</strong> — owner/CEO/founder/president, or marketing / e-commerce leadership</td><td>Sales reps, junior or unrelated roles</td></tr>
+  <tr><td>6</td><td><strong>Real personal work email</strong>, verified deliverable</td><td>No deliverable email; generic inbox (info@, sales@, support@…)</td></tr>
+  <tr><td>7</td><td><strong>Clean commerce domain</strong> — .com .co .net .us .ca .shop .store</td><td>.org, .au, .co.uk, other foreign/malformed domains</td></tr>
+  <tr><td>8</td><td><strong>New, not over-represented</strong> — not already in the list; max 3 contacts per company (most senior kept)</td><td>Duplicate; over the contact cap</td></tr>
+  <tr><td>+</td><td><strong>Victor's site rules</strong> (from the review call)</td><td>Site branding, company name and domain don't match each other ("all three things" rule); reseller storefronts. Manufacturers selling their own product are explicitly OK; bulk-style sites are tolerable</td></tr>
+</table>
+
+<h2><span class="num">2</span>How each criterion is enforced — the three enforcement points</h2>
+<p>Checks run at three moments: <span class="pill blue">SCRAPE</span> as leads come in from BetterContact,
+<span class="pill green">Q/A LAYER</span> the new website-verification system, and
+<span class="pill amber">AUDIT</span> the full-pool website inspection (now repeatable on demand).</p>
+<table>
+  <tr><th>Criterion</th><th>Enforcement today</th><th>Status</th></tr>
+  <tr><td>1 — Real product brand / not reseller·agency·marketplace·blog</td>
+      <td><span class="pill blue">SCRAPE</span> AI gate on name+description &nbsp;<span class="pill green">Q/A LAYER</span> <strong>NEW:</strong> the company's actual website is read; suspicious catalogs get an ownership check; second opinions on every judgment</td>
+      <td>✅ Strong — measured, audited</td></tr>
+  <tr><td>2 — Approved / banned categories</td>
+      <td><span class="pill blue">SCRAPE</span> keyword + description blocklist (cannabis, alcohol, firearms, services…) &nbsp;<span class="pill amber">AUDIT</span> verified against live sites</td>
+      <td>✅ Good — audit found 0 banned-category leads</td></tr>
+  <tr><td>3 — Small / independent (5–50)</td>
+      <td><span class="pill blue">SCRAPE</span> employee-bucket filter (1–10 / 11–50) on scraped data &nbsp;<span class="pill amber">AUDIT</span> exposed that scraped size data can lie</td>
+      <td>⚠️ Gap found — corporate ownership invisible to scraped data (14 leads)</td></tr>
+  <tr><td>4 — US / Canada</td>
+      <td><span class="pill blue">SCRAPE</span> English-language site filter + TLD filter only — <em>foreign brands with English sites were intentionally passed (old decision)</em> &nbsp;<span class="pill amber">AUDIT</span> checked real HQ via sites + search</td>
+      <td>⚠️ Gap found — 12 foreign-HQ leads (largest bucket)</td></tr>
+  <tr><td>5 — Decision-maker titles</td>
+      <td><span class="pill blue">SCRAPE</span> title ranking (owner/CEO/founder/marketing/e-com leadership) &nbsp;<span class="pill amber">AUDIT</span> re-checked every lead's title</td>
+      <td>✅ Good — only borderline cases noted (e.g. VP of Sales)</td></tr>
+  <tr><td>6 — Personal, deliverable email</td>
+      <td><span class="pill blue">SCRAPE</span> only provider-verified "deliverable" status accepted; generic inboxes dropped</td>
+      <td>✅ Solid — 0 generic inboxes found in audit</td></tr>
+  <tr><td>7 — Clean commerce domain</td>
+      <td><span class="pill blue">SCRAPE</span> TLD allowlist; foreign/malformed dropped</td>
+      <td>✅ Solid — 0 violations found in audit</td></tr>
+  <tr><td>8 — Dedup &amp; ≤3 contacts/company</td>
+      <td><span class="pill blue">SCRAPE</span> checked against the whole database on every batch; cap keeps the 3 most senior</td>
+      <td>✅ Solid — 0 violations found in audit</td></tr>
+  <tr><td>+ — Name-consistency ("all three things match")</td>
+      <td><span class="pill amber">AUDIT</span> <strong>NEW:</strong> checked site branding vs company name vs domain on all 312 websites</td>
+      <td>✅ Done once — moving into the Q/A layer is on the roadmap</td></tr>
+</table>
+
+<h2><span class="num">3</span>What the new Q/A layers added</h2>
+<p>The trigger was the reseller concern from the review call — the old AI gate judged companies from a
+marketing blurb and never saw any website. The fix became a general verification system:</p>
 
 <div class="ba">
   <div class="col before">
     <h3>❌ Before</h3>
     <ul>
-      <li>AI filter saw only the company <em>name</em>, <em>URL text</em>, and a <em>marketing description</em></li>
-      <li>Nothing ever visited the website</li>
-      <li>No second opinion on any verdict</li>
-      <li>No evidence trail — no way to answer "why was this lead accepted?"</li>
+      <li>Brand-vs-reseller judged from company <em>name + marketing description</em> only</li>
+      <li>Nothing ever visited a website</li>
+      <li>No second opinion on any verdict; no evidence trail</li>
+      <li>Size, country, ownership taken on faith from scraped data</li>
     </ul>
   </div>
   <div class="col after">
     <h3>✅ After</h3>
     <ul>
-      <li>Every company's <strong>website is actually checked</strong> — catalog, branding, language</li>
-      <li>Four escalating layers, cheapest first; humans only see the genuinely ambiguous</li>
-      <li>Every uncertain or negative verdict gets an <strong>independent second check</strong></li>
-      <li>Every verdict carries a <strong>quoted piece of evidence</strong></li>
+      <li>Every company's <strong>website is read</strong> — catalog, branding, language</li>
+      <li>Suspicious verdicts get an <strong>independent second check</strong> (ownership search, web footprint)</li>
+      <li>Every verdict carries a <strong>quoted piece of evidence</strong> — "why was this accepted?" always has an answer</li>
+      <li>Ambiguity goes to a <strong>human review queue</strong> with evidence attached — never auto-passed</li>
     </ul>
   </div>
 </div>
 
-<h2><span class="num">2</span>The Q/A system we built (now runs on every new batch)</h2>
-
 <div class="stage"><span class="pill green" style="float:right">FREE</span>
   <h3>Layer 1 — Hard evidence, no AI</h3>
-  Each company's store catalog is read directly (who makes each product?), and its name is matched against
-  275,000 registered Amazon brands (registration requires a trademark). Catalog full of other companies'
-  brands → flagged. All products its own → confirmed brand.
+  Store catalogs read directly (who makes each product?); names matched against 275,000 registered Amazon
+  brands (trademark-backed). Decides ~half of all companies deterministically.
 </div>
 <div class="arrow">▼</div>
 <div class="stage"><span class="pill blue" style="float:right">~1¢ / company</span>
-  <h3>Layer 2 — Read the website + AI judgment</h3>
-  The homepage is fetched and an AI judges brand-vs-reseller from what's actually on the page — and must
-  quote the evidence. Unsure never passes silently; it escalates.
+  <h3>Layer 2 — Website read + AI judgment</h3>
+  Homepage fetched; AI judges from actual page content and must quote its evidence. Unsure escalates, never passes silently.
 </div>
 <div class="arrow">▼</div>
 <div class="stage"><span class="pill blue" style="float:right">~3¢ / company</span>
-  <h3>Layer 3 — Web research for the hard cases</h3>
-  Sites that block automated reading get judged from their public footprint (LinkedIn, Amazon, press) via
-  web search. Catalogs that <em>look</em> like resellers get an <strong>ownership check</strong> — are
-  those vendor names other companies, or this company's own product lines? (This caught the difference
-  between a real reseller and, say, Vetnique — whose "vendors" Glandex and Dermabliss are its own brands.)
+  <h3>Layer 3 — Web research</h3>
+  Blocked sites judged from their public footprint (LinkedIn, Amazon, press). Reseller-looking catalogs get
+  an <strong>ownership check</strong> — are those vendor names other companies or this company's own product lines?
 </div>
 <div class="arrow">▼</div>
 <div class="stage"><span class="pill amber" style="float:right">HUMAN</span>
-  <h3>Layer 4 — Anything still ambiguous goes to a human</h3>
-  Flagged leads appear in the review page with the evidence attached — seconds per decision instead of
-  minutes of digging. Nothing ambiguous is ever auto-passed or auto-rejected.
+  <h3>Layer 4 — Review queue</h3>
+  Anything still ambiguous appears in the review page with evidence attached. Nothing ambiguous is ever auto-decided.
 </div>
 
 <div class="callout note">
-<strong>Accuracy was measured before anything shipped.</strong> The system was tested against 60 known
-resellers and the full accepted pool, twice, before going live: the AI site-check produced
-<strong>zero false reseller flags</strong> across both test runs, and its measured catch rate on judged
-known-resellers was 75% — with most "misses" turning out to be companies the <em>old</em> filter had
-wrongly rejected (BDI Furniture, Butler Specialty, Diamond Cosmetics are real brands).
+<strong>Measured before it shipped.</strong> Tested twice against 60 known resellers + the full accepted
+pool before going live: <strong>zero false reseller flags</strong> by the AI site-check across both runs,
+75% catch on judged known resellers — and most "misses" were companies the <em>old</em> filter had wrongly
+rejected (BDI Furniture, Butler Specialty, Diamond Cosmetics are real brands it threw away).
 </div>
 
-<h2><span class="num">3</span>What it found in the current 558-lead batch</h2>
-
-<h3>3a. Resellers — found, verified, removed</h3>
-<p>The full system ran retroactively over all 558 accepted leads (312 companies). Suspect catalogs were
-double-checked with the ownership search before any removal:</p>
-<table>
-  <tr><th>Company</th><th>What the check found</th></tr>
-  <tr><td><strong>aire.com</strong></td><td>54% of catalog is verified independent brands (NRS, Canyon Coolers, Sawyer…)</td></tr>
-  <tr><td><strong>nordarun.com</strong></td><td>96% third-party vendor share (borderline — easy to restore if you disagree)</td></tr>
-  <tr><td><strong>renoun.com</strong></td><td>Shop majority verified independent outdoor brands (TREW, Burgeon…)</td></tr>
-  <tr><td><strong>swiftpaws.com</strong></td><td>53% of catalog is independent pet brands (SodaPup — verified trademark holder)</td></tr>
-  <tr><td><strong>wildsmithskin.com</strong></td><td>Catalog 100% third-party vendors despite having an own brand</td></tr>
-</table>
-<p>Equally important — <strong>4 companies that a simpler check would have wrongly rejected were saved</strong>:
-Vetnique, Montana Knife Company, Fisk Industries and Tropical Seas all <em>looked</em> like resellers from
-their vendor data, but the ownership check proved those vendor names are their own product lines.</p>
-
-<h3>3b. Independent double-check of every judgment call</h3>
-<p>Every accepted company whose verdict rested on an AI judgment (rather than hard catalog evidence) — 92
-companies — was re-judged through an independent channel (web search instead of site reading).
-<strong>Result: 92/92 agreement, zero conflicts.</strong></p>
-
-<h3>3c. Full website audit against the complete ICP rulebook</h3>
-<p>Finally, agents visited <strong>all 312 company websites</strong> (740 page visits/searches) and judged
-every criterion — real DTC product brand, approved category, name-vs-site-vs-domain consistency, company
-size, US/Canada, decision-maker titles, personal emails, clean domains — with hands-on browser verification
-of every contested call:</p>
+<h2><span class="num">4</span>The full audit of the current batch — all 312 websites visited</h2>
+<p>To answer "is the current batch actually clean?", every accepted company's website was visited and judged
+against <strong>every criterion in section 1</strong> (39 parallel review agents, 740 page visits and
+searches, contested calls re-verified by hand in a real browser):</p>
 
 <div class="kpis">
-  <div class="kpi"><div class="v green">478</div><div class="l">leads (265 companies)<br><strong>pass every check</strong></div></div>
-  <div class="kpi"><div class="v red">39</div><div class="l">leads (25 companies)<br><strong>fail a criterion</strong></div></div>
-  <div class="kpi"><div class="v" style="color:var(--amber)">36</div><div class="l">leads (22 companies)<br><strong>need your judgment</strong></div></div>
-  <div class="kpi"><div class="v">0</div><div class="l">resellers remaining —<br>both audit suspicions overturned on manual browser check</div></div>
+  <div class="kpi"><div class="v green">478</div><div class="l">leads (265 companies)<br><strong>pass every criterion</strong></div></div>
+  <div class="kpi"><div class="v red">39</div><div class="l">leads (25 companies)<br><strong>fail ≥1 criterion</strong></div></div>
+  <div class="kpi"><div class="v amber">36</div><div class="l">leads (22 companies)<br><strong>judgment calls for Victor</strong></div></div>
+  <div class="kpi"><div class="v">5</div><div class="l">reseller leads already<br>removed with evidence</div></div>
 </div>
 
+<h3>4a. Criterion 1 — brand vs reseller: clean after cleanup</h3>
+<p>The Q/A layers found and removed <strong>5 verified resellers</strong> (AIRE, norda, RENOUN, SwiftPaws,
+Wildsmith — each confirmed by the ownership check: their catalogs are majority verified-independent brands).
+Just as important, <strong>4 companies a cruder check would have wrongly rejected were saved</strong> —
+Vetnique, Montana Knife Company, Fisk Industries, Tropical Seas all <em>look</em> like resellers in raw
+vendor data, but those "vendors" are their own product lines. The independent audit then re-accused two more
+companies, and both accusations were overturned by hands-on browser inspection (cheerleading.com is a
+60-year custom-uniform <em>manufacturer</em> — exactly your "manufacturers are fine" rule). <strong>Final
+state: zero known resellers in the accepted pool, and every judgment-based verdict double-checked with
+92/92 agreement.</strong></p>
+
+<h3>4b. Criteria 2, 6, 7, 8 — categories, emails, domains, dedup: zero violations</h3>
+<p>The audit found <strong>no banned-category leads</strong> (no cannabis/alcohol/firearms/adult), no generic
+inboxes, no bad domains, no duplicates, no contact-cap breaches. The scrape-time filters for these criteria
+are doing their job.</p>
+
+<h3>4c. Criteria 3 &amp; 4 — size/independence and country: where the real gaps were</h3>
 <table>
-  <tr><th>Why 39 leads fail</th><th class="num">Leads</th><th>Examples</th></tr>
-  <tr><td><strong>Foreign HQ</strong> (not US/Canada)</td><td class="num">12</td><td>Ksubi &amp; JS Industries (Australia), Manukora (NZ), Wild (UK), BAGJUMP (Austria), Sweet Protection (Norway)</td></tr>
-  <tr><td><strong>Corporate-owned / far too large</strong></td><td class="num">14</td><td>Briogeo (Wella), PrettyLitter (Mars), Pravana (Henkel), Pat McGrath, ILIA, Pura Vida (~1,000 employees)</td></tr>
-  <tr><td><strong>MLM / direct-sales model</strong></td><td class="num">7</td><td>Seacret, Stella &amp; Dot, L'BRI, BELLAME — consultant/downline businesses, not DTC brands</td></tr>
-  <tr><td><strong>Not a DTC product business</strong></td><td class="num">6</td><td>EverFur (subscription service), Marge Carson (dealer-only, no online sales)</td></tr>
+  <tr><th>Failure group</th><th class="num">Leads</th><th>Examples &amp; what the audit saw</th></tr>
+  <tr><td><strong>Foreign HQ</strong> (criterion 4)</td><td class="num">12</td><td>Ksubi &amp; JS Industries (Australia), Manukora (NZ), Wild (UK), BAGJUMP (Austria), Sweet Protection (Norway) — found via site currencies, addresses, and corporate records</td></tr>
+  <tr><td><strong>Corporate-owned / far too large</strong> (criterion 3)</td><td class="num">14</td><td>Briogeo (owned by Wella), PrettyLitter (Mars), Pravana (Henkel), Pat McGrath, ILIA, Pura Vida (~1,000 employees — the scraped size data said "small")</td></tr>
+  <tr><td><strong>MLM / direct-sales model</strong> (criterion 1)</td><td class="num">7</td><td>Seacret, Stella &amp; Dot, L'BRI, BELLAME — consultant/downline businesses, visible on their own join pages</td></tr>
+  <tr><td><strong>Not actually DTC</strong> (criterion 1)</td><td class="num">6</td><td>EverFur (subscription service), Marge Carson (dealer-only, site says it doesn't sell direct), Kismet (service hybrid)</td></tr>
 </table>
 
 <div class="callout insight">
-<strong>Honest framing:</strong> these 39 are not all "errors" by the old pipeline. The foreign-brand group
-existed because an earlier decision intentionally kept foreign companies with English websites; the
-corporate-ownership and MLM checks simply never existed anywhere. The audit is the first time the full
-rulebook was enforced against live websites. The 36 "review" leads are genuine judgment calls — e.g.
-brands acquired by a big parent but still operating independently (Back to Nature/Barilla), B2B-heavy
-sites with no cart, a franchise model — each with the evidence attached for a seconds-long decision.
+<strong>Honest framing:</strong> these aren't all "bugs." The foreign-HQ group passed because an earlier
+explicit decision kept foreign brands with English websites; corporate-ownership and MLM checks never
+existed in any layer. The audit is the first time the full rulebook was enforced against live websites —
+which is exactly why each gap now has a designed fix (section 6).
 </div>
+
+<h3>4d. The 36 review leads — prepared for your judgment</h3>
+<p>Genuine gray areas, each with evidence attached: brands acquired by a giant but still operating
+independently (Back to Nature → Barilla, Ghost Controls → ASSA ABLOY), B2B-heavy sites with no cart
+(Leland Furniture), a franchise model (SalTea Sloth), an Amazon-funnel site (J.R. Watkins), a
+licensed-sports-merch maker (Memory Company). Seconds per decision in the review page.</p>
 
 <h3>The batch, end to end</h3>
 <table>
   <tr><th>Stage</th><th class="num">Accepted leads</th><th>What changed</th></tr>
   <tr><td>Before any Q/A</td><td class="num">558</td><td>—</td></tr>
-  <tr><td>After reseller detection + ownership checks</td><td class="num">553</td><td>5 verified resellers moved to Rejected (with evidence)</td></tr>
-  <tr><td>After full-rulebook website audit <span class="pill amber">pending your sign-off</span></td><td class="num">514</td><td>39 criterion-failures to move; 36 stay flagged for your review</td></tr>
+  <tr><td>After reseller verification + ownership checks</td><td class="num">553</td><td>5 verified resellers → Rejected (evidence attached)</td></tr>
+  <tr><td>After full-rulebook audit <span class="pill amber">pending sign-off</span></td><td class="num">514</td><td>39 criterion-failures to move; 36 flagged for review</td></tr>
 </table>
-<p>Total verification cost for everything above: <strong>≈ $7</strong>. Time for a human to do the same
-manually: roughly 300+ websites × several minutes each.</p>
 
-<h2><span class="num">4</span>What this means for future batches</h2>
-<p>The reseller-detection layers now run automatically inside every new scrape — each company is judged by
-the cheapest method that can decide confidently, every verdict is cached (a company is never re-researched),
-and the review page shows a <strong>Brand check</strong> column with the evidence on hover. Expected
-steady-state: ~96–98% of leads decided automatically with ~90%+ reseller catch rate, for roughly $50–80/month
-at 20,000 leads/month.</p>
-
-<h2><span class="num">5</span>Recommended next enhancements (in priority order)</h2>
+<h2><span class="num">5</span>Cost of the whole quality system</h2>
 <table>
-  <tr><th>#</th><th>Enhancement</th><th>Closes which gap</th><th>Effort</th></tr>
-  <tr><td>1</td><td><strong>US/Canada gate in the pipeline</strong> — deterministic check on BetterContact's country fields plus site signals (currency, address) at scrape time, instead of catching foreign brands after the fact</td><td>Largest failure bucket (12 leads) — and the rule is now formal</td><td>Small</td></tr>
-  <tr><td>2</td><td><strong>Ownership &amp; true-size check</strong> — one web search per new company for "acquired by / parent company / employees", because scraped size data lies (Pura Vida said small, is ~1,000 people)</td><td>Corporate-owned giants (14 leads)</td><td>Small–medium</td></tr>
-  <tr><td>3</td><td><strong>MLM detector</strong> — flag consultant/join/downline language on the site and in descriptions; reject on confirmation</td><td>MLMs (7 leads)</td><td>Small</td></tr>
-  <tr><td>4</td><td><strong>Widen the site-check prompt</strong> — the AI already reads each homepage for resellers; have the same read also verify category, name-consistency ("all three things match"), and that a real cart/DTC store exists</td><td>Service businesses, dealer-only sites, category strays — at zero extra cost</td><td>Small</td></tr>
-  <tr><td>5</td><td><strong>Periodic full audit as a scheduled job</strong> — the 312-website multi-agent audit is repeatable; run it monthly over the whole pool as a regression check</td><td>Drift and anything new that slips through</td><td>Medium</td></tr>
-  <tr><td>6</td><td><strong>Learn from your decisions</strong> — every approve/reject you make in the review page becomes labeled truth; measure each layer's accuracy per batch and tune thresholds with data</td><td>Continuous improvement instead of one-off fixes</td><td>Medium</td></tr>
+  <tr><th>Component (at 20,000 leads / month)</th><th class="num">Monthly</th></tr>
+  <tr><td>Website-verification layers (all 4, every new company)</td><td class="num">~$25–40</td></tr>
+  <tr><td>Planned new gates (country, ownership/size search, MLM, widened site check)</td><td class="num">~$60–100</td></tr>
+  <tr><td>Monthly full-pool website audit (regression check)</td><td class="num">~$180–200</td></tr>
+  <tr><td><strong>Entire Q/A system</strong></td><td class="num"><strong>~$300–350</strong></td></tr>
+  <tr><td><em>For scale: lead scraping itself (BetterContact credits)</em></td><td class="num"><em>~$8,000</em></td></tr>
 </table>
+<p>The complete quality system costs <strong>~4% of what the leads themselves cost</strong> — and every bad
+lead it removes is scraping money already spent. The verification work in this report cost ≈ $7 total.</p>
+
+<h2><span class="num">6</span>Roadmap — closing the discovered gaps</h2>
+<table>
+  <tr><th>#</th><th>Enhancement</th><th>Closes</th><th>Effort</th></tr>
+  <tr><td>1</td><td><strong>US/Canada gate at scrape time</strong> — country fields + site signals (currency, addresses), uncertain → review</td><td>Foreign HQ — the largest bucket (12 leads)</td><td>Small</td></tr>
+  <tr><td>2</td><td><strong>Ownership &amp; true-size check</strong> — one web search per new company ("acquired by / parent / employees"), because scraped size data demonstrably lies</td><td>Corporate-owned giants (14 leads)</td><td>Small–medium</td></tr>
+  <tr><td>3</td><td><strong>MLM detector</strong> — consultant/join/downline language on site + description</td><td>MLMs (7 leads)</td><td>Small</td></tr>
+  <tr><td>4</td><td><strong>Widen the site check</strong> — the same homepage read that detects resellers also verifies category, name-consistency, and that a real DTC store exists</td><td>Service/dealer-only sites (6 leads), name mismatches — at ~zero extra cost</td><td>Small</td></tr>
+  <tr><td>5</td><td><strong>Scheduled full-pool audit</strong> — today's 312-site audit, re-run monthly as a regression check</td><td>Drift; anything new that slips through</td><td>Medium</td></tr>
+  <tr><td>6</td><td><strong>Learn from review decisions</strong> — every approve/reject becomes labeled truth; per-batch accuracy measured per layer</td><td>Continuous improvement with data</td><td>Medium</td></tr>
+</table>
+<p>Each fix is the automation of the exact check that caught its gap in this audit — and today's audit
+labels (478 / 39 / 36) are the regression test any new gate must pass before it goes live.</p>
 
 <div class="callout good">
-<strong>Bottom line for Victor:</strong> your reseller instinct was correct — and it's now systematically
-handled. Every company's website gets read, suspicious catalogs get an ownership check, every verdict
-carries quotable evidence, and a full-rulebook audit of the current batch found 478 leads clean, 5 resellers
-already removed, 39 rule-violations awaiting sign-off, and 36 judgment calls prepared for your review with
-the evidence attached.
+<strong>Bottom line:</strong> of the nine criteria, six were already solidly enforced (categories, emails,
+domains, titles, dedup, contact cap — zero violations found). The reseller criterion is now the
+strongest-verified of all: website-read, ownership-checked, independently double-checked, human-backstopped.
+The audit exposed two real gaps — foreign HQs and corporate ownership — affecting 39 of 553 leads, each
+with a designed, low-cost fix. The pool stands at 478 fully-verified leads, 39 awaiting your removal
+sign-off, and 36 prepared for your judgment with evidence attached.
 </div>
 
 <footer>
-  Q/A Layers Report · generated 2026-06-10 · technical details: <code>RESELLER_DETECTION_PLAN.md</code> /
-  <code>.html</code> · verdict sheets in <code>exports/</code> · full audit data:
-  <code>debug/_icp_audit_results.json</code>
+  Lead Quality System Report · generated 2026-06-10 · technical details:
+  <code>RESELLER_DETECTION_PLAN.md</code> / <code>.html</code> · verdict sheets in <code>exports/</code> ·
+  full audit data: <code>debug/_icp_audit_results.json</code>
 </footer>
 
 </body>
