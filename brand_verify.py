@@ -13,8 +13,15 @@ Funnel implemented here:
              names and internal codes that no rule can recognize)
   Stage 1a SmartScout/Amazon confirm (token_sort_ratio + domain corroboration
            + retailer-vocab guard — Phase 0 fixes)
-  (Stage 2 site-fetch + LLM lands in Phase 2; until then unresolved domains
-   get verdict 'unknown' and pass through flagged, never auto-rejected.)
+  Stage 2  homepage fetch + signal extraction + one site-LLM verdict
+           (prompts/brand_verify.txt, bv1 — Phase 0 measured: 0 false
+           reseller flags on the accepted set across two runs).
+           Confidence gating is asymmetric: 'reseller' only acts on HIGH
+           confidence (a wrong rejection is a paid-for lead lost);
+           'brand' acts on high or medium. Everything else -> unknown.
+  (Stage 3 web-search fallback lands in Phase 3; until then unresolved
+   domains get verdict 'unknown' and pass through flagged, never
+   auto-rejected.)
 
 Cache policy: only decisive verdicts (brand/reseller) are written to
 domain_brand_verdicts; 'unknown' is re-derivable and caching it would stop
@@ -34,6 +41,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import requests
+from bs4 import BeautifulSoup
 from rapidfuzz import fuzz, process
 
 from smartscout_upload import normalize_brand
@@ -41,6 +49,7 @@ from smartscout_upload import normalize_brand
 PROMPT_VERSION = "bv1"
 MODEL = "claude-haiku-4-5"
 ARBITRATE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_vendor_arbitrate.txt"
+SITE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify.txt"
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -60,6 +69,22 @@ VENDOR_NOISE = {
     "navidium", "corso", "seel", "extend", "clydetechnologiesinc",
     "giftcard", "giftcards", "shopifycollective", "savedby",
 }
+
+# Stage 2 deterministic features fed to the site-LLM alongside the page text.
+RESELLER_PHRASES = [
+    "authorized dealer", "authorised dealer", "authorized retailer",
+    "official stockist", "official retailer of", "we carry brands",
+    "brands we carry", "shop all brands", "shop by brand", "our brands a-z",
+    "top brands", "browse brands", "all brands",
+]
+BRAND_PHRASES = [
+    "we make", "we manufacture", "we design", "our formula", "we craft",
+    "handcrafted by", "made by us", "we created", "our founder",
+    "we developed", "family-owned and operated",
+]
+SHOP_BY_BRAND_NAV = re.compile(
+    r"shop\s+by\s+brand|our\s+brands|brands\s+a\s*-\s*z|all\s+brands|by\s+brand",
+    re.IGNORECASE)
 
 # Company names built from retailer vocabulary collide with same-named Amazon
 # brands ("Epic Sports"); a name match alone can't prove brand ownership.
@@ -206,12 +231,22 @@ def _shopify_probe(entry: dict) -> None:
         entry["flag"] = detail
 
 
+_client = None
+
+
+def _llm_client():
+    global _client
+    if _client is None:
+        import anthropic
+        _client = anthropic.Anthropic()
+    return _client
+
+
 def _arbitrate_flags(flags: list[dict], on_log) -> None:
     """One Haiku call per probe-flagged domain, judging the vendor list."""
     if not flags:
         return
-    import anthropic
-    client = anthropic.Anthropic()
+    client = _llm_client()
     system = ARBITRATE_PROMPT.read_text(encoding="utf-8")
     for entry in flags:
         payload = {"company_name": entry["company"],
@@ -237,6 +272,121 @@ def _arbitrate_flags(flags: list[dict], on_log) -> None:
             confidence=out.get("confidence", "low"),
             evidence=f"{out.get('reason', '')} | {entry['flag']}"[:2000],
         )
+
+
+# ---------------------------------------------------------------------------
+# Stage 2 — homepage fetch + signal extraction + site-LLM verdict
+# ---------------------------------------------------------------------------
+
+def _fetch_homepage(entry: dict) -> None:
+    """Fetch the homepage HTML into entry['_html']; polite 429 handling."""
+    dom = entry["domain"]
+    last_status = "error:unknown"
+    for scheme in ("https", "http"):
+        for attempt in (1, 2):
+            try:
+                r = requests.get(f"{scheme}://{dom}/",
+                                 headers={"User-Agent": UA},
+                                 timeout=FETCH_TIMEOUT, allow_redirects=True)
+            except requests.RequestException as e:
+                last_status = f"error:{type(e).__name__}"
+                break
+            if r.status_code == 429 and attempt == 1:
+                time.sleep(RETRY_429_SLEEP_S)
+                continue
+            last_status = f"http_{r.status_code}"
+            if r.status_code == 200 and r.text:
+                entry["fetch_status"] = "ok"
+                entry["_html"] = r.text[:600_000]
+                return
+            break
+    entry["fetch_status"] = last_status
+
+
+def _extract_signals(entry: dict) -> None:
+    """Build entry['homepage'] + entry['features'] from the fetched HTML."""
+    html = entry.pop("_html", None)
+    if not html:
+        return
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception:
+        entry["fetch_status"] = "parse_error"
+        return
+    for tag in soup(["script", "style", "noscript", "svg", "iframe"]):
+        tag.decompose()
+
+    title = (soup.title.string or "").strip() if soup.title else ""
+    meta = ""
+    md = soup.find("meta", attrs={"name": "description"})
+    if md:
+        meta = (md.get("content") or "").strip()
+    nav_texts = []
+    for nav in soup.find_all(["nav", "header"]):
+        nav_texts += [a.get_text(" ", strip=True) for a in nav.find_all("a")]
+    nav_str = " | ".join(t for t in dict.fromkeys(nav_texts) if t)[:1500]
+    footer = soup.find("footer")
+    footer_str = footer.get_text(" ", strip=True)[:800] if footer else ""
+    body = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))[:8000]
+
+    if len(body) < 300:
+        entry["fetch_status"] = "empty_body"
+        return
+
+    lower_all = f"{nav_str} {body}".lower()
+    entry["homepage"] = {"title": title, "meta_description": meta,
+                         "nav": nav_str, "footer": footer_str,
+                         "body_excerpt": body[:4000]}
+    entry["features"] = {
+        "shopify_vendor_count": entry.get("vendor_count"),
+        "nav_has_shop_by_brand": bool(SHOP_BY_BRAND_NAV.search(nav_str)),
+        "reseller_phrase_hits": sum(lower_all.count(p) for p in RESELLER_PHRASES),
+        "brand_phrase_hits": sum(lower_all.count(p) for p in BRAND_PHRASES),
+    }
+
+
+def _site_llm_verdicts(entries: list[dict], on_log) -> None:
+    """One Haiku call per fetched homepage, asymmetric confidence gating."""
+    if not entries:
+        return
+    client = _llm_client()
+    system = SITE_PROMPT.read_text(encoding="utf-8")
+    for entry in entries:
+        payload = {
+            "company_name": entry["company"],
+            "domain": entry["domain"],
+            "third_party_description": (entry.get("description") or "")[:1200],
+            "homepage": entry["homepage"],
+            "features": entry["features"],
+        }
+        try:
+            resp = client.messages.create(
+                model=MODEL, max_tokens=300, temperature=0, system=system,
+                messages=[{"role": "user",
+                           "content": json.dumps(payload, ensure_ascii=False)}],
+            )
+            text = resp.content[0].text.strip()
+            text = re.sub(r"^```(json)?|```$", "", text, flags=re.MULTILINE).strip()
+            out = json.loads(text)
+            label = out.get("label")
+            assert label in ("brand", "reseller", "unknown")
+        except Exception as e:
+            on_log(f"    brand_verify: site-LLM failed for {entry['domain']}: {e}")
+            continue
+        conf = out.get("confidence", "low")
+        evidence = (f"[{out.get('primary_signal', '?')}] "
+                    f"{out.get('evidence_quote', '')}")[:2000]
+        # Asymmetric gate: rejecting a real brand costs a paid-for lead, so
+        # 'reseller' acts only on high confidence; 'brand' on high or medium.
+        # Everything else stays unresolved (-> Stage 3 / human review).
+        if label == "reseller" and conf == "high":
+            entry.update(verdict="reseller", method="site_llm",
+                         confidence=conf, evidence=evidence)
+        elif label == "brand" and conf in ("high", "medium"):
+            entry.update(verdict="brand", method="site_llm",
+                         confidence=conf, evidence=evidence)
+        else:
+            entry["site_llm_note"] = f"{label}/{conf}: {evidence[:300]}"
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +451,8 @@ def verify_domains(conn, leads: list[dict], on_log=print) -> dict[str, dict]:
         dom = norm_domain(lead.get("company_domain"))
         if dom and dom not in entries:
             entries[dom] = {"domain": dom,
-                            "company": lead.get("company_name") or ""}
+                            "company": lead.get("company_name") or "",
+                            "description": lead.get("company_description")}
     if not entries:
         return {}
 
@@ -324,12 +475,26 @@ def verify_domains(conn, leads: list[dict], on_log=print) -> dict[str, dict]:
     # Stage 1a — SmartScout confirm on the remainder.
     _smartscout_confirm(conn, fresh)
 
-    # Unresolved -> unknown (Stage 2 in Phase 2; never auto-rejected).
+    # Stage 2 — homepage fetch + site-LLM on whatever the free layer left.
+    todo = [e for e in fresh if "verdict" not in e]
+    if todo:
+        with ThreadPoolExecutor(PROBE_WORKERS) as ex:
+            list(ex.map(_fetch_homepage, todo))
+        for e in todo:
+            _extract_signals(e)
+        judgeable = [e for e in todo if e.get("homepage")]
+        on_log(f"    brand_verify: stage 2 — {len(judgeable)}/{len(todo)} "
+               f"homepages fetched, judging via {MODEL}")
+        _site_llm_verdicts(judgeable, on_log)
+
+    # Unresolved -> unknown (Stage 3 in Phase 3; never auto-rejected).
     for e in fresh:
         if "verdict" not in e:
+            note = e.get("site_llm_note") or (
+                f"fetch: {e.get('fetch_status', '-')}, "
+                f"probe: {e.get('probe_status', '-')}")
             e.update(verdict="unknown", method="none", confidence=None,
-                     evidence=f"unresolved by free layer "
-                              f"(probe: {e.get('probe_status', '-')})")
+                     evidence=f"unresolved (stages 0-2): {note}"[:1000])
 
     _cache_write(conn, entries)
     counts = Counter(e["verdict"] for e in entries.values())

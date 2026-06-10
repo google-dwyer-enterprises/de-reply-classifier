@@ -98,7 +98,7 @@
 <header>
   <h1>Reseller Detection</h1>
   <div class="tag">Implementation plan — keeping reseller websites out of the lead batches<br>
-  Branch <code>feat/reseller-detection</code> · Status: <strong>Phase&nbsp;0 measured — GO · Phase&nbsp;1 in progress</strong> · 2026-06-10</div>
+  Branch <code>feat/reseller-detection</code> · Status: <strong>Phases&nbsp;0–2 done · Phase&nbsp;3 (web-research fallback + review routing) next</strong> · 2026-06-10</div>
 </header>
 
 <h2><span class="num">1</span>The problem (Victor's loom, June 10)</h2>
@@ -197,12 +197,12 @@ human time are spent only where genuinely needed.</p>
   <tr><td><strong>0 — Diagnostic</strong> <span class="pill cheap">~$5, read-only</span></td>
       <td>Run Stages 0–2 retroactively over the 558 leads Victor/Jam already reviewed and score the AI against their real verdicts. Also flags any resellers already sitting in the accepted set.</td>
       <td><strong>Go/no-go:</strong> build only if precision ≥90% and false rejections &lt;2%; otherwise iterate the prompt and re-measure</td></tr>
-  <tr><td><strong>1 — Free layer</strong></td>
-      <td>Amazon confirm + Shopify probe + verdict cache wired into the pipeline</td>
-      <td>Clearest resellers caught immediately, $0, no new failure modes</td></tr>
-  <tr><td><strong>2 — Site read + AI</strong></td>
-      <td>Homepage fetch, signal extraction, the Haiku verdict call</td>
-      <td>The bulk of coverage; full batch runs end-to-end on Railway</td></tr>
+  <tr><td><strong>1 — Free layer</strong> <span class="pill free">DONE</span></td>
+      <td>Amazon confirm + Shopify probe + verdict cache wired into the pipeline; flagged catalogs are AI-confirmed with the vendor list in hand</td>
+      <td>Clearest resellers caught immediately, ~$0, no new failure modes</td></tr>
+  <tr><td><strong>2 — Site read + AI</strong> <span class="pill free">DONE</span></td>
+      <td>Homepage fetch (polite pacing), signal extraction, the Haiku verdict call. Rejection requires <em>high</em> AI confidence; uncertain stays flagged-but-kept</td>
+      <td>The bulk of coverage; first production batch validates end-to-end on Railway</td></tr>
   <tr><td><strong>3 — Web research + routing</strong></td>
       <td>Search-based fallback; ambiguous leads surface in the reviewer with evidence</td>
       <td>Unreachable-website companies get verdicts too</td></tr>

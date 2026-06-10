@@ -1,8 +1,10 @@
 # Reseller Detection — Implementation Plan
 
-**Status:** Phase 0 DONE — **GO** (2026-06-10, two diagnostic runs over 317
-accepted + 60 known-reseller domains, see §10). Phase 1 (free layer) in
-progress on this branch.
+**Status:** Phases 0–2 DONE (2026-06-10). Phase 0 measured GO (see §10);
+Phase 1 (free layer) and Phase 2 (site fetch + LLM) are built, smoke-verified
+and wired into `bettercontact_sync.py` on this branch. Next: Phase 3
+(web-search fallback for unreachable sites + unknown-flag surfacing in the
+lead reviewer).
 
 **Trigger:** Victor's loom review (2026-06-10) — reseller websites are slipping
 into the accepted batches. Example: a shop selling Snap Circuits where the
@@ -181,10 +183,17 @@ threshold raised 1h → 3h. Smoke-verified on real domains: aire.com →
 reseller, truelinkswear/tuftandpaw (Phase 0 false flags) → brand via
 arbitration, cache short-circuits repeat domains.
 
-### Phase 2 — Site fetch + LLM — ~1-2 sessions
-`_fetch_homepage` / `_extract_signals` / `_site_llm_verdict` + prompt.
-The bulk of the coverage. Acceptance: a full scrape batch runs end-to-end on
-Railway within the (raised) stuck threshold; spot-check 30 verdicts.
+### Phase 2 — Site fetch + LLM — DONE (2026-06-10)
+`_fetch_homepage` / `_extract_signals` / `_site_llm_verdicts` in
+`brand_verify.py`, using `prompts/brand_verify.txt` (bv1, unchanged from the
+measured Phase 0 run). Polite fetch (4 workers, retry-on-429). Confidence
+gating is **asymmetric**: `reseller` acts only on HIGH confidence (a wrong
+rejection is a paid-for lead lost); `brand` acts on high or medium; the rest
+stays `unknown`. Smoke-verified: archerycountry.com → reseller/high (footer
+brand list quoted), bdiusa.com + stryd.com → brand/high, epicsports.com
+(bot-blocked 403) → unknown, never guessed. Remaining acceptance item — a
+full scrape batch end-to-end on Railway — happens with the first production
+batch after merge.
 
 ### Phase 3 — Agentic escalation + review routing — ~1 session
 `_agentic_verdict` + `unknown`-flag surfacing in the reviewer UI (evidence
