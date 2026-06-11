@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cost Resequencing Plan — Pay Less for the Same Leads</title>
+<style>
+  :root {
+    --fg: #1a1d23; --muted: #5e6470; --bg: #fafafa; --card: #ffffff;
+    --border: #e1e4e8; --accent: #0550ae; --accent-soft: #ddeefc;
+    --green: #1a7f37; --green-soft: #ddf4e3; --amber: #9a6700;
+    --amber-soft: #fff4cc; --red: #cf222e; --red-soft: #ffeef0;
+    --pill-bg: #f0f4f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.6;
+    max-width: 1020px; margin: 0 auto; padding: 32px 28px 80px;
+  }
+  header { text-align: center; padding: 24px 0 28px; border-bottom: 1px solid var(--border); margin-bottom: 32px; }
+  header h1 { font-size: 2.1em; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+  header .tag { color: var(--muted); font-size: 1.05em; }
+  h2 { font-size: 1.5em; font-weight: 700; margin: 48px 0 16px; letter-spacing: -0.01em; }
+  h2 .num {
+    display: inline-block; width: 36px; height: 36px; background: var(--accent);
+    color: white; border-radius: 50%; text-align: center; line-height: 36px;
+    font-size: 0.8em; margin-right: 10px; vertical-align: middle;
+  }
+  h3 { font-size: 1.15em; margin: 26px 0 10px; font-weight: 600; }
+  p { margin: 0.6em 0; }
+  code { font-family: ui-monospace, "SF Mono", Consolas, monospace; background: var(--pill-bg); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.95em; }
+  th, td { padding: 9px 11px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--pill-bg); font-weight: 600; font-size: 0.9em; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .callout { border-radius: 10px; padding: 18px 22px; margin: 16px 0; }
+  .callout.insight { background: #fff8c5; border-left: 4px solid #d4a72c; }
+  .callout.note    { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.caution { background: var(--red-soft); border-left: 4px solid var(--red); }
+  .callout.good    { background: var(--green-soft); border-left: 4px solid var(--green); }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.78em; font-weight: 600; vertical-align: middle; white-space: nowrap; }
+  .pill.green { background: var(--green-soft); color: var(--green); }
+  .pill.red   { background: var(--red-soft); color: var(--red); }
+  .pill.amber { background: var(--amber-soft); color: var(--amber); }
+  .pill.blue  { background: var(--accent-soft); color: var(--accent); }
+  .kpis { display: flex; gap: 14px; flex-wrap: wrap; margin: 18px 0; }
+  .kpi { flex: 1 1 170px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; text-align: center; }
+  .kpi .v { font-size: 1.6em; font-weight: 700; color: var(--accent); }
+  .kpi .v.red { color: var(--red); }
+  .kpi .v.green { color: var(--green); }
+  .kpi .l { color: var(--muted); font-size: 0.85em; margin-top: 2px; }
+  .stage { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px; margin: 10px 0; }
+  .stage h3 { margin: 0 0 4px; }
+  .bar { height: 22px; border-radius: 6px; background: var(--red-soft); position: relative; margin: 4px 0 14px; overflow: hidden; }
+  .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--green-soft); border-right: 2px solid var(--green); }
+  .bar .label { position: absolute; left: 10px; top: 0; line-height: 22px; font-size: 0.82em; font-weight: 600; }
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Cost Resequencing Plan</h1>
+  <div class="tag">The scraping pipeline works — now make it stop paying for leads it throws away.<br>
+  Every number measured from production runs or verified provider documentation · June 11, 2026</div>
+</header>
+
+<h2><span class="num">1</span>The problem, measured</h2>
+<p>The pipeline was built to <em>work first</em> — quality gates were added wherever they fit. The result:
+most rejection happens <strong>after</strong> BetterContact has already charged us for the lead's email.
+From yesterday's real production run (1,428 credits, 343 leads accepted):</p>
+
+<div class="kpis">
+  <div class="kpi"><div class="v red">67%</div><div class="l">of paid-for leads discarded<br>by our own later checks</div></div>
+  <div class="kpi"><div class="v red">~960</div><div class="l">credits wasted in that<br>single run (~⅔ of spend)</div></div>
+  <div class="kpi"><div class="v">236</div><div class="l">paid <strong>duplicates</strong> — leads<br>we already owned</div></div>
+  <div class="kpi"><div class="v">5.0</div><div class="l">credits per accepted lead,<br>lifetime average</div></div>
+</div>
+
+<table>
+  <tr><th>What happened to the paid leads</th><th class="num">Count</th><th class="num">% of paid</th><th>Could it have been free?</th></tr>
+  <tr><td>✅ Accepted</td><td class="num">343</td><td class="num">33%</td><td>—</td></tr>
+  <tr><td>Duplicate — we already had this lead</td><td class="num">236</td><td class="num">22%</td><td><span class="pill green">YES</span> exclusion filter exists, unused</td></tr>
+  <tr><td>AI gate rejects (resellers, services, agencies)</td><td class="num">~140</td><td class="num">13%</td><td><span class="pill amber">PARTLY</span> better targeting shrinks junk</td></tr>
+  <tr><td>Over the 3-contacts-per-company cap</td><td class="num">67</td><td class="num">6%</td><td><span class="pill green">YES</span> exclude capped companies</td></tr>
+  <tr><td>Wrong job title (sales VPs, finance…)</td><td class="num">~15+</td><td class="num">~3%</td><td><span class="pill green">YES</span> server-side title filter exists, unused</td></tr>
+  <tr><td>Category/domain/language rules + tail</td><td class="num">~250</td><td class="num">~23%</td><td><span class="pill amber">PARTLY</span></td></tr>
+</table>
+
+<div class="callout insight">
+<strong>Scale check:</strong> BetterContact credits outweigh every other pipeline cost (AI calls, web
+searches, MillionVerifier) by <strong>50–100×</strong>. At the 20,000-leads/month target, the waste class
+above is roughly <strong>25–40k credits per month</strong>. That's where this plan aims first.
+</div>
+
+<h2><span class="num">2</span>Two myths the data killed</h2>
+<table>
+  <tr><th>Belief</th><th>What the measurements say</th></tr>
+  <tr><td>"Deeper search pages get more expensive"</td><td><strong>Refuted.</strong> Healthy industry segments were flat (3.3–5.1 credits/accepted) across all page depths. The one expensive run (11.6) came from <em>exhausted segments scraped without the US/CA filter</em> — so the fix is segment health tracking, not page resets.</td></tr>
+  <tr><td>"Leads without an email cost nothing"</td><td><strong>Doubtful.</strong> BC's own API example implies a small fee per returned result slot, and our books show 1.35 credits per stored lead. A 2-minute probe (§5) settles it.</td></tr>
+</table>
+
+<h2><span class="num">3</span>What the providers support that we don't use (verified in their docs)</h2>
+
+<div class="stage"><span class="pill green" style="float:right">UNUSED — FREE WIN</span>
+  <h3>BetterContact: server-side title &amp; seniority filters</h3>
+  The Lead Finder accepts <code>lead_job_title</code> include/exclude and a <code>lead_seniority</code>
+  enum (<em>owner, founder, c_suite, vp, head, director…</em>) — exactly our decision-maker rule. Today we
+  pay first and filter titles afterwards.
+</div>
+<div class="stage"><span class="pill green" style="float:right">UNUSED — FREE WIN</span>
+  <h3>BetterContact: company exclusion lists</h3>
+  <code>company.exclude</code> ("domains that must NOT match") lets every search exclude companies we've
+  already maxed out (3 contacts) and every company we've ever rejected — resellers, MLMs, services,
+  corporates. This attacks the single biggest waste class (duplicates, 22–57% of paid rejects) <em>before
+  billing</em>. Contact-level exclusion via LinkedIn URLs also exists.
+</div>
+<div class="stage"><span class="pill amber" style="float:right">STRUCTURAL OPTION</span>
+  <h3>Prospeo: search now, pay for emails later (meeting task #5 — feasible)</h3>
+  Prospeo's 2026 API is explicitly two-stage: <strong>Search Person</strong> returns people (name, title,
+  company) <em>without</em> emails at 1 credit per 25 people; <strong>Enrich</strong> then charges 1 credit
+  only per email actually found, only for the people we choose. That means our <em>entire</em> QA stack —
+  dedup, titles, categories, the full website-verification funnel (it only needs the domain) — can run
+  <strong>before a single email is paid for</strong>. BetterContact has no such mode (confirmed), but its
+  separate enrichment API can backstop emails Prospeo misses.
+</div>
+<div class="stage"><span class="pill red" style="float:right">COST TRAP AVOIDED</span>
+  <h3>Phones cost 10× (meeting task #1)</h3>
+  Phone enrichment is <strong>10 credits per number</strong> on both providers. Enabling it at scrape time
+  would multiply waste by ~11× on every discarded lead. Correct placement: enrich phones only for
+  <em>approved</em> leads (like the MillionVerifier gate) — or only for leads that reply.
+</div>
+
+<h2><span class="num">4</span>The resequenced pipeline</h2>
+<p>One principle, applied to money: <strong>every lead is rejected by the cheapest stage capable of
+rejecting it — ideally before it's paid for.</strong></p>
+
+<h3>Track 1 — stop buying waste <span class="pill blue">BC credits · the big money</span></h3>
+<ul>
+  <li><strong>Server-side titles/seniority</strong> — mirror our decision-maker tiers into the search itself; local check stays as backstop.</li>
+  <li><strong>Suppression lists on every search</strong> — exclude capped companies + all previously-rejected company domains.</li>
+  <li><strong>Segment health tracking</strong> — per-industry credits/accepted and duplicate-share; auto-park segments that go stale, US/CA filter stays default.</li>
+</ul>
+
+<h3>Track 2 — QA before payment <span class="pill amber">structural end-state</span></h3>
+<ul>
+  <li><strong>Prospeo two-stage pilot (~$10–20):</strong> search 500 people → run the full existing QA on their companies (free — needs only domains) → buy emails only for survivors → standard review/verification. Measures coverage, email match-rate, and final quality vs BetterContact before any switch.</li>
+  <li><strong>Phones post-approval only.</strong></li>
+</ul>
+
+<h3>Track 3 — AI/token hygiene <span class="pill green">~$40–90/mo + faster batches</span></h3>
+<ul>
+  <li>Free contact-cap check moves <em>before</em> the AI gate (today: 5 contacts judged, 3 kept).</li>
+  <li>AI gate becomes per-company + cached + parallel — measured 42% duplicate judgments today.</li>
+  <li>Web-search consolidation: skip the ownership search for Amazon-registry-confirmed brands with zero risk signals; worst case drops from 4 searches/company.</li>
+</ul>
+
+<h2><span class="num">5</span>Probe first — nothing ships on faith</h2>
+<table>
+  <tr><th>Probe</th><th class="num">Cost</th><th>Settles</th></tr>
+  <tr><td>Two 10-lead BC searches ± title filters</td><td class="num">~5 credits</td><td>Filters work server-side; whether billing respects them; the per-slot fee mystery</td></tr>
+  <tr><td>BC search with 50/200/500 excluded domains</td><td class="num">~5 credits</td><td>Suppression mechanics + list size limit</td></tr>
+  <tr><td>Prospeo search ×2 pages, no enrichment</td><td class="num">~2 credits</td><td>Person quality + ICP filter fidelity</td></tr>
+  <tr><td>Prospeo enrich 25 QA-passed people</td><td class="num">~25 credits</td><td>Email match rate — the go/no-go input for Track 2</td></tr>
+  <tr><td>BC support ticket on billing semantics</td><td class="num">$0</td><td>Slot fees, catch-all charges</td></tr>
+</table>
+
+<h2><span class="num">6</span>Expected outcome (at 20,000 leads/month)</h2>
+<p>Shown in credits so the percentages hold regardless of plan pricing (action item: confirm the actual
+$/credit on both provider plans):</p>
+
+<div class="bar"><div class="fill" style="width:100%"></div><div class="label">Today — 4.16 credits per accepted lead (~84k credits/mo)</div></div>
+<div class="bar"><div class="fill" style="width:65%"></div><div class="label">After Track 1 — ~2.5–3.0 cr/accepted (−30–40%)</div></div>
+<div class="bar"><div class="fill" style="width:36%"></div><div class="label">After Track 2 (if pilot passes) — ~1.3–1.7 cr/accepted (−60–70%)</div></div>
+
+<div class="callout caution">
+<strong>Honest bounds.</strong> Track 1's floor is the junk no server-side filter can express (~10–15% of
+paid leads will always be judged post-payment). Track 2's numbers live or die on Prospeo's person coverage
+and email match-rate for our exact ICP — that is precisely what the $10–20 pilot measures, and
+BetterContact remains the unchanged fallback if it fails.
+</div>
+
+<div class="callout good">
+<strong>What does not change:</strong> lead quality. Every QA layer stays; the review queue stays;
+the no-false-rejection principle stays. This plan only changes <em>when</em> checks run relative to
+<em>when money is spent</em> — the leads that reach Victor and Jam are the same or better, at a fraction
+of the cost.
+</div>
+
+<h2><span class="num">7</span>Rollout</h2>
+<table>
+  <tr><th>When</th><th>What</th><th>Gate</th></tr>
+  <tr><td>Week 1</td><td>Probes; then suppression + server-side titles + the two free code reorderings, in one PR</td><td>Probes pass; A/B on one production batch shows the credit drop</td></tr>
+  <tr><td>Week 2</td><td>Segment health tracking + hygiene; Prospeo probes</td><td>—</td></tr>
+  <tr><td>Week 3</td><td>Prospeo 500-person pilot, end-to-end incl. the standard multi-agent quality audit</td><td>Coverage + match-rate + audit quality ≥ BC baseline → hybrid becomes default</td></tr>
+  <tr><td>Ongoing</td><td>Credits-per-accepted printed in every batch email; quality tracked by the existing qa_metrics loop</td><td>—</td></tr>
+</table>
+
+<footer>
+  Cost Resequencing Plan · measured 2026-06-11 · full technical version with sources:
+  <code>COST_RESEQUENCING_PLAN.md</code> · evidence: <code>debug/_fullrun.log</code>,
+  <code>debug/_cost_anatomy*.py</code>, provider docs (verified) · prior art:
+  <code>QA_LAYERS_REPORT.html</code>, <code>ROADMAP_IMPLEMENTATION_PLAN.html</code>
+</footer>
+
+</body>
+</html>
