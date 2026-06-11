@@ -56,14 +56,18 @@ OWNER_SIZE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_ownership_
 
 # Verdicts that reject a lead (everything else passes through; 'unknown'
 # passes flagged for review). Maps verdict -> agency_filter_reason prefix.
+# Regression-tuned (2026-06-11): only evidence-documented classes auto-reject.
+# no_dtc_store / foreign_no_usca / too_large are REVIEW flags, not rejects —
+# the bv2 regression showed they wrongly rejected retail-channel brands (BDI,
+# Seachem: real manufacturers selling via dealers), brands with off-site US
+# presence (Wild: in all US Target stores, invisible on its UK site), and
+# debatable sizes (Nixon). Those resolve to 'unknown' with the reason in the
+# evidence so the reviewer decides.
 REJECT_VERDICTS = {
     "reseller": "reseller_site",
     "mlm": "mlm_direct_sales",
     "banned_category": "banned_category",
     "out_of_scope": "out_of_scope_category",
-    "no_dtc_store": "no_dtc_store",
-    "foreign_no_usca": "foreign_no_usca",
-    "too_large": "too_large_or_corporate",
 }
 
 # Anthropic server-side web search tool (Stage 3). ~$10 per 1,000 searches,
@@ -484,24 +488,38 @@ def _apply_icp_checks(entry: dict, out: dict, conf: str, evidence: str) -> bool:
     Returns True if a reject verdict was set. Reject only on HIGH confidence;
     medium/unclear ICP concerns become review notes, never rejections.
     """
-    checks = [
+    reject_checks = [
         (out.get("is_mlm") == "yes", "mlm", "MLM/direct-sales structure"),
         (out.get("category_status") == "banned", "banned_category",
          f"banned category: {out.get('category', '?')}"),
         (out.get("category_status") == "out_of_scope", "out_of_scope",
          f"out-of-scope category: {out.get('category', '?')}"),
+    ]
+    # Review-only concerns: real brands legitimately sell via retail channels
+    # (no site cart), and US presence can live off-site (Target, Amazon) —
+    # the regression proved auto-rejecting these burns good leads.
+    review_checks = [
         (out.get("sells_online") == "no", "no_dtc_store",
          "no consumer store on site (catalog/dealer/service only)"),
         (out.get("hq_foreign_signals") == "yes"
          and out.get("sells_us_ca") == "no", "foreign_no_usca",
-         "foreign home market and does not sell to US/CA"),
+         "foreign home market, no US/CA sales visible on site"),
     ]
-    for hit, verdict, why in checks:
+    for hit, verdict, why in reject_checks:
         if hit and conf == "high":
             entry.update(verdict=verdict, method="site_llm", confidence=conf,
                          evidence=f"{why}. {evidence}"[:2000])
             return True
         if hit:  # medium/low-confidence concern -> flag for review
+            entry["site_llm_note"] = (f"{verdict}?/{conf}: {why}. "
+                                      f"{evidence}")[:400]
+    for hit, verdict, why in review_checks:
+        if hit and conf == "high":
+            entry.update(verdict="unknown", method="site_llm",
+                         confidence="low",
+                         evidence=f"{verdict} — {why} — review. {evidence}"[:2000])
+            return True
+        if hit:
             entry["site_llm_note"] = (f"{verdict}?/{conf}: {why}. "
                                       f"{evidence}")[:400]
     # Foreign signals with UNCLEAR US/CA sales is a review case, not a pass.
@@ -770,9 +788,11 @@ def _ownership_size_check(entries: list[dict], on_log) -> None:
                          confidence=conf,
                          evidence=f"documented MLM/direct-sales company. {ev}"[:2000])
         elif size == "enterprise" and conf == "high":
-            entry.update(verdict="too_large", method="ownership_search",
-                         confidence=conf,
-                         evidence=f"enterprise-size company. {ev}"[:2000])
+            # Review, not reject: size data is third-party and the 5-50 line
+            # is a policy call (regression: Nixon flagged enterprise debatably).
+            entry.update(verdict="unknown", method="ownership_search",
+                         confidence="low",
+                         evidence=f"too_large? enterprise-size company — review. {ev}"[:2000])
         elif out.get("independence") == "subsidiary" and conf == "high":
             entry.update(verdict="unknown", method="ownership_search",
                          confidence="low",
