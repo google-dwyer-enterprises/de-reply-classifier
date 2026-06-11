@@ -534,3 +534,14 @@ create table if not exists qa_metrics (
   computed_at timestamptz not null default now(),
   unique (scrape_request_id)
 );
+
+-- ---------------------------------------------------------------------------
+-- MillionVerifier email-verification gate (meeting tasks #8/#9, 2026-06-11)
+-- ---------------------------------------------------------------------------
+-- Approved leads are verified AFTER human approval, BEFORE moving into
+-- lead_contacts (the 200k pool). Only result='ok' moves; definitive non-ok
+-- flips lead_approval back to 'rejected' with the reason stamped.
+alter table prospeo_new_leads add column if not exists mv_result text;
+alter table prospeo_new_leads add column if not exists mv_checked_at timestamptz;
+alter table lead_contacts add column if not exists mv_result text;
+alter table lead_contacts add column if not exists mv_checked_at timestamptz;

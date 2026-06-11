@@ -59,6 +59,8 @@ lead_status_mv       ◄── what NocoDB shows the client (joins leads + lead_
 | `smartscout_upload.py` | Upserts SmartScout Amazon brand market data CSV/xlsx into `smartscout_brands`. |
 | `smartscout_resolve.py` | Fuzzy-matches lead companies to SmartScout brands (≥92 → `fuzzy`). Auto-runs at the end of `upload-leads`. |
 | `smartscout_llm_resolve.py` | LLM (Haiku) second pass on grey-zone leads (default 85–92). Manual only — has `--dry-run` and a y/N prompt. Writes incrementally per batch. |
+| `millionverifier.py` | Email-verification gate: approved leads are MV-verified in `worker.py` AFTER human approval, BEFORE moving into `lead_contacts`. Only `result='ok'` moves; definitive bad results flip `lead_approval='rejected'`; transient errors retry next poll. No `MILLIONVERIFIER_API_KEY` in env → gate is a no-op. `lead_status_mv`/`lead_status` expose `"Verified by MillionVerifier"` (Yes/No). |
+| `brand_verify.py` | Per-company website-verification funnel (bv3) run inside `bettercontact_sync`: domain verdict cache → Shopify catalog probe → SmartScout confirm → site read (reseller + MLM + category + DTC-store + foreign/US-CA market) → web-search fallbacks (ownership/size/parent, vendor ownership, US/CA presence). Rejects only evidence-documented classes; uncertain → review. Ground truth in `qa_audit_labels`; regression: `scripts/bv2_regression.py`. |
 | `prospeo_sync.py` | **Separate pipeline** — pulls new decision-maker leads from Prospeo for inclusion-list domains, two-stage filter (rules + Haiku LLM), writes to `prospeo_new_leads` table + `exports/*.xlsx` for Jam. Title list is owner-only (CEO/Founder/Owner/President + variants). Has `--max-credits` budget cap; always use it. |
 | `scripts/prospeo_category_pilot.py` | One-off pilot script that compares domain-mode vs category-mode Prospeo searches. Read-only (writes XLSX only, never touches DB). See `FINDINGS.html` for the empirically-verified filter shape and accepted industry strings. |
 | `scripts/verify_claims.py`, `scripts/title_analysis.py`, `scripts/verify_prospeo_shape.py` | Read-only verification scripts. Used to validate every number in `FINDINGS.html` against live data. |
@@ -116,6 +118,7 @@ Old `prompt_version` rows are kept so you can diff regressions.
 - `SUPABASE_URL`, `SUPABASE_KEY` (service role, for PostgREST)
 - `SUPABASE_DB_PASSWORD` (or `SUPABASE_DB_URL` override) — for direct psycopg2 ops
 - `ANTHROPIC_API_KEY`
+- `MILLIONVERIFIER_API_KEY` (optional — enables the email-verification gate in the worker; absent = gate disabled)
 
 Python 3.11+, virtualenv in `venv/`. `requirements.txt` is committed.
 
@@ -132,7 +135,8 @@ Before any full reclassify, do a stratified hand-review on ~200–500 replies, w
 ## Things that have bitten before
 
 - `run.py classify` ignores extra args silently — call `classify.py` directly when passing flags.
-- Updating `lead_status_mv` requires `drop` + `create` (Postgres can rename columns directly via `alter materialized view ... rename column`, but anything else needs full recreate). The MV definition is NOT in `migrations.sql` — fetch it from `pg_matviews` first.
+- Updating `lead_status_mv` requires `drop` + `create` (Postgres can rename columns directly via `alter materialized view ... rename column`, but anything else needs full recreate). The MV definition is NOT in `migrations.sql` — fetch it from `pg_matviews` first. **A plain view `lead_status` wraps the MV** (it's what NocoDB/PostgREST read): drop the view before the MV, recreate both (add new columns to BOTH), recreate the unique index `lead_status_mv_lead_email_idx` (needed by `refresh ... concurrently`), and re-grant on the view to `anon, authenticated, service_role` — see `debug/_mv_view_swap2.py` for the worked pattern.
+- **Stale `idle in transaction` sessions can lock `lead_contacts` indefinitely** (found 27-day-old zombies from SSL-dropped scans blocking ALTER TABLE). Check `pg_stat_activity`, `pg_terminate_backend()` anything idle-in-transaction older than an hour before DDL.
 - `information_schema.columns` does not list materialized view columns in this Postgres version. Use `pg_attribute` to inspect: `select attname from pg_attribute where attrelid = 'public.lead_status_mv'::regclass and attnum > 0 and not attisdropped`.
 - After reclassifying, `excel_writer` / `update-status` correctly pick the newest row per reply. Don't introduce code that filters on a single `prompt_version` — it breaks history.
 - **Prospeo industry filter**: shape is `filters.company_industry.include` (singular, top-level). Common wrong shapes — `filters.company.industries.include` is silently ignored (accepted as syntax but does nothing), and `filters.industries.include` returns `INVALID_FILTERS`. Industry values must come from Prospeo's post-2023 LinkedIn-style enum — `"Apparel and Fashion"` is rejected, `"Retail Apparel and Fashion"` works. See `FINDINGS.html` §6 for the verified list.

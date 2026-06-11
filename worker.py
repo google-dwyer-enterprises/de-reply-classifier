@@ -46,6 +46,7 @@ load_dotenv()
 import bettercontact_sync
 from bettercontact_sync import BC_INDUSTRIES, InsufficientCreditsError
 from db import connect
+import millionverifier
 import notifier
 import nocodb_views
 
@@ -497,15 +498,66 @@ def move_approved_leads_for_request(conn, request_id: int) -> int:
         if not emails:
             return 0
 
+        # MillionVerifier gate (tasks #8/#9): verify AFTER human approval,
+        # BEFORE the 200k pool. Only result='ok' moves. Definitive bad
+        # results flip the lead back to 'rejected' (batch still finalizes,
+        # reviewer sees why); transient 'error' leaves the lead approved-
+        # unmoved so the next poll retries naturally. With no API key
+        # configured the gate is a no-op.
+        if millionverifier.enabled():
+            cur.execute(
+                """
+                select email, mv_result from prospeo_new_leads
+                 where scrape_request_id = %s and email = any(%s)
+                """,
+                (request_id, emails),
+            )
+            known = dict(cur.fetchall())
+            todo = [e for e in emails if not known.get(e)
+                    or known[e] == "error"]
+            if todo:
+                results = millionverifier.verify_emails(todo, on_log=log)
+                for email, res in results.items():
+                    if res["result"] == "error":
+                        continue              # retry next poll, no stamp
+                    known[email] = res["result"]
+                    cur.execute(
+                        """
+                        update prospeo_new_leads
+                           set mv_result = %s, mv_checked_at = now()
+                         where scrape_request_id = %s and email = %s
+                        """,
+                        (res["result"], request_id, email),
+                    )
+            bad = [e for e in emails
+                   if known.get(e) in millionverifier.DEFINITIVE_BAD]
+            if bad:
+                cur.execute(
+                    """
+                    update prospeo_new_leads
+                       set lead_approval = 'rejected'
+                     where scrape_request_id = %s and email = any(%s)
+                    """,
+                    (request_id, bad),
+                )
+                log(f"req #{request_id}: {len(bad)} approved lead(s) failed "
+                    f"MillionVerifier -> rejected: "
+                    f"{', '.join(bad[:5])}{'...' if len(bad) > 5 else ''}")
+            emails = [e for e in emails
+                      if known.get(e) in millionverifier.MOVABLE_RESULTS]
+            if not emails:
+                return 0
+
         cur.execute(
             """
             insert into lead_contacts (
               lead_email, first_name, last_name, title, company_name,
-              website, industry, lead_list_source, imported_at
+              website, industry, lead_list_source, imported_at,
+              mv_result, mv_checked_at
             )
             select p.email, p.first_name, p.last_name, p.title, p.company_name,
                    p.company_website, p.source_industry,
-                   'BetterContact', now()
+                   'BetterContact', now(), p.mv_result, p.mv_checked_at
               from prospeo_new_leads p
              where p.scrape_request_id = %s
                and p.lead_approval = 'approved'
