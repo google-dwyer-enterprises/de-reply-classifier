@@ -59,9 +59,12 @@ Classify what the company sells and set category_status:
 - hq_foreign_signals: "yes" if the page suggests a non-US/Canada home market
   (prices ONLY in £/€/AUD/NZD/INR etc., foreign addresses, .com.au/.co.uk
   canonical links), else "no"/"unclear".
-- sells_us_ca: does it sell to US/Canada customers (USD/CAD pricing, US/CA
-  shipping, US storefront/retailers)? "yes"/"no"/"unclear". A US-market site
-  with $ pricing = yes. Only meaningful when hq_foreign_signals is yes.
+- sells_us_ca: does it have REAL US/Canada market presence — a US/CA
+  storefront or USD/CAD-native site aimed at that market, or US/CA retail
+  availability? "yes"/"no"/"unclear". Merely offering international/
+  worldwide shipping does NOT count (that's "no" if nothing else points to
+  a US/CA market). A US-market site with $ pricing = yes. Only meaningful
+  when hq_foreign_signals is yes.
 
 If the homepage text is thin, generic, or contradictory, use "unknown"/
 "unclear" with low confidence. NEVER guess the favorable answer to be safe.

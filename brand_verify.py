@@ -46,7 +46,7 @@ from rapidfuzz import fuzz, process
 
 from smartscout_upload import normalize_brand
 
-PROMPT_VERSION = "bv2"
+PROMPT_VERSION = "bv3"
 MODEL = "claude-haiku-4-5"
 ARBITRATE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_vendor_arbitrate.txt"
 SITE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify.txt"
@@ -68,6 +68,20 @@ REJECT_VERDICTS = {
     "mlm": "mlm_direct_sales",
     "banned_category": "banned_category",
     "out_of_scope": "out_of_scope_category",
+    # Policy decisions 2026-06-11:
+    # - A foreign brand without real US/CA MARKET PRESENCE (dedicated US
+    #   storefront / USD-native site aimed at the US / US retail like
+    #   Ulta-Target-Amazon US) is rejected. Merely shipping to the US does
+    #   not count. Only ever set via the ownership-search confirmation,
+    #   never from the site read alone (Wild's Target presence was
+    #   invisible on its UK site).
+    "foreign_no_usca": "foreign_no_usca",
+    # - A brand owned by a MAJOR corporate parent (public company,
+    #   household conglomerate, large brand house: Mars/Henkel/Wella/
+    #   Barilla class) is rejected — budget authority sits with corporate,
+    #   breaking the founder-led ICP. Small parents (small holdings,
+    #   founder/PE-controlled standalone ops) keep the brand verdict.
+    "corporate_owned": "corporate_parent",
 }
 
 # Anthropic server-side web search tool (Stage 3). ~$10 per 1,000 searches,
@@ -514,9 +528,6 @@ def _apply_icp_checks(entry: dict, out: dict, conf: str, evidence: str) -> bool:
     review_checks = [
         (out.get("sells_online") == "no", "no_dtc_store",
          "no consumer store on site (catalog/dealer/service only)"),
-        (out.get("hq_foreign_signals") == "yes"
-         and out.get("sells_us_ca") == "no", "foreign_no_usca",
-         "foreign home market, no US/CA sales visible on site"),
     ]
     for hit, verdict, why in reject_checks:
         if hit and conf == "high":
@@ -535,15 +546,16 @@ def _apply_icp_checks(entry: dict, out: dict, conf: str, evidence: str) -> bool:
         if hit:
             entry["site_llm_note"] = (f"{verdict}?/{conf}: {why}. "
                                       f"{evidence}")[:400]
-    # Foreign signals with UNCLEAR US/CA sales: not a pass, but resolvable —
-    # US presence often lives off the main site (us.* storefronts, Ulta,
-    # Target). Mark for the ownership search to settle instead of burning a
-    # review slot (it answered this 10/11 at high confidence in the 6/11
-    # foreign re-grade).
+    # Foreign signals with sells_us_ca 'no' OR 'unclear': not a pass, but
+    # resolvable — US presence often lives off the main site (us.*
+    # storefronts, Ulta, Target; Wild's was invisible on its UK site). Mark
+    # for the ownership search to settle: search-confirmed 'no' rejects
+    # (policy 2026-06-11: ships-only doesn't count), 'yes' keeps, weaker
+    # evidence goes to review.
     if (out.get("hq_foreign_signals") == "yes"
-            and out.get("sells_us_ca") == "unclear"):
-        entry["site_llm_note"] = (f"foreign signals, US/CA sales unclear. "
-                                  f"{evidence}")[:400]
+            and out.get("sells_us_ca") in ("no", "unclear")):
+        entry["site_llm_note"] = (f"foreign signals, site US/CA sales: "
+                                  f"{out.get('sells_us_ca')}. {evidence}")[:400]
         entry["needs_usca_search"] = True
     # Name mismatch is never an auto-reject (can be a parent brand) — review.
     if out.get("name_match") == "mismatch":
@@ -797,11 +809,17 @@ def _ownership_size_check(entries: list[dict], on_log) -> None:
                             r'"size_estimate"\s*:\s*"(micro|smb|mid|enterprise|unknown)"', txt)
                         cf = re.search(r'"confidence"\s*:\s*"(high|medium|low)"', txt)
                         pc = re.search(r'"parent_company"\s*:\s*"([^"]{1,80})"', txt)
+                        pt = re.search(r'"parent_type"\s*:\s*"(major|minor|unknown)"', txt)
+                        bm = re.search(r'"business_model"\s*:\s*"(mlm|standard|unknown)"', txt)
+                        us = re.search(r'"sells_us_ca"\s*:\s*"(yes|no|unclear)"', txt)
                         if ind:
                             out = {"independence": ind.group(1),
                                    "size_estimate": sz.group(1) if sz else "unknown",
                                    "confidence": cf.group(1) if cf else "low",
                                    "parent_company": pc.group(1) if pc else None,
+                                   "parent_type": pt.group(1) if pt else "unknown",
+                                   "business_model": bm.group(1) if bm else "unknown",
+                                   "sells_us_ca": us.group(1) if us else "unclear",
                                    "evidence_quote": txt[:250]}
                     break
         except Exception as e:
@@ -828,24 +846,44 @@ def _ownership_size_check(entries: list[dict], on_log) -> None:
                          confidence="low",
                          evidence=f"too_large? enterprise-size company — review. {ev}"[:2000])
         elif out.get("independence") == "subsidiary" and conf == "high":
-            entry.update(verdict="unknown", method="ownership_search",
-                         confidence="low",
-                         evidence=(f"owned by {parent or 'a corporate parent'} "
-                                   f"— acquired-but-independent is a policy "
-                                   f"call, review. {ev}")[:2000])
-        elif entry.get("needs_usca_search"):
+            # Policy 2026-06-11: major corporate parent -> reject (budget
+            # authority is corporate; founder-led ICP broken). Small parent
+            # -> brand stands, parent stamped. Unknown parent type -> review.
+            ptype = out.get("parent_type", "unknown")
+            if ptype == "major":
+                entry.update(verdict="corporate_owned",
+                             method="ownership_search", confidence=conf,
+                             evidence=(f"owned by major corporate parent "
+                                       f"{parent or '(unnamed)'}. {ev}")[:2000])
+            elif ptype == "minor":
+                entry["evidence"] = (f"{entry.get('evidence', '')} | owned by "
+                                     f"small parent {parent or '(unnamed)'} — "
+                                     f"operates independently, kept. {ev}")[:2000]
+            else:
+                owner = parent or "a corporate parent"
+                entry.update(verdict="unknown", method="ownership_search",
+                             confidence="low",
+                             evidence=(f"owned by {owner} of unclear scale "
+                                       f"— review. {ev}")[:2000])
+        if entry.get("verdict") == "brand" and entry.get("needs_usca_search"):
             usca = out.get("sells_us_ca", "unclear")
-            # High-confidence only: "ships worldwide" can read as a weak yes;
-            # whether that satisfies the sells-in-US/CA rule is an open
-            # policy question for Victor — weak evidence goes to review.
+            # Policy 2026-06-11: market presence required; passive shipping
+            # is a documented 'no'. High-confidence either way acts;
+            # anything weaker goes to review.
             if usca == "yes" and conf == "high":
                 entry["evidence"] = (f"{entry.get('evidence', '')} | foreign "
-                                     f"HQ but sells US/CA (search-confirmed): "
-                                     f"{ev}")[:2000]
+                                     f"HQ but real US/CA market presence "
+                                     f"(search-confirmed): {ev}")[:2000]
+            elif usca == "no" and conf == "high":
+                entry.update(verdict="foreign_no_usca",
+                             method="ownership_search", confidence=conf,
+                             evidence=(f"foreign brand without US/CA market "
+                                       f"presence (ships-only does not "
+                                       f"count). {ev}")[:2000])
             else:
                 entry.update(verdict="unknown", method="ownership_search",
                              confidence="low",
-                             evidence=(f"foreign brand, US/CA sales "
+                             evidence=(f"foreign brand, US/CA market presence "
                                        f"{usca} — review. {ev}")[:2000])
 
     _pmap(one, entries)

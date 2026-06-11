@@ -19,10 +19,16 @@ Decide:
 - independence:
   - "independent": no corporate parent (founder/family/PE-minority ownership
     all count as independent for our purposes).
-  - "subsidiary": owned by a major corporation or holding group (e.g.
-    acquired by Mars, Henkel, Wella, Unilever, ASSA ABLOY, a public company,
-    or a large brand-house/conglomerate).
+  - "subsidiary": acquired by / owned by another company.
   - "unknown": can't establish.
+- parent_type (only meaningful when independence is "subsidiary"):
+  - "major": the parent is a public company, household conglomerate, or
+    large brand house / enterprise (Mars, Henkel, Wella, Barilla,
+    ASSA ABLOY class — hundreds+ employees or a listed company).
+  - "minor": the parent is itself small — a small holding company,
+    founder-controlled group, or a PE owner with the brand operating
+    standalone.
+  - "unknown".
 - size_estimate (employees):
   - "micro" (1-4), "smb" (5-50), "mid" (51-200), "enterprise" (200+ or
     clearly large: hundreds of employees, $50M+ revenue, global offices),
@@ -37,10 +43,15 @@ GUARDS
    ignore them — "unknown" over a guess.
 
 IF the input contains "check_us_ca_sales": the brand looks foreign-based and
-its main site doesn't show US/Canada sales. Also determine sells_us_ca: does
-it actively sell to US/Canada customers — a US storefront (us.<domain>),
-USD/CAD pricing, US/CA shipping, or US retail presence (Ulta, Target,
-Amazon US, Sephora…)? "yes"/"no"/"unclear". Include this field in your JSON.
+its main site doesn't show US/Canada sales. Determine sells_us_ca — does it
+have REAL US/CA MARKET PRESENCE:
+- "yes" ONLY for: a dedicated US/CA storefront (us.<domain> or a USD/CAD-
+  native site clearly aimed at the US market), or US/CA retail availability
+  (Ulta, Target, Amazon US, Sephora, Chewy…).
+- "no" if it merely SHIPS internationally/worldwide to the US — passive
+  shipping does NOT count as market presence.
+- "unclear" when you can't tell.
+Include this field in your JSON.
 
 Reply with ONLY a JSON object, no prose, no markdown fences:
 {
