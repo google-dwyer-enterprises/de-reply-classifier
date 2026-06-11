@@ -36,6 +36,12 @@ GUARDS
 3. Similar-named companies: if search results are about a different company,
    ignore them — "unknown" over a guess.
 
+IF the input contains "check_us_ca_sales": the brand looks foreign-based and
+its main site doesn't show US/Canada sales. Also determine sells_us_ca: does
+it actively sell to US/Canada customers — a US storefront (us.<domain>),
+USD/CAD pricing, US/CA shipping, or US retail presence (Ulta, Target,
+Amazon US, Sephora…)? "yes"/"no"/"unclear". Include this field in your JSON.
+
 Reply with ONLY a JSON object, no prose, no markdown fences:
 {
   "business_model": "mlm" | "standard" | "unknown",

@@ -392,7 +392,20 @@ def _confirm_reseller_flags(entries: list[dict], on_log) -> None:
         label, conf = out["label"], out.get("confidence", "low")
         evidence = (f"vendor-ownership search: {out.get('evidence_quote', '')} "
                     f"| {entry['reseller_claim']}")[:2000]
-        if label == "reseller" and conf in ("high", "medium"):
+        # Hybrid guard (50-lead acceptance audit, babymori.com): a brand whose
+        # complementary gift-shelf dominates catalog ITEM COUNT isn't a
+        # reseller — own identity can carry the store. Auto-reject only when
+        # third-party share is overwhelming (>=75%); the 50-75% band is a
+        # genuine hybrid -> review with both pieces of evidence.
+        m = re.search(r"(\d+)%\s*third-party share", entry.get("flag", ""))
+        share = int(m.group(1)) if m else 100
+        if label == "reseller" and conf in ("high", "medium") and share < 75:
+            entry.update(verdict="unknown", method="vendor_llm+search",
+                         confidence="low",
+                         evidence=(f"hybrid: {share}% third-party catalog with "
+                                   f"verified independent brands — own brand "
+                                   f"may still be primary, review. " + evidence)[:2000])
+        elif label == "reseller" and conf in ("high", "medium"):
             entry.update(verdict="reseller", method="vendor_llm+search",
                          confidence=conf, evidence=evidence)
         elif label == "brand" and conf in ("high", "medium"):
@@ -522,12 +535,16 @@ def _apply_icp_checks(entry: dict, out: dict, conf: str, evidence: str) -> bool:
         if hit:
             entry["site_llm_note"] = (f"{verdict}?/{conf}: {why}. "
                                       f"{evidence}")[:400]
-    # Foreign signals with UNCLEAR US/CA sales is a review case, not a pass.
+    # Foreign signals with UNCLEAR US/CA sales: not a pass, but resolvable —
+    # US presence often lives off the main site (us.* storefronts, Ulta,
+    # Target). Mark for the ownership search to settle instead of burning a
+    # review slot (it answered this 10/11 at high confidence in the 6/11
+    # foreign re-grade).
     if (out.get("hq_foreign_signals") == "yes"
             and out.get("sells_us_ca") == "unclear"):
         entry["site_llm_note"] = (f"foreign signals, US/CA sales unclear. "
                                   f"{evidence}")[:400]
-        entry["force_review"] = True
+        entry["needs_usca_search"] = True
     # Name mismatch is never an auto-reject (can be a parent brand) — review.
     if out.get("name_match") == "mismatch":
         entry["site_llm_note"] = (f"name mismatch: site brand differs from "
@@ -584,6 +601,17 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
             del entry["verdict"]
             if _apply_icp_checks(entry, out, conf, evidence):
                 return                            # ICP reject overrides
+            if entry.get("force_review"):
+                # Unresolvable ICP concern (name mismatch) demotes a
+                # catalog-confirmed brand to review — the 50-lead acceptance
+                # audit caught taippe.com passing because flags were dropped.
+                entry.update(verdict="unknown", method=prior[1],
+                             confidence="low",
+                             evidence=(f"{entry.get('site_llm_note', 'icp concern')} "
+                                       f"| catalog: {prior[3]}")[:2000])
+                return
+            # needs_usca_search rides along: the verdict is tentative until
+            # the ownership search confirms US/CA sales.
             entry.update(verdict=prior[0], method=prior[1],
                          confidence=prior[2], evidence=prior[3])
             return
@@ -591,6 +619,8 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
         if _apply_icp_checks(entry, out, conf, evidence):
             return
         # Brand/reseller axis (unchanged from the measured bv1 behavior).
+        # A brand verdict with needs_usca_search stays tentative — the
+        # ownership search (which runs on all brand verdicts) resolves it.
         if label == "reseller" and conf == "high":
             entry.update(verdict="reseller", method="site_llm",
                          confidence=conf, evidence=evidence)
@@ -738,6 +768,10 @@ def _ownership_size_check(entries: list[dict], on_log) -> None:
             payload["note"] = ("The website shows possible direct-sales/"
                                "ambassador structure — explicitly search "
                                "whether this company is an MLM.")
+        if entry.get("needs_usca_search"):
+            payload["check_us_ca_sales"] = (
+                "Foreign-based brand, US/CA sales not visible on its main "
+                "site — verify whether it sells to US/Canada.")
         messages = [{"role": "user", "content": json.dumps(payload)}]
         out = None
         try:
@@ -799,6 +833,20 @@ def _ownership_size_check(entries: list[dict], on_log) -> None:
                          evidence=(f"owned by {parent or 'a corporate parent'} "
                                    f"— acquired-but-independent is a policy "
                                    f"call, review. {ev}")[:2000])
+        elif entry.get("needs_usca_search"):
+            usca = out.get("sells_us_ca", "unclear")
+            # High-confidence only: "ships worldwide" can read as a weak yes;
+            # whether that satisfies the sells-in-US/CA rule is an open
+            # policy question for Victor — weak evidence goes to review.
+            if usca == "yes" and conf == "high":
+                entry["evidence"] = (f"{entry.get('evidence', '')} | foreign "
+                                     f"HQ but sells US/CA (search-confirmed): "
+                                     f"{ev}")[:2000]
+            else:
+                entry.update(verdict="unknown", method="ownership_search",
+                             confidence="low",
+                             evidence=(f"foreign brand, US/CA sales "
+                                       f"{usca} — review. {ev}")[:2000])
 
     _pmap(one, entries)
 
