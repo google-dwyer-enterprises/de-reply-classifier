@@ -563,11 +563,19 @@ def move_approved_leads_for_request(conn, request_id: int) -> int:
                and p.lead_approval = 'approved'
                and p.lead_moved_at is null
                and p.email = any(%s)
-            on conflict (lead_email) do nothing
+            on conflict (lead_email) do update
+               set mv_result = coalesce(excluded.mv_result,
+                                        lead_contacts.mv_result),
+                   mv_checked_at = coalesce(excluded.mv_checked_at,
+                                            lead_contacts.mv_checked_at)
+            returning (xmax = 0) as is_insert
             """,
             (request_id, emails),
         )
-        inserted = cur.rowcount
+        # moved_count semantics unchanged: NEW rows only. With DO UPDATE the
+        # rowcount would include dedup-conflict rows, so count true inserts
+        # via xmax = 0 (fresh tuple has no updating transaction).
+        inserted = sum(1 for (is_insert,) in cur.fetchall() if is_insert)
 
         cur.execute(
             """
