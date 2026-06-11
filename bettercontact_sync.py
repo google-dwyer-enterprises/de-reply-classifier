@@ -119,6 +119,8 @@ BC_TITLE_EXCLUDE = [
     "VP of Business Development", "Vice President of Business Development",
     "Sales Manager", "Account Manager", "Account Executive",
     "Human Resources", "HR Manager", "Recruiter",
+    # Observed in the 6/11 A/B run's paid-then-rejected titles:
+    "VP of Product", "Vice President of Product", "Project Manager",
 ]
 
 # Headcount min as revenue-floor proxy. Verified: 5 and 10 are the same
@@ -638,29 +640,42 @@ def _load_state(conn) -> dict[str, dict]:
     with conn.cursor() as cur:
         cur.execute("""
           select industry, last_offset_consumed, total_leads_estimated,
-                 exhausted, total_credits_spent
+                 exhausted, total_credits_spent, parked_at
           from bettercontact_scrape_state
         """)
-        for ind, lo, tle, ex, cr in cur.fetchall():
+        for ind, lo, tle, ex, cr, parked in cur.fetchall():
             state[ind] = {
                 "last_offset_consumed": lo or 0,
                 "total_leads_estimated": tle,
                 "exhausted": bool(ex),
                 "total_credits_spent": float(cr or 0),
+                "parked_at": parked,
             }
     return state
 
 
 def _update_state(conn, industry: str, *, new_offset: int,
                   leads_found: int | None, credits_spent_delta: float,
-                  exhausted: bool, countries: list[str] | None) -> None:
-    """Upsert per-industry state."""
+                  exhausted: bool, countries: list[str] | None,
+                  accepted_delta: int = 0) -> None:
+    """Upsert per-industry state.
+
+    Cost reseq R3 (segment health): a segment that burns >=10 credits on a
+    call yielding 0 accepted leads twice IN A ROW gets parked (parked_at
+    set). Parked segments are skipped at queue-build for 30 days, then
+    auto-retried (BC's inventory refreshes). One good call resets the
+    counter. This is what actually caused the 11.6-credits/accepted run —
+    exhausted segments, not deep offsets (measured: healthy segments were
+    flat 3.3-5.1 cr/accepted at any depth).
+    """
+    bad_call = accepted_delta == 0 and credits_spent_delta >= 10
     with conn.cursor() as cur:
         cur.execute("""
           insert into bettercontact_scrape_state
             (industry, countries, last_offset_consumed, total_leads_estimated,
-             exhausted, last_scraped_at, total_credits_spent)
-          values (%s, %s, %s, %s, %s, now(), %s)
+             exhausted, last_scraped_at, total_credits_spent,
+             consecutive_zero_yield)
+          values (%s, %s, %s, %s, %s, now(), %s, %s)
           on conflict (industry) do update set
             countries = excluded.countries,
             last_offset_consumed = excluded.last_offset_consumed,
@@ -669,10 +684,19 @@ def _update_state(conn, industry: str, *, new_offset: int,
             exhausted = excluded.exhausted,
             last_scraped_at = now(),
             total_credits_spent =
-              bettercontact_scrape_state.total_credits_spent + %s
+              bettercontact_scrape_state.total_credits_spent + %s,
+            consecutive_zero_yield = case when %s
+              then bettercontact_scrape_state.consecutive_zero_yield + 1
+              else 0 end,
+            parked_at = case
+              when %s and bettercontact_scrape_state.consecutive_zero_yield + 1 >= 2
+              then now()
+              when not %s then null
+              else bettercontact_scrape_state.parked_at end
         """, (
             industry, countries or [], new_offset, leads_found, exhausted,
-            credits_spent_delta, credits_spent_delta,
+            credits_spent_delta, 1 if bad_call else 0,
+            credits_spent_delta, bad_call, bad_call, bad_call,
         ))
 
 
@@ -826,6 +850,14 @@ def _run_category(conn, api_key: str, *,
         if s.get("exhausted"):
             print(f"  [skip] {ind!r} exhausted (offset={s.get('last_offset_consumed')})")
             continue
+        parked = s.get("parked_at")
+        if parked is not None:
+            from datetime import datetime, timezone, timedelta
+            if datetime.now(timezone.utc) - parked < timedelta(days=30):
+                print(f"  [skip] {ind!r} parked since {parked:%Y-%m-%d} "
+                      f"(2+ zero-yield calls; auto-retries after 30d)")
+                continue
+            print(f"  [retry] {ind!r} park expired — probing segment again")
         queue.append(ind)
 
     if not queue:
@@ -1120,7 +1152,8 @@ def _run_category(conn, api_key: str, *,
                           leads_found=leads_found,
                           credits_spent_delta=cc,
                           exhausted=exhausted,
-                          countries=countries or [])
+                          countries=countries or [],
+                          accepted_delta=len(batch_accepted))
             conn.commit()
             state.setdefault(ind, {})["last_offset_consumed"] = new_offset
             state[ind]["exhausted"] = exhausted

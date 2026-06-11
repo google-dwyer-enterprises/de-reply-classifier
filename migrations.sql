@@ -555,3 +555,9 @@ create table if not exists icp_gate_cache (
   reason     text,
   decided_at timestamptz not null default now()
 );
+
+-- Cost reseq R3: segment health. A segment burning >=10 credits with zero
+-- accepted leads twice in a row gets parked for 30 days (BC inventory
+-- refreshes; one good call resets the counter).
+alter table bettercontact_scrape_state add column if not exists consecutive_zero_yield int not null default 0;
+alter table bettercontact_scrape_state add column if not exists parked_at timestamptz;

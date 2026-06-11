@@ -8,8 +8,27 @@ exclusion lists accepted; title excludes demonstrably filter server-side).
 vs 11.6 before on the same segments (3.2×), dedup share 57% → 25%, and
 better than the 4.16 healthy-segment baseline.** Billing discovery: BC
 charges for found-but-undeliverable emails (catch-all pages billed with zero
-deliverables) — support ticket required (§6 P6). Remaining: R3 segment
-health (week 2), R10 hygiene, Track 2 Prospeo pilot (P4/P5).
+deliverables) — support ticket required (§6 P6).
+
+R3 segment health: IMPLEMENTED (auto-park after 2 consecutive zero-yield
+calls ≥10 credits; 30-day auto-retry; smoke-verified park/reset cycle).
+R10: deferred after re-verification — the costmap's `_parse_bc_lead` claim
+was false (the status check already precedes dict construction) and the
+existing-email load is a 4.5k-row query (trivial).
+
+**Track 2 probes P4/P5 RUN (2026-06-11): the two-stage flow works** — 50
+Founder/Owner Cosmetics US/CA people for 2 credits with emails withheld;
+free QA killed 23/50 pre-payment (incl. 21 duplicate companies BC would
+have billed); Bulk Enrich matched 14/15 for 11 credits. **Quality caveat,
+measured: only ~55% of Prospeo's verified emails pass MillionVerifier vs
+95% for BC-sourced emails.** Revised Track 2 recommendation: the HYBRID —
+Prospeo Search Person for discovery + QA-before-payment, then **BC's
+enrichment API as the enricher** (1 credit per verified-deliverable email,
+waterfall quality, 0 if not found), Prospeo enrich as fallback. Next step:
+a ~200-person hybrid pilot measuring BC-enrichment match rate.
+Implementer notes: Prospeo rejects bad filters loudly (`INVALID_FILTERS`);
+seniority enum value is `Founder/Owner`; `company_headcount_range` rejected
+both documented shapes — omit it and filter size locally.
 
 **The problem in one sentence:** the pipeline was built outside-in ("make it
 work, then make it right"), so today **~67% of every BetterContact credit we
