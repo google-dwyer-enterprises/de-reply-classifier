@@ -1,8 +1,15 @@
 # Cost Resequencing Plan — Pay Less for the Same (or Better) Leads
 
-**Status:** PLANNED — measured 2026-06-11; every number below is sourced from
-production data, run logs, or primary API documentation (adversarially
-verified). Implementation gated on the probes in §6.
+**Status:** Track 1 + Track 3 IMPLEMENTED and A/B-verified (2026-06-11,
+branch `feat/cost-reseq`). Probes P1/P2 passed including a positive control
+(an excluded domain present in baseline results disappears; 500-entry
+exclusion lists accepted; title excludes demonstrably filter server-side).
+**A/B acceptance scrape on the worst-case stale segments: 3.65 cr/accepted
+vs 11.6 before on the same segments (3.2×), dedup share 57% → 25%, and
+better than the 4.16 healthy-segment baseline.** Billing discovery: BC
+charges for found-but-undeliverable emails (catch-all pages billed with zero
+deliverables) — support ticket required (§6 P6). Remaining: R3 segment
+health (week 2), R10 hygiene, Track 2 Prospeo pilot (P4/P5).
 
 **The problem in one sentence:** the pipeline was built outside-in ("make it
 work, then make it right"), so today **~67% of every BetterContact credit we
