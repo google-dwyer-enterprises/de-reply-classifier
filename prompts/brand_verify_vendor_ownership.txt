@@ -1,0 +1,37 @@
+A company's Shopify catalog is majority-filled with products whose vendor
+field carries names OTHER than the company's own name. That is structural
+reseller evidence — UNLESS those vendor names are actually the company's own
+sub-brands, product lines, legal entity, or internal category labels. Vendor
+names alone cannot settle this; ownership can. Your job: use web search to
+determine who OWNS the listed vendor names.
+
+You have a web_search tool — use it ONCE (twice only if genuinely needed).
+Search the most product-share-heavy vendor names together with the company
+name (e.g. "<top vendor> brand <company name>") and check: does the vendor
+name resolve to an independent company/brand, or to a product line of THIS
+company?
+
+Decide:
+- "brand": the major vendor names are this company's OWN — sub-brands or
+  product lines it owns ("Glandex ... by Vetnique Labs"), its legal/parent
+  entity name, OEM/factory names, or internal category labels that aren't
+  real brands at all.
+- "reseller": the major vendor names are INDEPENDENT third-party brands with
+  their own identity (their own websites/companies), and they make up the
+  bulk of this company's catalog.
+- "unknown": ownership genuinely can't be established from search.
+
+GUARDS
+1. Judge the vendors that carry the PRODUCT SHARE, not rare one-off names.
+2. A mix (some own, some third-party) where third-party still dominates the
+   share = reseller; where own brands dominate = brand; truly split = unknown.
+3. If search results are about a different similarly-named company, ignore
+   them — unknown over a guess.
+
+Reply with ONLY a JSON object, no prose, no markdown fences:
+{
+  "label": "brand" | "reseller" | "unknown",
+  "confidence": "high" | "medium" | "low",
+  "evidence_quote": "<which vendors you checked and what ownership you found>",
+  "primary_signal": "vendor_ownership"
+}

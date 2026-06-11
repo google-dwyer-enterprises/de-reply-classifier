@@ -1,0 +1,689 @@
+"""Reseller detection — per-domain brand-vs-reseller verdicts.
+
+Phase 1 of RESELLER_DETECTION_PLAN.md: the free deterministic layer plus
+LLM arbitration of Shopify-probe flags. Called from bettercontact_sync
+after the per-company contact cap, before _insert_leads.
+
+Funnel implemented here:
+  Stage 0  per-domain dedup + domain_brand_verdicts cache lookup
+  Stage 1b Shopify /products.json probe (share rule; runs before SmartScout
+           so structural evidence can't be overridden by a name collision)
+           - reseller flags are NOT final: they go to a vendor-list LLM
+             arbitration (Phase 0 finding: vendor fields contain OEM factory
+             names and internal codes that no rule can recognize)
+  Stage 1a SmartScout/Amazon confirm (token_sort_ratio + domain corroboration
+           + retailer-vocab guard — Phase 0 fixes)
+  Stage 2  homepage fetch + signal extraction + one site-LLM verdict
+           (prompts/brand_verify.txt, bv1 — Phase 0 measured: 0 false
+           reseller flags on the accepted set across two runs).
+           Confidence gating is asymmetric: 'reseller' only acts on HIGH
+           confidence (a wrong rejection is a paid-for lead lost);
+           'brand' acts on high or medium. Everything else -> unknown.
+  (Stage 3 web-search fallback lands in Phase 3; until then unresolved
+   domains get verdict 'unknown' and pass through flagged, never
+   auto-rejected.)
+
+Cache policy: only decisive verdicts (brand/reseller) are written to
+domain_brand_verdicts; 'unknown' is re-derivable and caching it would stop
+later stages from re-judging.
+
+Fetch policy (Phase 0 finding): Shopify's shared CDN rate-limits per IP, so
+probes run with low concurrency and a one-shot retry on 429. A 429 that
+persists resolves to 'unknown', never to a verdict.
+"""
+from __future__ import annotations
+
+import json
+import re
+import time
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import requests
+from bs4 import BeautifulSoup
+from rapidfuzz import fuzz, process
+
+from smartscout_upload import normalize_brand
+
+PROMPT_VERSION = "bv1"
+MODEL = "claude-haiku-4-5"
+ARBITRATE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_vendor_arbitrate.txt"
+SITE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify.txt"
+AGENTIC_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_agentic.txt"
+OWNERSHIP_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_vendor_ownership.txt"
+
+# Anthropic server-side web search tool (Stage 3). ~$10 per 1,000 searches,
+# billed on the same API key the worker already uses — no extra credential.
+WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search",
+                   "max_uses": 2}
+
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+FETCH_TIMEOUT = 12
+PROBE_WORKERS = 4          # polite: Shopify CDN throttles bursty IPs
+RETRY_429_SLEEP_S = 20
+
+# Same thresholds as smartscout_resolve.py / the Phase 0 diagnostic.
+FUZZY_HIGH = 92.0
+MIN_BRAND_LEN = 3
+MIN_LEN_RATIO = 0.4
+
+# Shopify app/service pseudo-vendors that are not real product makers
+# (normalized form: lowercase alnum).
+VENDOR_NOISE = {
+    "route", "redo", "xcover", "shippingprotection", "shipinsure",
+    "navidium", "corso", "seel", "extend", "clydetechnologiesinc",
+    "giftcard", "giftcards", "shopifycollective", "savedby",
+}
+
+# Stage 2 deterministic features fed to the site-LLM alongside the page text.
+RESELLER_PHRASES = [
+    "authorized dealer", "authorised dealer", "authorized retailer",
+    "official stockist", "official retailer of", "we carry brands",
+    "brands we carry", "shop all brands", "shop by brand", "our brands a-z",
+    "top brands", "browse brands", "all brands",
+]
+BRAND_PHRASES = [
+    "we make", "we manufacture", "we design", "our formula", "we craft",
+    "handcrafted by", "made by us", "we created", "our founder",
+    "we developed", "family-owned and operated",
+]
+SHOP_BY_BRAND_NAV = re.compile(
+    r"shop\s+by\s+brand|our\s+brands|brands\s+a\s*-\s*z|all\s+brands|by\s+brand",
+    re.IGNORECASE)
+
+# Company names built from retailer vocabulary collide with same-named Amazon
+# brands ("Epic Sports"); a name match alone can't prove brand ownership.
+RETAILER_NAME_WORDS = {
+    "sports", "country", "outlet", "warehouse", "depot", "store", "shop",
+    "shoppe", "mart", "emporium", "supply", "supplies", "gear", "equipment",
+    "wholesale", "distributing", "distributors", "trading", "imports",
+}
+
+
+def norm_domain(d: str | None) -> str | None:
+    if not d:
+        return None
+    d = d.strip().lower()
+    d = re.sub(r"^https?://", "", d)
+    d = re.sub(r"^www\.", "", d).split("/")[0].strip()
+    return d or None
+
+
+# ---------------------------------------------------------------------------
+# Stage 0 — cache
+# ---------------------------------------------------------------------------
+
+def _cache_lookup(conn, domains: list[str]) -> dict[str, dict]:
+    if not domains:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """select domain, verdict, method, confidence, evidence
+               from domain_brand_verdicts where domain = any(%s)""",
+            (domains,),
+        )
+        return {r[0]: {"verdict": r[1], "method": f"cache:{r[2]}",
+                       "confidence": r[3], "evidence": r[4]}
+                for r in cur.fetchall()}
+
+
+def _cache_write(conn, verdicts: dict[str, dict]) -> None:
+    rows = [(d, v["verdict"], v["method"], v.get("confidence"),
+             (v.get("evidence") or "")[:2000], v.get("vendor_count"),
+             PROMPT_VERSION if "llm" in v["method"] else None)
+            for d, v in verdicts.items()
+            if v["verdict"] in ("brand", "reseller")
+            and not v["method"].startswith("cache:")]
+    if not rows:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            """insert into domain_brand_verdicts
+               (domain, verdict, method, confidence, evidence,
+                shopify_vendor_count, prompt_version)
+               values (%s,%s,%s,%s,%s,%s,%s)
+               on conflict (domain) do update set
+                 verdict = excluded.verdict, method = excluded.method,
+                 confidence = excluded.confidence, evidence = excluded.evidence,
+                 shopify_vendor_count = excluded.shopify_vendor_count,
+                 prompt_version = excluded.prompt_version,
+                 decided_at = now()""",
+            rows,
+        )
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Stage 1b — Shopify vendor probe
+# ---------------------------------------------------------------------------
+
+def _real_vendors(vendors: Counter, company: str, domain: str) -> list[tuple[str, int]]:
+    """Drop app-noise vendors and same-brand variants; return real ones."""
+    comp_norm = normalize_brand(company or "")
+    dom_norm = normalize_brand(domain.split(".")[0])
+    comp_raw = (company or "").lower()
+    real = []
+    for v, n in vendors.items():
+        vn = normalize_brand(v or "")
+        if not vn or vn in VENDOR_NOISE:
+            continue
+        if comp_norm and fuzz.token_set_ratio(vn, comp_norm) >= 80:
+            continue
+        if dom_norm and fuzz.token_set_ratio(vn, dom_norm) >= 80:
+            continue
+        # Raw-token comparison merges sub-labels the concatenated norms miss
+        # ("Cliff Keen Wrestling" vendor on the Cliff Keen Athletic site).
+        if comp_raw and fuzz.token_set_ratio((v or "").lower(), comp_raw) >= 85:
+            continue
+        real.append((v, n))
+    return sorted(real, key=lambda t: -t[1])
+
+
+def _shopify_probe(entry: dict) -> None:
+    """Probe one domain; sets entry['verdict'/'flag'] in place.
+
+    Decisions (share rule, Phase 0):
+      <=1 third-party vendor                  -> brand (final)
+      >=2 vendors but <30% of products        -> brand (accessory side-shelf)
+      >=4 vendors and >=50% of products       -> 'flag' (LLM arbitration)
+      otherwise / not Shopify / fetch trouble -> undecided
+    """
+    dom = entry["domain"]
+    for attempt in (1, 2):
+        try:
+            r = requests.get(f"https://{dom}/products.json?limit=250",
+                             headers={"User-Agent": UA}, timeout=FETCH_TIMEOUT)
+        except requests.RequestException as e:
+            entry["probe_status"] = f"error:{type(e).__name__}"
+            return
+        if r.status_code == 429 and attempt == 1:
+            time.sleep(RETRY_429_SLEEP_S)
+            continue
+        break
+    if r.status_code != 200:
+        entry["probe_status"] = f"http_{r.status_code}"
+        return
+    try:
+        products = r.json().get("products")
+    except ValueError:
+        entry["probe_status"] = "not_json"
+        return
+    if products is None:
+        entry["probe_status"] = "not_shopify"
+        return
+    if not products:
+        entry["probe_status"] = "empty_catalog"
+        return
+
+    entry["probe_status"] = "ok"
+    vendors = Counter((p.get("vendor") or "").strip() for p in products)
+    vendors.pop("", None)
+    real = _real_vendors(vendors, entry["company"], dom)
+    entry["vendor_count"] = len(real)
+    third = sum(n for _, n in real)
+    share = third / max(len(products), 1)
+    top = ", ".join(f"{v}({n})" for v, n in real[:10])
+    detail = (f"Shopify catalog: {len(products)} products, {len(real)} "
+              f"third-party vendor(s), {share:.0%} third-party share. {top}")
+    if len(real) <= 1:
+        entry.update(verdict="brand", method="shopify_probe",
+                     confidence="high", evidence=detail)
+    elif len(real) >= 2 and share < 0.3:
+        entry.update(verdict="brand", method="shopify_probe", confidence="high",
+                     evidence="accessory side-shelf, own brand dominates. " + detail)
+    elif len(real) >= 4 and share >= 0.5:
+        # NOT final — vendor fields can hold OEM factories / internal codes.
+        entry["flag"] = detail
+
+
+_client = None
+
+
+def _llm_client():
+    global _client
+    if _client is None:
+        import anthropic
+        _client = anthropic.Anthropic()
+    return _client
+
+
+def _arbitrate_flags(flags: list[dict], on_log) -> None:
+    """One Haiku call per probe-flagged domain, judging the vendor list.
+
+    A 'brand' label is final (the false-flag causes — OEM factory names,
+    internal codes — are recognizable from the names alone). A 'reseller'
+    label is PROVISIONAL: vendor names can also be the company's own
+    sub-brands or category labels (Vetnique's Glandex, MKC's category names —
+    found in the 2026-06-10 retro run), which only an ownership lookup can
+    settle. Provisional flags go to _confirm_reseller_flags.
+    """
+    if not flags:
+        return
+    client = _llm_client()
+    system = ARBITRATE_PROMPT.read_text(encoding="utf-8")
+    for entry in flags:
+        payload = {"company_name": entry["company"],
+                   "domain": entry["domain"],
+                   "catalog": entry["flag"]}
+        out = None
+        try:
+            resp = client.messages.create(
+                model=MODEL, max_tokens=200, temperature=0, system=system,
+                messages=[{"role": "user", "content": json.dumps(payload)}],
+            )
+            out = _parse_verdict_json(resp.content[0].text)
+        except Exception as e:
+            on_log(f"    brand_verify: arbitration failed for "
+                   f"{entry['domain']}: {e}")
+        if not out:
+            out = {"label": "unknown", "confidence": "low",
+                   "reason": "arbitration unparseable"}
+        label = out["label"]
+        reason = out.get("reason") or out.get("evidence_quote") or ""
+        if label == "reseller":
+            entry["reseller_claim"] = f"{reason} | {entry['flag']}"[:2000]
+        else:
+            entry.update(
+                verdict=label, method="vendor_llm",
+                confidence=out.get("confidence", "low"),
+                evidence=f"{reason} | {entry['flag']}"[:2000],
+            )
+
+
+def _confirm_reseller_flags(entries: list[dict], on_log) -> None:
+    """Web-search ownership check on provisional reseller flags.
+
+    Asks specifically whether the catalog's major vendor names are
+    independent third-party brands or the company's own sub-brands/labels.
+    Whatever the outcome, the domain is RESOLVED here — undecidable means
+    'unknown' (human review), never a pass into later stages where a name
+    match or marketing copy could override structural evidence.
+    """
+    if not entries:
+        return
+    on_log(f"    brand_verify: confirming {len(entries)} reseller flag(s) "
+           f"via vendor-ownership search")
+    client = _llm_client()
+    system = OWNERSHIP_PROMPT.read_text(encoding="utf-8")
+    for entry in entries:
+        payload = {"company_name": entry["company"],
+                   "domain": entry["domain"],
+                   "catalog_and_arbitration": entry["reseller_claim"]}
+        messages = [{"role": "user",
+                     "content": json.dumps(payload, ensure_ascii=False)}]
+        out = None
+        try:
+            for _ in range(2):
+                resp = client.messages.create(
+                    model=MODEL, max_tokens=800, temperature=0,
+                    system=system, tools=[WEB_SEARCH_TOOL], messages=messages,
+                )
+                if resp.stop_reason == "pause_turn":
+                    messages = messages[:1] + [
+                        {"role": "assistant", "content": resp.content}]
+                    continue
+                break
+            for b in reversed(resp.content):
+                if b.type == "text" and b.text.strip():
+                    out = _parse_verdict_json(b.text)
+                    break
+        except Exception as e:
+            on_log(f"    brand_verify: ownership check failed for "
+                   f"{entry['domain']}: {e}")
+        if not out:
+            out = {"label": "unknown", "confidence": "low",
+                   "evidence_quote": "ownership check failed"}
+        label, conf = out["label"], out.get("confidence", "low")
+        evidence = (f"vendor-ownership search: {out.get('evidence_quote', '')} "
+                    f"| {entry['reseller_claim']}")[:2000]
+        if label == "reseller" and conf in ("high", "medium"):
+            entry.update(verdict="reseller", method="vendor_llm+search",
+                         confidence=conf, evidence=evidence)
+        elif label == "brand" and conf in ("high", "medium"):
+            entry.update(verdict="brand", method="vendor_llm+search",
+                         confidence=conf, evidence=evidence)
+        else:
+            entry.update(verdict="unknown", method="vendor_llm+search",
+                         confidence="low",
+                         evidence=("conflicting: multi-vendor catalog but "
+                                   "ownership unclear — review. " + evidence)[:2000])
+
+
+# ---------------------------------------------------------------------------
+# Stage 2 — homepage fetch + signal extraction + site-LLM verdict
+# ---------------------------------------------------------------------------
+
+def _fetch_homepage(entry: dict) -> None:
+    """Fetch the homepage HTML into entry['_html']; polite 429 handling."""
+    dom = entry["domain"]
+    last_status = "error:unknown"
+    for scheme in ("https", "http"):
+        for attempt in (1, 2):
+            try:
+                r = requests.get(f"{scheme}://{dom}/",
+                                 headers={"User-Agent": UA},
+                                 timeout=FETCH_TIMEOUT, allow_redirects=True)
+            except requests.RequestException as e:
+                last_status = f"error:{type(e).__name__}"
+                break
+            if r.status_code == 429 and attempt == 1:
+                time.sleep(RETRY_429_SLEEP_S)
+                continue
+            last_status = f"http_{r.status_code}"
+            if r.status_code == 200 and r.text:
+                entry["fetch_status"] = "ok"
+                entry["_html"] = r.text[:600_000]
+                return
+            break
+    entry["fetch_status"] = last_status
+
+
+def _extract_signals(entry: dict) -> None:
+    """Build entry['homepage'] + entry['features'] from the fetched HTML."""
+    html = entry.pop("_html", None)
+    if not html:
+        return
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception:
+        entry["fetch_status"] = "parse_error"
+        return
+    for tag in soup(["script", "style", "noscript", "svg", "iframe"]):
+        tag.decompose()
+
+    title = (soup.title.string or "").strip() if soup.title else ""
+    meta = ""
+    md = soup.find("meta", attrs={"name": "description"})
+    if md:
+        meta = (md.get("content") or "").strip()
+    nav_texts = []
+    for nav in soup.find_all(["nav", "header"]):
+        nav_texts += [a.get_text(" ", strip=True) for a in nav.find_all("a")]
+    nav_str = " | ".join(t for t in dict.fromkeys(nav_texts) if t)[:1500]
+    footer = soup.find("footer")
+    footer_str = footer.get_text(" ", strip=True)[:800] if footer else ""
+    body = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))[:8000]
+
+    if len(body) < 300:
+        entry["fetch_status"] = "empty_body"
+        return
+
+    lower_all = f"{nav_str} {body}".lower()
+    entry["homepage"] = {"title": title, "meta_description": meta,
+                         "nav": nav_str, "footer": footer_str,
+                         "body_excerpt": body[:4000]}
+    entry["features"] = {
+        "shopify_vendor_count": entry.get("vendor_count"),
+        "nav_has_shop_by_brand": bool(SHOP_BY_BRAND_NAV.search(nav_str)),
+        "reseller_phrase_hits": sum(lower_all.count(p) for p in RESELLER_PHRASES),
+        "brand_phrase_hits": sum(lower_all.count(p) for p in BRAND_PHRASES),
+    }
+
+
+def _site_llm_verdicts(entries: list[dict], on_log) -> None:
+    """One Haiku call per fetched homepage, asymmetric confidence gating."""
+    if not entries:
+        return
+    client = _llm_client()
+    system = SITE_PROMPT.read_text(encoding="utf-8")
+    for entry in entries:
+        payload = {
+            "company_name": entry["company"],
+            "domain": entry["domain"],
+            "third_party_description": (entry.get("description") or "")[:1200],
+            "homepage": entry["homepage"],
+            "features": entry["features"],
+        }
+        try:
+            resp = client.messages.create(
+                model=MODEL, max_tokens=300, temperature=0, system=system,
+                messages=[{"role": "user",
+                           "content": json.dumps(payload, ensure_ascii=False)}],
+            )
+            out = _parse_verdict_json(resp.content[0].text)
+            assert out, "unparseable verdict"
+            label = out["label"]
+        except Exception as e:
+            on_log(f"    brand_verify: site-LLM failed for {entry['domain']}: {e}")
+            continue
+        conf = out.get("confidence", "low")
+        evidence = (f"[{out.get('primary_signal', '?')}] "
+                    f"{out.get('evidence_quote', '')}")[:2000]
+        # Asymmetric gate: rejecting a real brand costs a paid-for lead, so
+        # 'reseller' acts only on high confidence; 'brand' on high or medium.
+        # Everything else stays unresolved (-> Stage 3 / human review).
+        if label == "reseller" and conf == "high":
+            entry.update(verdict="reseller", method="site_llm",
+                         confidence=conf, evidence=evidence)
+        elif label == "brand" and conf in ("high", "medium"):
+            entry.update(verdict="brand", method="site_llm",
+                         confidence=conf, evidence=evidence)
+        else:
+            entry["site_llm_note"] = f"{label}/{conf}: {evidence[:300]}"
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — web-search fallback (site unreadable or site-LLM unsure)
+# ---------------------------------------------------------------------------
+
+def _parse_verdict_json(text: str) -> dict | None:
+    """Parse a verdict JSON object, with a regex fallback.
+
+    Haiku occasionally emits an unescaped quote inside evidence_quote, which
+    breaks strict JSON parsing (8/54 calls in the 2026-06-10 retro run). The
+    enum-valued fields are still trivially extractable, so fall back to
+    field-level regex rather than dropping the verdict.
+    """
+    text = re.sub(r"^```(json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    try:
+        out = json.loads(text)
+        if out.get("label") in ("brand", "reseller", "unknown"):
+            return out
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    label = re.search(r'"label"\s*:\s*"(brand|reseller|unknown)"', text)
+    if not label:
+        return None
+    conf = re.search(r'"confidence"\s*:\s*"(high|medium|low)"', text)
+    ev = re.search(
+        r'"(?:evidence_quote|reason)"\s*:\s*"(.*?)"\s*,?\s*[\r\n]', text, re.S)
+    sig = re.search(r'"primary_signal"\s*:\s*"([a-z_]+)"', text)
+    return {"label": label.group(1),
+            "confidence": conf.group(1) if conf else "low",
+            "evidence_quote": ev.group(1)[:1000] if ev else "",
+            "reason": ev.group(1)[:1000] if ev else "",
+            "primary_signal": sig.group(1) if sig else "?"}
+
+
+def _agentic_verdicts(entries: list[dict], on_log) -> None:
+    """One web-search + verdict call per domain whose site couldn't be judged.
+
+    Judges the company from AROUND its website (LinkedIn, Amazon, press), so
+    it works for unreachable/bot-blocked sites. Same asymmetric confidence
+    gating as Stage 2.
+    """
+    if not entries:
+        return
+    client = _llm_client()
+    system = AGENTIC_PROMPT.read_text(encoding="utf-8")
+    for entry in entries:
+        payload = {
+            "company_name": entry["company"],
+            "domain": entry["domain"],
+            "third_party_description": (entry.get("description") or "")[:800],
+            "why_escalated": entry.get("site_llm_note")
+                or f"site fetch failed: {entry.get('fetch_status', '-')}",
+        }
+        messages = [{"role": "user",
+                     "content": json.dumps(payload, ensure_ascii=False)}]
+        out = None
+        try:
+            # The server runs the search loop; pause_turn means it wants to
+            # be re-invoked to continue. One continuation is plenty for a
+            # max_uses=2 search budget.
+            for _ in range(2):
+                resp = client.messages.create(
+                    model=MODEL, max_tokens=800, temperature=0,
+                    system=system, tools=[WEB_SEARCH_TOOL], messages=messages,
+                )
+                if resp.stop_reason == "pause_turn":
+                    messages = messages[:1] + [
+                        {"role": "assistant", "content": resp.content}]
+                    continue
+                break
+            text = next((b.text for b in resp.content
+                         if b.type == "text" and b.text.strip()), "")
+            # The verdict JSON is in the LAST text block (text blocks before
+            # tool use are narration).
+            for b in reversed(resp.content):
+                if b.type == "text" and b.text.strip():
+                    text = b.text
+                    break
+            out = _parse_verdict_json(text)
+        except Exception as e:
+            on_log(f"    brand_verify: agentic failed for {entry['domain']}: {e}")
+        if not out:
+            entry.setdefault(
+                "site_llm_note",
+                f"agentic: no parseable verdict")
+            continue
+        conf = out.get("confidence", "low")
+        evidence = (f"[{out.get('primary_signal', '?')}] "
+                    f"{out.get('evidence_quote', '')}")[:2000]
+        label = out["label"]
+        if label == "reseller" and conf == "high":
+            entry.update(verdict="reseller", method="agentic",
+                         confidence=conf, evidence=evidence)
+        elif label == "brand" and conf in ("high", "medium"):
+            entry.update(verdict="brand", method="agentic",
+                         confidence=conf, evidence=evidence)
+        else:
+            entry["site_llm_note"] = f"agentic {label}/{conf}: {evidence[:300]}"
+
+
+# ---------------------------------------------------------------------------
+# Stage 1a — SmartScout / Amazon confirm
+# ---------------------------------------------------------------------------
+
+_brand_norms_cache: list[str] | None = None
+
+
+def _smartscout_confirm(conn, entries: list[dict]) -> None:
+    global _brand_norms_cache
+    todo = [e for e in entries if "verdict" not in e]
+    if not todo:
+        return
+    if _brand_norms_cache is None:
+        with conn.cursor() as cur:
+            cur.execute("select brand_norm from smartscout_brands")
+            _brand_norms_cache = [r[0] for r in cur.fetchall()
+                                  if r[0] and len(r[0]) >= MIN_BRAND_LEN]
+    for e in todo:
+        norm = normalize_brand(e["company"] or "")
+        if not norm or len(norm) < MIN_BRAND_LEN:
+            continue
+        # token_sort_ratio, not token_set_ratio: set-ratio scores token
+        # subsets as 100 ("704 supply" vs "supply") — fine for attaching
+        # market data, not for a brand-PASS gate.
+        result = process.extractOne(norm, _brand_norms_cache,
+                                    scorer=fuzz.token_sort_ratio,
+                                    score_cutoff=FUZZY_HIGH)
+        if not result:
+            continue
+        matched, score, _ = result
+        if len(matched) / max(len(norm), 1) < MIN_LEN_RATIO:
+            continue
+        # Retailer-vocabulary names never auto-pass on a name match alone.
+        tokens = set(re.findall(r"[a-z]+", (e["company"] or "").lower()))
+        if tokens & RETAILER_NAME_WORDS:
+            continue
+        # The domain must corroborate the matched brand, so a brand named
+        # 'Ayla' can't vouch for aylabeauty.com the retailer.
+        dom_norm = normalize_brand(e["domain"].split(".")[0])
+        if fuzz.token_sort_ratio(dom_norm, matched) < 85 and dom_norm != norm:
+            continue
+        e.update(verdict="brand", method="smartscout", confidence="high",
+                 evidence=f"Amazon-registered brand match: '{matched}' "
+                          f"(score {score:.0f})")
+
+
+# ---------------------------------------------------------------------------
+# Public entry
+# ---------------------------------------------------------------------------
+
+def verify_domains(conn, leads: list[dict], on_log=print) -> dict[str, dict]:
+    """Verdict per unique company domain in `leads`.
+
+    Returns {domain: {verdict: brand|reseller|unknown, method, confidence,
+    evidence}}. Decisive verdicts are cached in domain_brand_verdicts;
+    'unknown' passes through for later stages / human review.
+    """
+    entries: dict[str, dict] = {}
+    for lead in leads:
+        dom = norm_domain(lead.get("company_domain"))
+        if dom and dom not in entries:
+            entries[dom] = {"domain": dom,
+                            "company": lead.get("company_name") or "",
+                            "description": lead.get("company_description")}
+    if not entries:
+        return {}
+
+    # Stage 0 — cache.
+    cached = _cache_lookup(conn, list(entries))
+    for dom, v in cached.items():
+        entries[dom].update(v)
+    fresh = [e for e in entries.values() if "verdict" not in e]
+    on_log(f"    brand_verify: {len(entries)} domains "
+           f"({len(cached)} cached, {len(fresh)} to judge)")
+    if not fresh:
+        return entries
+
+    # Stage 1b — Shopify probe first: structural evidence beats name matches.
+    with ThreadPoolExecutor(PROBE_WORKERS) as ex:
+        list(ex.map(_shopify_probe, fresh))
+    _arbitrate_flags([e for e in fresh if "flag" in e and "verdict" not in e],
+                     on_log)
+    # Provisional reseller flags get a vendor-ownership search; resolved
+    # fully here (reseller / brand / unknown) — they skip the later stages.
+    _confirm_reseller_flags(
+        [e for e in fresh if "reseller_claim" in e and "verdict" not in e],
+        on_log)
+
+    # Stage 1a — SmartScout confirm on the remainder.
+    _smartscout_confirm(conn, fresh)
+
+    # Stage 2 — homepage fetch + site-LLM on whatever the free layer left.
+    todo = [e for e in fresh if "verdict" not in e]
+    if todo:
+        with ThreadPoolExecutor(PROBE_WORKERS) as ex:
+            list(ex.map(_fetch_homepage, todo))
+        for e in todo:
+            _extract_signals(e)
+        judgeable = [e for e in todo if e.get("homepage")]
+        on_log(f"    brand_verify: stage 2 — {len(judgeable)}/{len(todo)} "
+               f"homepages fetched, judging via {MODEL}")
+        _site_llm_verdicts(judgeable, on_log)
+
+    # Stage 3 — web-search fallback for what Stage 2 couldn't judge
+    # (fetch-failed sites and low-confidence verdicts).
+    todo = [e for e in fresh if "verdict" not in e]
+    if todo:
+        on_log(f"    brand_verify: stage 3 — web-search fallback for "
+               f"{len(todo)} domain(s)")
+        _agentic_verdicts(todo, on_log)
+
+    # Still unresolved -> unknown; passes through flagged, never auto-rejected.
+    for e in fresh:
+        if "verdict" not in e:
+            note = e.get("site_llm_note") or (
+                f"fetch: {e.get('fetch_status', '-')}, "
+                f"probe: {e.get('probe_status', '-')}")
+            e.update(verdict="unknown", method="none", confidence=None,
+                     evidence=f"unresolved (stages 0-3): {note}"[:1000])
+
+    _cache_write(conn, entries)
+    counts = Counter(e["verdict"] for e in entries.values())
+    on_log(f"    brand_verify: verdicts {dict(counts)}")
+    return entries

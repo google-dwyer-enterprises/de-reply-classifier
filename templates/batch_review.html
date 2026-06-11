@@ -69,6 +69,7 @@
       <th>Title</th>
       <th>Company</th>
       <th>Industry</th>
+      <th title="Automated brand-vs-reseller check. Hover a value for the evidence.">Brand check</th>
       <th>Status</th>
     </tr>
   </thead>
@@ -81,12 +82,21 @@
       <td>{{ ld.title or '' }}</td>
       <td>{{ ld.company_name or '' }}</td>
       <td class="industry">{{ ld.source_industry or '' }}</td>
+      <td>
+        {% if ld.brand_verify_result == 'brand' %}
+          <span class="badge badge-approved" title="{{ ld.brand_verify_method }}: {{ ld.brand_verify_evidence or '' }}">✓ brand</span>
+        {% elif ld.brand_verify_result == 'unknown' %}
+          <span class="badge badge-pending" title="Automation couldn't decide — please eyeball the website. {{ ld.brand_verify_evidence or '' }}">? check site</span>
+        {% elif ld.brand_verify_result %}
+          <span class="badge badge-rejected" title="{{ ld.brand_verify_method }}: {{ ld.brand_verify_evidence or '' }}">{{ ld.brand_verify_result }}</span>
+        {% endif %}
+      </td>
       <td><span class="badge badge-{{ ld.lead_approval or 'pending' }}">{{ ld.lead_approval or 'pending' }}</span>
         {% if ld.lead_moved_at %}<span class="moved-tag" title="moved to lead_contacts">✓ moved</span>{% endif %}
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="empty">No leads in this batch.</td></tr>
+    <tr><td colspan="8" class="empty">No leads in this batch.</td></tr>
     {% endfor %}
   </tbody>
 </table>

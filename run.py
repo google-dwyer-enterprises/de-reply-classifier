@@ -239,6 +239,9 @@ def main() -> None:
                          "State for skipped industries is preserved untouched.")
     sl.add_argument("--dry-run", action="store_true")
     sl.add_argument("--skip-llm", action="store_true", help="Skip Haiku grey-zone agency/brand classifier")
+    sl.add_argument("--skip-brand-verify", action="store_true",
+                    help="[bettercontact] Skip the reseller-detection layer "
+                         "(domain cache + Shopify probe + SmartScout confirm)")
     sl.add_argument("--with-mobile", action="store_true",
                     help="Enrich accepted leads with mobile (10 credits each)")
     sl.add_argument("--max-credits", type=int, default=None,
@@ -330,7 +333,8 @@ def main() -> None:
                                skip_industries=skip_list,
                                page_limit=args.page_limit,
                                dry_run=args.dry_run,
-                               max_credits=args.max_credits)
+                               max_credits=args.max_credits,
+                               skip_brand_verify=args.skip_brand_verify)
         else:
             prospeo_main(mode=args.mode,
                          domains_csv=args.domains, limit=args.limit,

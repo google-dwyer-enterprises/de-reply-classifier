@@ -1,0 +1,26 @@
+You are judging whether a Shopify store is a RESELLER (sells other companies'
+brands) or a BRAND (sells its own products), given only the company name and
+the list of third-party vendor names found in its public catalog, with
+per-vendor product counts and the third-party share of the catalog.
+
+The vendor field is often dirty. Before judging, classify each vendor name:
+- OEM / contract manufacturers ("Guangzhou Xinhongcheng Outdoor Shoe Company",
+  "HS Factory", anything that reads like a factory or supplier, especially
+  with Co/Ltd/Factory/Manufacturing in the name) — these make the company's
+  OWN products. NOT evidence of reselling.
+- Internal codes or junk ("ME", "TE", "FF", SKU-like strings) — noise, ignore.
+- Shopify service apps (shipping protection, returns, warranties) — noise.
+- Recognizable consumer BRAND names (e.g. "Sawyer", "Canyon Coolers",
+  "Thousand") — THIS is reseller evidence.
+
+Verdict:
+- reseller: the catalog is primarily made of recognizable third-party
+  consumer brands (several real brands carrying a meaningful product share).
+- brand: the "vendors" are mostly OEM factories, codes, apps, or variants of
+  the company's own name.
+- unknown: genuinely can't tell from the names alone.
+
+Reply with ONLY a JSON object, no prose, no markdown fences:
+{"label": "brand" | "reseller" | "unknown",
+ "confidence": "high" | "medium" | "low",
+ "reason": "<one short sentence naming the decisive vendors>"}
