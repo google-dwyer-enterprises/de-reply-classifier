@@ -75,7 +75,22 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 FETCH_TIMEOUT = 12
 PROBE_WORKERS = 4          # polite: Shopify CDN throttles bursty IPs
+# LLM/search concurrency. Bounded by OUR API tier, not target sites, so it
+# can be higher than the fetch pool. Per-entry work is independent; results
+# are identical to serial — this is pure wall-clock at 1.7k companies/week.
+LLM_WORKERS = 6
 RETRY_429_SLEEP_S = 20
+
+
+def _pmap(fn, items):
+    """Run fn over items with the LLM worker pool (order not preserved)."""
+    if not items:
+        return
+    if len(items) == 1:
+        fn(items[0])
+        return
+    with ThreadPoolExecutor(min(LLM_WORKERS, len(items))) as ex:
+        list(ex.map(fn, items))
 
 # Same thresholds as smartscout_resolve.py / the Phase 0 diagnostic.
 FUZZY_HIGH = 92.0
@@ -294,7 +309,8 @@ def _arbitrate_flags(flags: list[dict], on_log) -> None:
         return
     client = _llm_client()
     system = ARBITRATE_PROMPT.read_text(encoding="utf-8")
-    for entry in flags:
+
+    def one(entry):
         payload = {"company_name": entry["company"],
                    "domain": entry["domain"],
                    "catalog": entry["flag"]}
@@ -322,6 +338,8 @@ def _arbitrate_flags(flags: list[dict], on_log) -> None:
                 evidence=f"{reason} | {entry['flag']}"[:2000],
             )
 
+    _pmap(one, flags)
+
 
 def _confirm_reseller_flags(entries: list[dict], on_log) -> None:
     """Web-search ownership check on provisional reseller flags.
@@ -338,7 +356,8 @@ def _confirm_reseller_flags(entries: list[dict], on_log) -> None:
            f"via vendor-ownership search")
     client = _llm_client()
     system = OWNERSHIP_PROMPT.read_text(encoding="utf-8")
-    for entry in entries:
+
+    def one(entry):
         payload = {"company_name": entry["company"],
                    "domain": entry["domain"],
                    "catalog_and_arbitration": entry["reseller_claim"]}
@@ -380,6 +399,8 @@ def _confirm_reseller_flags(entries: list[dict], on_log) -> None:
                          confidence="low",
                          evidence=("conflicting: multi-vendor catalog but "
                                    "ownership unclear — review. " + evidence)[:2000])
+
+    _pmap(one, entries)
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +530,8 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
         return
     client = _llm_client()
     system = SITE_PROMPT.read_text(encoding="utf-8")
-    for entry in entries:
+
+    def one(entry):
         payload = {
             "company_name": entry["company"],
             "domain": entry["domain"],
@@ -528,7 +550,7 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
             label = out["label"]
         except Exception as e:
             on_log(f"    brand_verify: site-LLM failed for {entry['domain']}: {e}")
-            continue
+            return
         conf = out.get("confidence", "low")
         evidence = (f"[{out.get('primary_signal', '?')}] "
                     f"{out.get('evidence_quote', '')}")[:2000]
@@ -543,13 +565,13 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
                      entry["confidence"], entry["evidence"])
             del entry["verdict"]
             if _apply_icp_checks(entry, out, conf, evidence):
-                continue                          # ICP reject overrides
+                return                            # ICP reject overrides
             entry.update(verdict=prior[0], method=prior[1],
                          confidence=prior[2], evidence=prior[3])
-            continue
+            return
 
         if _apply_icp_checks(entry, out, conf, evidence):
-            continue
+            return
         # Brand/reseller axis (unchanged from the measured bv1 behavior).
         if label == "reseller" and conf == "high":
             entry.update(verdict="reseller", method="site_llm",
@@ -560,6 +582,8 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
                          confidence=conf, evidence=evidence)
         else:
             entry.setdefault("site_llm_note", f"{label}/{conf}: {evidence[:300]}")
+
+    _pmap(one, entries)
 
 
 # ---------------------------------------------------------------------------
@@ -606,7 +630,8 @@ def _agentic_verdicts(entries: list[dict], on_log) -> None:
         return
     client = _llm_client()
     system = AGENTIC_PROMPT.read_text(encoding="utf-8")
-    for entry in entries:
+
+    def one(entry):
         payload = {
             "company_name": entry["company"],
             "domain": entry["domain"],
@@ -646,7 +671,7 @@ def _agentic_verdicts(entries: list[dict], on_log) -> None:
             entry.setdefault(
                 "site_llm_note",
                 f"agentic: no parseable verdict")
-            continue
+            return
         conf = out.get("confidence", "low")
         evidence = (f"[{out.get('primary_signal', '?')}] "
                     f"{out.get('evidence_quote', '')}")[:2000]
@@ -659,6 +684,8 @@ def _agentic_verdicts(entries: list[dict], on_log) -> None:
                          confidence=conf, evidence=evidence)
         else:
             entry["site_llm_note"] = f"agentic {label}/{conf}: {evidence[:300]}"
+
+    _pmap(one, entries)
 
 
 # ---------------------------------------------------------------------------
@@ -681,7 +708,8 @@ def _ownership_size_check(entries: list[dict], on_log) -> None:
            f"brand-verdict domain(s)")
     client = _llm_client()
     system = OWNER_SIZE_PROMPT.read_text(encoding="utf-8")
-    for entry in entries:
+
+    def one(entry):
         payload = {"company_name": entry["company"],
                    "domain": entry["domain"],
                    "scraped_description": (entry.get("description") or "")[:400]}
@@ -728,7 +756,7 @@ def _ownership_size_check(entries: list[dict], on_log) -> None:
             on_log(f"    brand_verify: ownership check failed for "
                    f"{entry['domain']}: {e}")
         if not out:
-            continue                       # check failed -> brand verdict stands
+            return                         # check failed -> brand verdict stands
         conf = out.get("confidence", "low")
         parent = out.get("parent_company") or None
         size = out.get("size_estimate", "unknown")
@@ -751,6 +779,8 @@ def _ownership_size_check(entries: list[dict], on_log) -> None:
                          evidence=(f"owned by {parent or 'a corporate parent'} "
                                    f"— acquired-but-independent is a policy "
                                    f"call, review. {ev}")[:2000])
+
+    _pmap(one, entries)
 
 
 # ---------------------------------------------------------------------------
