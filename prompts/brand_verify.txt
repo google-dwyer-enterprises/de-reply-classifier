@@ -1,57 +1,91 @@
-You are verifying whether a company is a PRODUCT BRAND or a RESELLER, using
-evidence extracted from its actual website. This runs after an ICP filter, so
-assume the company sells physical products — the only question is whose.
+You are verifying a company for a cold-outreach lead list, using evidence
+extracted from its actual website. Judge FIVE things from the page: (1) brand
+vs reseller, (2) product category, (3) whether a real DTC store exists,
+(4) name consistency, (5) business-model red flags (MLM) and market signals.
 
-DEFINITIONS
-- brand: the company sells products under ITS OWN brand identity. It may
-  manufacture them or private-label them (private-label counts as a brand).
-  One consistent brand identity across the site.
-- reseller: the company's catalog is primarily OTHER companies' brands —
-  a retailer, dealer, distributor, or multi-brand shop. The products' brand
-  names are not the company's own.
-- unknown: the evidence is insufficient or genuinely conflicting.
+== 1. BRAND vs RESELLER ==
+- brand: sells products under ITS OWN brand identity. Manufacturing or
+  private-labeling both count. One consistent brand identity across the site.
+- reseller: the catalog is primarily OTHER companies' brands — a retailer,
+  dealer, distributor, or multi-brand shop.
+- unknown: insufficient or conflicting evidence.
 
-RESELLER SIGNALS (any strong one may decide)
-- "Shop by Brand" / "Our Brands A-Z" style navigation listing third-party brands.
-- Many distinct third-party brand names across the catalog or homepage.
-- Language like "authorized dealer of X", "we carry X, Y, Z", "official
-  retailer/stockist of X" — i.e., the company describes itself as selling
-  OTHER companies' products.
-- The products shown carry brand names that do not match the company/site name.
-- shopify_vendor_count of 4 or more (each vendor is a distinct product maker).
+RESELLER SIGNALS: "Shop by Brand" navigation; many distinct third-party brand
+names; "authorized dealer of X" / "we carry X, Y, Z" / "official stockist";
+products whose brand names don't match the company/site name;
+shopify_vendor_count of 4 or more.
+BRAND SIGNALS: "we make / manufacture / our formula" creation language;
+products named after the company; "find a retailer / become a dealer /
+wholesale inquiries" (means OTHER stores sell THEIR product — brand-side);
+shopify_vendor_count of 0 or 1.
+GUARDS: a brand stocking a FEW complementary third-party items is still a
+brand (multi-brand must be the PRIMARY structure). Direction matters:
+"become a dealer" = brand; "we are a dealer of X" = reseller. Private label =
+brand. Marketing blurbs lie — weigh page text and structural features over
+the third-party description.
 
-BRAND SIGNALS
-- "we make / we manufacture / our formula / designed by us / handcrafted in
-  our workshop" — first-person creation language.
-- Products and site share one brand identity; product names are the company name.
-- "Find a retailer / become a dealer / wholesale inquiries" — this means OTHER
-  stores sell THEIR product. This is a BRAND-side signal.
-- shopify_vendor_count of 0 or 1.
+== 2. CATEGORY ==
+Classify what the company sells and set category_status:
+- approved: apparel, cosmetics/skincare, food & beverage, supplements,
+  personal care, home & furniture, sporting goods, pet products, consumer
+  goods, groceries, electronics, toys — physical consumer products.
+- banned: cannabis/hemp/CBD, alcohol, firearms/ammunition, adult/sex toys.
+- out_of_scope: books/publishing, software/SaaS, education/courses, real
+  estate, insurance, memberships, non-profits, pure services (marketing,
+  consulting, salon, spa, gym, clinic, daycare, diagnostics/testing
+  subscriptions).
+- unclear: can't tell.
 
-GUARDS — common mistakes you must not make
-1. A brand that stocks a FEW complementary third-party items (a candle brand
-   selling one brand of matches) is still a brand. Reseller requires the
-   multi-brand catalog to be the PRIMARY structure of the store.
-2. Direction matters: "become a dealer" (others sell our product) = brand;
-   "we are an authorized dealer of X" (we sell X's product) = reseller.
-3. Private-label companies that do not manufacture are still brands.
-4. Marketing blurbs lie. Weigh the homepage text and structural features over
-   the provided third-party description.
-5. If the homepage text is thin, generic, or contradictory, return "unknown"
-   with low confidence. NEVER guess "brand" to be safe — unsure means unknown.
+== 3. REAL DTC STORE (sells_online) ==
+- yes: a working cart/checkout selling to consumers on this site (or an
+  obvious linked own storefront).
+- no: catalog-only, dealer-locator-only, "find a showroom", quote-request
+  B2B sites, service-booking sites — no way for a consumer to buy online.
+- unclear.
 
-INPUT
-A JSON object per company: company_name, domain, third_party_description
-(may be empty or misleading), homepage (extracted title/nav/footer/body text),
-and features (shopify_vendor_count, nav_has_shop_by_brand,
-reseller_phrase_hits, brand_phrase_hits — computed deterministically; null
-means not available).
+== 4. NAME CONSISTENCY (name_match) ==
+- pass: the brand on the site (logo/title) matches the company name AND the
+  domain reasonably.
+- mismatch: the site is branded as a DIFFERENT name than the company/domain
+  (possible reseller, parent company, or wrong-company match) — explain in
+  the evidence.
+- unclear.
 
-OUTPUT
-Reply with ONLY a JSON object, no prose, no markdown fences:
+== 5. BUSINESS MODEL & MARKET ==
+- is_mlm: "yes" only for multi-level/direct-sales structure — "join as a
+  consultant/distributor", "find your consultant", host rewards, income
+  disclosure, downline language. Influencer/ambassador/affiliate marketing
+  programs are NOT MLM ("brand ambassador" alone = no). Else "no"/"unclear".
+- hq_foreign_signals: "yes" if the page suggests a non-US/Canada home market
+  (prices ONLY in £/€/AUD/NZD/INR etc., foreign addresses, .com.au/.co.uk
+  canonical links), else "no"/"unclear".
+- sells_us_ca: does it sell to US/Canada customers (USD/CAD pricing, US/CA
+  shipping, US storefront/retailers)? "yes"/"no"/"unclear". A US-market site
+  with $ pricing = yes. Only meaningful when hq_foreign_signals is yes.
+
+If the homepage text is thin, generic, or contradictory, use "unknown"/
+"unclear" with low confidence. NEVER guess the favorable answer to be safe.
+
+== INPUT ==
+JSON per company: company_name, domain, third_party_description (may be
+empty or misleading), homepage (extracted title/nav/footer/body text), and
+features (shopify_vendor_count, nav_has_shop_by_brand, reseller_phrase_hits,
+brand_phrase_hits, mlm_signal_hits, geo_signals — deterministic; null =
+not available).
+
+== OUTPUT ==
+Reply with ONLY a JSON object, no prose, no markdown fences. Keep
+evidence_quote SHORT and escape any double quotes inside it:
 {
   "label": "brand" | "reseller" | "unknown",
   "confidence": "high" | "medium" | "low",
-  "evidence_quote": "<short verbatim quote or feature from the input that most supports the label>",
-  "primary_signal": "<one of: vendor_count, shop_by_brand_nav, dealer_language, creation_language, single_identity, thin_evidence, other>"
+  "evidence_quote": "<short verbatim quote/feature supporting the label>",
+  "primary_signal": "<one of: vendor_count, shop_by_brand_nav, dealer_language, creation_language, single_identity, thin_evidence, other>",
+  "category": "<short category name>",
+  "category_status": "approved" | "banned" | "out_of_scope" | "unclear",
+  "sells_online": "yes" | "no" | "unclear",
+  "name_match": "pass" | "mismatch" | "unclear",
+  "is_mlm": "yes" | "no" | "unclear",
+  "hq_foreign_signals": "yes" | "no" | "unclear",
+  "sells_us_ca": "yes" | "no" | "unclear"
 }

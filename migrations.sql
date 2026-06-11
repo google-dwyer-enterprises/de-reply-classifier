@@ -499,3 +499,38 @@ alter table prospeo_new_leads
   add column if not exists brand_verify_method text;
 alter table prospeo_new_leads
   add column if not exists brand_verify_evidence text;
+
+-- ---------------------------------------------------------------------------
+-- QA gap fixes (ROADMAP_IMPLEMENTATION_PLAN.md, PR "qa-gap-fixes")
+-- ---------------------------------------------------------------------------
+
+-- Ground truth from the 2026-06-10/11 full-criteria website audit (312
+-- companies, re-graded 6/11 for the sells-in-US/CA foreign rule). Regression
+-- target for every new gate: catch the known fails, never reject the passes.
+create table if not exists qa_audit_labels (
+  domain        text primary key,
+  verdict       text not null,         -- 'pass' | 'fail' | 'review'
+  issue_group   text,                  -- fail bucket / review reason
+  business_type text,
+  category      text,
+  evidence      text,
+  labeled_at    timestamptz not null default now()
+);
+
+-- Ownership / true-size verdicts (corporate-parent detection).
+alter table domain_brand_verdicts add column if not exists parent_company text;
+alter table domain_brand_verdicts add column if not exists size_estimate text;
+
+-- Per-batch accuracy harvested from reviewer decisions (lead_approval vs
+-- machine verdicts) when a batch fully closes. Written by worker.py.
+create table if not exists qa_metrics (
+  id bigserial primary key,
+  scrape_request_id bigint not null,
+  total_leads int not null,
+  machine_pass_human_approved int not null,
+  machine_pass_human_rejected int not null,   -- ESCAPES: the number that matters
+  machine_flag_human_approved int not null,   -- review queue overcautious
+  machine_flag_human_rejected int not null,   -- review queue caught it
+  computed_at timestamptz not null default now(),
+  unique (scrape_request_id)
+);
