@@ -667,6 +667,7 @@ def _run_category(conn, api_key: str, *,
                    page_limit: int = BC_PAGE_LIMIT,
                    dry_run: bool, max_credits: int | None,
                    skip_llm: bool = False,
+                   skip_brand_verify: bool = False,
                    scrape_request_id: int | None = None) -> dict:
     """Round-robin over BC_INDUSTRIES, advancing each industry's offset by
     BC_PAGE_LIMIT each cycle until target/budget/exhaustion.
@@ -1104,6 +1105,7 @@ def main(*, mode: str = "category", target_leads: int | None = None,
                              page_limit=page_limit,
                              dry_run=dry_run, max_credits=max_credits,
                              skip_llm=skip_llm,
+                             skip_brand_verify=skip_brand_verify,
                              scrape_request_id=scrape_request_id)
     finally:
         conn.close()
