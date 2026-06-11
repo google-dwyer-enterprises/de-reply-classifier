@@ -543,6 +543,49 @@ def move_approved_leads_for_request(conn, request_id: int) -> int:
     return inserted
 
 
+def compute_qa_metrics(conn, request_id: int) -> None:
+    """Harvest machine-vs-human agreement for a fully-decided batch.
+
+    Runs once per request when it reaches status='moved' (idempotent via the
+    unique constraint). The labels are the approve/reject clicks the reviewer
+    already made — machine_pass_human_rejected is the escape count, the
+    number that drives threshold tuning. Best-effort: failures are logged,
+    never block the finalize path.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into qa_metrics (scrape_request_id, total_leads,
+                    machine_pass_human_approved, machine_pass_human_rejected,
+                    machine_flag_human_approved, machine_flag_human_rejected)
+                select %s, count(*),
+                    count(*) filter (where brand_verify_result = 'brand'
+                                     and lead_approval = 'approved'),
+                    count(*) filter (where brand_verify_result = 'brand'
+                                     and lead_approval = 'rejected'),
+                    count(*) filter (where coalesce(brand_verify_result,
+                                                    'unknown') <> 'brand'
+                                     and lead_approval = 'approved'),
+                    count(*) filter (where coalesce(brand_verify_result,
+                                                    'unknown') <> 'brand'
+                                     and lead_approval = 'rejected')
+                from prospeo_new_leads
+                where scrape_request_id = %s and not rejected
+                on conflict (scrape_request_id) do nothing
+                """,
+                (request_id, request_id),
+            )
+        conn.commit()
+        log(f"req #{request_id}: qa_metrics computed")
+    except Exception as e:
+        log(f"req #{request_id}: qa_metrics failed (non-fatal): {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+
 def finalize_request_if_done(conn, request_id: int) -> bool:
     """Auto-flip status='moved' when this request is fully decided.
 
@@ -605,6 +648,7 @@ def process_pending_lead_moves(conn) -> bool:
             any_work = True
         if finalize_request_if_done(conn, rid):
             log(f"req #{rid}: all leads decided — status=moved")
+            compute_qa_metrics(conn, rid)
     return any_work
 
 
@@ -693,6 +737,7 @@ def finalize_complete_requests(conn) -> int:
     conn.commit()
     for rid in finalized:
         log(f"req #{rid}: all leads decided — status=moved (finalize sweep)")
+        compute_qa_metrics(conn, rid)
     return len(finalized)
 
 

@@ -931,11 +931,12 @@ def _run_category(conn, api_key: str, *,
                         capped.append(lead)
                 batch_accepted = capped
 
-            # Reseller detection (RESELLER_DETECTION_PLAN.md): per-domain
-            # brand-vs-reseller verdicts from the free layer (cache, Shopify
-            # share-rule probe + vendor-list LLM arbitration, SmartScout
-            # confirm). 'reseller' rejects; 'brand'/'unknown' pass through
-            # stamped — unknowns are never auto-rejected.
+            # Website verification (RESELLER_DETECTION_PLAN.md + the bv2
+            # gap-fixes): per-domain verdicts — reseller, MLM, banned /
+            # out-of-scope category, no DTC store, foreign-not-selling-US/CA,
+            # corporate/enterprise size — from the layered funnel. Any
+            # REJECT_VERDICTS verdict rejects with evidence; 'brand'/'unknown'
+            # pass through stamped — unknowns are never auto-rejected.
             if batch_accepted and not skip_brand_verify:
                 verdicts = brand_verify.verify_domains(conn, batch_accepted)
                 survivors = []
@@ -948,14 +949,15 @@ def _run_category(conn, api_key: str, *,
                     lead["brand_verify_result"] = v["verdict"]
                     lead["brand_verify_method"] = v["method"]
                     lead["brand_verify_evidence"] = (v.get("evidence") or "")[:1000]
-                    if v["verdict"] == "reseller":
-                        lead["agency_filter_result"] = "reseller"
+                    reason = brand_verify.REJECT_VERDICTS.get(v["verdict"])
+                    if reason:
+                        lead["agency_filter_result"] = v["verdict"]
                         lead["agency_filter_reason"] = (
-                            f"reseller_site: {v.get('evidence', '')}"[:500])
+                            f"{reason}: {v.get('evidence', '')}"[:500])
                         lead["rejected"] = True
                         batch_rejected.append(lead)
-                        rejected_counts["reseller_site"] = (
-                            rejected_counts.get("reseller_site", 0) + 1)
+                        rejected_counts[reason] = (
+                            rejected_counts.get(reason, 0) + 1)
                     else:
                         survivors.append(lead)
                 batch_accepted = survivors

@@ -1,0 +1,47 @@
+You are checking two ICP rules for a cold-outreach lead: the target must be
+a SMALL, INDEPENDENT brand (roughly 5–50 employees, founder-led), not a
+corporate-owned subsidiary or a large enterprise. Scraped size data is often
+wrong, so verify via web search.
+
+Use web search ONCE (twice only if genuinely needed): search
+"<company> acquired parent company employees" or similar, and check press
+releases, Wikipedia, LinkedIn company data, Owler/Crunchbase-style figures.
+
+Decide:
+- business_model:
+  - "mlm": the company is documented as a multi-level marketing /
+    direct-sales company (consultant/stylist/distributor networks, downline
+    compensation) — e.g. described as MLM on Wikipedia, DSA membership,
+    income-disclosure statements. Influencer/ambassador/affiliate programs
+    alone are NOT MLM.
+  - "standard": normal DTC/retail brand.
+  - "unknown".
+- independence:
+  - "independent": no corporate parent (founder/family/PE-minority ownership
+    all count as independent for our purposes).
+  - "subsidiary": owned by a major corporation or holding group (e.g.
+    acquired by Mars, Henkel, Wella, Unilever, ASSA ABLOY, a public company,
+    or a large brand-house/conglomerate).
+  - "unknown": can't establish.
+- size_estimate (employees):
+  - "micro" (1-4), "smb" (5-50), "mid" (51-200), "enterprise" (200+ or
+    clearly large: hundreds of employees, $50M+ revenue, global offices),
+    "unknown".
+
+GUARDS
+1. Recency matters — an acquisition announcement any year counts; the brand
+   stays a subsidiary unless later divested.
+2. Don't confuse a brand OWNING sub-brands (that's fine, still independent)
+   with a brand being owned BY a parent.
+3. Similar-named companies: if search results are about a different company,
+   ignore them — "unknown" over a guess.
+
+Reply with ONLY a JSON object, no prose, no markdown fences:
+{
+  "business_model": "mlm" | "standard" | "unknown",
+  "independence": "independent" | "subsidiary" | "unknown",
+  "parent_company": "<name or null>",
+  "size_estimate": "micro" | "smb" | "mid" | "enterprise" | "unknown",
+  "confidence": "high" | "medium" | "low",
+  "evidence_quote": "<short: what you found and where>"
+}

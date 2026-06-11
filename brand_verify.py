@@ -46,12 +46,25 @@ from rapidfuzz import fuzz, process
 
 from smartscout_upload import normalize_brand
 
-PROMPT_VERSION = "bv1"
+PROMPT_VERSION = "bv2"
 MODEL = "claude-haiku-4-5"
 ARBITRATE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_vendor_arbitrate.txt"
 SITE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify.txt"
 AGENTIC_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_agentic.txt"
 OWNERSHIP_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_vendor_ownership.txt"
+OWNER_SIZE_PROMPT = Path(__file__).parent / "prompts" / "brand_verify_ownership_size.txt"
+
+# Verdicts that reject a lead (everything else passes through; 'unknown'
+# passes flagged for review). Maps verdict -> agency_filter_reason prefix.
+REJECT_VERDICTS = {
+    "reseller": "reseller_site",
+    "mlm": "mlm_direct_sales",
+    "banned_category": "banned_category",
+    "out_of_scope": "out_of_scope_category",
+    "no_dtc_store": "no_dtc_store",
+    "foreign_no_usca": "foreign_no_usca",
+    "too_large": "too_large_or_corporate",
+}
 
 # Anthropic server-side web search tool (Stage 3). ~$10 per 1,000 searches,
 # billed on the same API key the worker already uses — no extra credential.
@@ -92,6 +105,17 @@ BRAND_PHRASES = [
 SHOP_BY_BRAND_NAV = re.compile(
     r"shop\s+by\s+brand|our\s+brands|brands\s+a\s*-\s*z|all\s+brands|by\s+brand",
     re.IGNORECASE)
+# MLM structure language ("ambassador" deliberately excluded — influencer
+# programs are not MLMs; the prompt enforces the same distinction).
+MLM_PAT = re.compile(
+    r"become\s+a\s+consultant|find\s+(your|a)\s+consultant|join\s+(as\s+a\s+)?"
+    r"(consultant|distributor)|income\s+disclosure|host\s+rewards|"
+    r"downline|direct\s+selling|independent\s+(consultant|distributor)",
+    re.IGNORECASE)
+# Non-US/CA home-market hints in page text (currency-first; .ca is fine).
+GEO_PAT = re.compile(
+    r"\.com\.au|\.co\.uk|\.co\.nz|\bAUD\b|\bNZD\b|\bGBP\b|\bEUR\b|\bINR\b|"
+    r"£|€|₹|VAT\s+includ", re.IGNORECASE)
 
 # Company names built from retailer vocabulary collide with same-named Amazon
 # brands ("Epic Sports"); a name match alone can't prove brand ownership.
@@ -130,11 +154,15 @@ def _cache_lookup(conn, domains: list[str]) -> dict[str, dict]:
 
 
 def _cache_write(conn, verdicts: dict[str, dict]) -> None:
+    # Cache every decisive verdict (brand + all reject verdicts); 'unknown'
+    # is re-derivable and caching it would block later re-judgment.
     rows = [(d, v["verdict"], v["method"], v.get("confidence"),
              (v.get("evidence") or "")[:2000], v.get("vendor_count"),
-             PROMPT_VERSION if "llm" in v["method"] else None)
+             PROMPT_VERSION if "llm" in v["method"] or "search" in v["method"]
+             else None,
+             v.get("parent_company"), v.get("size_estimate"))
             for d, v in verdicts.items()
-            if v["verdict"] in ("brand", "reseller")
+            if v["verdict"] != "unknown"
             and not v["method"].startswith("cache:")]
     if not rows:
         return
@@ -142,13 +170,16 @@ def _cache_write(conn, verdicts: dict[str, dict]) -> None:
         cur.executemany(
             """insert into domain_brand_verdicts
                (domain, verdict, method, confidence, evidence,
-                shopify_vendor_count, prompt_version)
-               values (%s,%s,%s,%s,%s,%s,%s)
+                shopify_vendor_count, prompt_version,
+                parent_company, size_estimate)
+               values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                on conflict (domain) do update set
                  verdict = excluded.verdict, method = excluded.method,
                  confidence = excluded.confidence, evidence = excluded.evidence,
                  shopify_vendor_count = excluded.shopify_vendor_count,
                  prompt_version = excluded.prompt_version,
+                 parent_company = excluded.parent_company,
+                 size_estimate = excluded.size_estimate,
                  decided_at = now()""",
             rows,
         )
@@ -411,6 +442,7 @@ def _extract_signals(entry: dict) -> None:
         return
 
     lower_all = f"{nav_str} {body}".lower()
+    page_and_desc = f"{nav_str} {footer_str} {body} {entry.get('description') or ''}"
     entry["homepage"] = {"title": title, "meta_description": meta,
                          "nav": nav_str, "footer": footer_str,
                          "body_excerpt": body[:4000]}
@@ -419,11 +451,60 @@ def _extract_signals(entry: dict) -> None:
         "nav_has_shop_by_brand": bool(SHOP_BY_BRAND_NAV.search(nav_str)),
         "reseller_phrase_hits": sum(lower_all.count(p) for p in RESELLER_PHRASES),
         "brand_phrase_hits": sum(lower_all.count(p) for p in BRAND_PHRASES),
+        "mlm_signal_hits": len(MLM_PAT.findall(page_and_desc)),
+        "geo_signals": sorted(set(m.strip().lower()
+                                  for m in GEO_PAT.findall(page_and_desc)))[:6],
     }
 
 
+def _apply_icp_checks(entry: dict, out: dict, conf: str, evidence: str) -> bool:
+    """Apply the bv2 ICP fields (MLM, category, DTC store, US/CA market).
+
+    Returns True if a reject verdict was set. Reject only on HIGH confidence;
+    medium/unclear ICP concerns become review notes, never rejections.
+    """
+    checks = [
+        (out.get("is_mlm") == "yes", "mlm", "MLM/direct-sales structure"),
+        (out.get("category_status") == "banned", "banned_category",
+         f"banned category: {out.get('category', '?')}"),
+        (out.get("category_status") == "out_of_scope", "out_of_scope",
+         f"out-of-scope category: {out.get('category', '?')}"),
+        (out.get("sells_online") == "no", "no_dtc_store",
+         "no consumer store on site (catalog/dealer/service only)"),
+        (out.get("hq_foreign_signals") == "yes"
+         and out.get("sells_us_ca") == "no", "foreign_no_usca",
+         "foreign home market and does not sell to US/CA"),
+    ]
+    for hit, verdict, why in checks:
+        if hit and conf == "high":
+            entry.update(verdict=verdict, method="site_llm", confidence=conf,
+                         evidence=f"{why}. {evidence}"[:2000])
+            return True
+        if hit:  # medium/low-confidence concern -> flag for review
+            entry["site_llm_note"] = (f"{verdict}?/{conf}: {why}. "
+                                      f"{evidence}")[:400]
+    # Foreign signals with UNCLEAR US/CA sales is a review case, not a pass.
+    if (out.get("hq_foreign_signals") == "yes"
+            and out.get("sells_us_ca") == "unclear"):
+        entry["site_llm_note"] = (f"foreign signals, US/CA sales unclear. "
+                                  f"{evidence}")[:400]
+        entry["force_review"] = True
+    # Name mismatch is never an auto-reject (can be a parent brand) — review.
+    if out.get("name_match") == "mismatch":
+        entry["site_llm_note"] = (f"name mismatch: site brand differs from "
+                                  f"company/domain. {evidence}")[:400]
+        entry["force_review"] = True
+    return False
+
+
 def _site_llm_verdicts(entries: list[dict], on_log) -> None:
-    """One Haiku call per fetched homepage, asymmetric confidence gating."""
+    """One Haiku call per fetched homepage, asymmetric confidence gating.
+
+    Entries that already carry a deterministic brand verdict (Shopify probe /
+    SmartScout) are ICP-checked only: a high-confidence MLM/category/store/
+    market failure overrides the brand confirm, but the site read's own
+    brand/reseller label never does — structural catalog evidence wins.
+    """
     if not entries:
         return
     client = _llm_client()
@@ -438,7 +519,7 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
         }
         try:
             resp = client.messages.create(
-                model=MODEL, max_tokens=300, temperature=0, system=system,
+                model=MODEL, max_tokens=450, temperature=0, system=system,
                 messages=[{"role": "user",
                            "content": json.dumps(payload, ensure_ascii=False)}],
             )
@@ -451,17 +532,34 @@ def _site_llm_verdicts(entries: list[dict], on_log) -> None:
         conf = out.get("confidence", "low")
         evidence = (f"[{out.get('primary_signal', '?')}] "
                     f"{out.get('evidence_quote', '')}")[:2000]
-        # Asymmetric gate: rejecting a real brand costs a paid-for lead, so
-        # 'reseller' acts only on high confidence; 'brand' on high or medium.
-        # Everything else stays unresolved (-> Stage 3 / human review).
+        entry["icp_out"] = {k: out.get(k) for k in
+                            ("category", "category_status", "sells_online",
+                             "name_match", "is_mlm", "hq_foreign_signals",
+                             "sells_us_ca")}
+
+        had_verdict = "verdict" in entry          # deterministic brand confirm
+        if had_verdict:
+            prior = (entry["verdict"], entry["method"],
+                     entry["confidence"], entry["evidence"])
+            del entry["verdict"]
+            if _apply_icp_checks(entry, out, conf, evidence):
+                continue                          # ICP reject overrides
+            entry.update(verdict=prior[0], method=prior[1],
+                         confidence=prior[2], evidence=prior[3])
+            continue
+
+        if _apply_icp_checks(entry, out, conf, evidence):
+            continue
+        # Brand/reseller axis (unchanged from the measured bv1 behavior).
         if label == "reseller" and conf == "high":
             entry.update(verdict="reseller", method="site_llm",
                          confidence=conf, evidence=evidence)
-        elif label == "brand" and conf in ("high", "medium"):
+        elif (label == "brand" and conf in ("high", "medium")
+              and not entry.get("force_review")):
             entry.update(verdict="brand", method="site_llm",
                          confidence=conf, evidence=evidence)
         else:
-            entry["site_llm_note"] = f"{label}/{conf}: {evidence[:300]}"
+            entry.setdefault("site_llm_note", f"{label}/{conf}: {evidence[:300]}")
 
 
 # ---------------------------------------------------------------------------
@@ -564,6 +662,98 @@ def _agentic_verdicts(entries: list[dict], on_log) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Ownership & true-size check (corporate-parent / enterprise detection)
+# ---------------------------------------------------------------------------
+
+def _ownership_size_check(entries: list[dict], on_log) -> None:
+    """One web search per brand-verdict company: parent ownership + real size.
+
+    Scraped headcount lies (Pura Vida: listed small, ~1,000 employees), and
+    ownership isn't in scraped data at all. Policy (asymmetric):
+      enterprise + high confidence            -> reject 'too_large'
+      subsidiary of a major parent + high     -> 'unknown' (review) — the
+        acquired-but-independent line is Victor's policy call, default review
+      anything else                           -> pass; parent/size stamped
+    """
+    if not entries:
+        return
+    on_log(f"    brand_verify: ownership/size check on {len(entries)} "
+           f"brand-verdict domain(s)")
+    client = _llm_client()
+    system = OWNER_SIZE_PROMPT.read_text(encoding="utf-8")
+    for entry in entries:
+        payload = {"company_name": entry["company"],
+                   "domain": entry["domain"],
+                   "scraped_description": (entry.get("description") or "")[:400]}
+        # Site-read MLM suspicion steers the search: rebranded MLMs hide the
+        # structure on-site ("ambassadors") but are documented off-site.
+        site_mlm = (entry.get("icp_out") or {}).get("is_mlm")
+        if site_mlm in ("unclear", "yes"):
+            payload["note"] = ("The website shows possible direct-sales/"
+                               "ambassador structure — explicitly search "
+                               "whether this company is an MLM.")
+        messages = [{"role": "user", "content": json.dumps(payload)}]
+        out = None
+        try:
+            for _ in range(2):
+                resp = client.messages.create(
+                    model=MODEL, max_tokens=600, temperature=0,
+                    system=system, tools=[WEB_SEARCH_TOOL], messages=messages)
+                if resp.stop_reason == "pause_turn":
+                    messages = messages[:1] + [
+                        {"role": "assistant", "content": resp.content}]
+                    continue
+                break
+            for b in reversed(resp.content):
+                if b.type == "text" and b.text.strip():
+                    txt = re.sub(r"^```(json)?|```$", "", b.text.strip(),
+                                 flags=re.MULTILINE).strip()
+                    try:
+                        out = json.loads(txt)
+                    except json.JSONDecodeError:
+                        ind = re.search(
+                            r'"independence"\s*:\s*"(independent|subsidiary|unknown)"', txt)
+                        sz = re.search(
+                            r'"size_estimate"\s*:\s*"(micro|smb|mid|enterprise|unknown)"', txt)
+                        cf = re.search(r'"confidence"\s*:\s*"(high|medium|low)"', txt)
+                        pc = re.search(r'"parent_company"\s*:\s*"([^"]{1,80})"', txt)
+                        if ind:
+                            out = {"independence": ind.group(1),
+                                   "size_estimate": sz.group(1) if sz else "unknown",
+                                   "confidence": cf.group(1) if cf else "low",
+                                   "parent_company": pc.group(1) if pc else None,
+                                   "evidence_quote": txt[:250]}
+                    break
+        except Exception as e:
+            on_log(f"    brand_verify: ownership check failed for "
+                   f"{entry['domain']}: {e}")
+        if not out:
+            continue                       # check failed -> brand verdict stands
+        conf = out.get("confidence", "low")
+        parent = out.get("parent_company") or None
+        size = out.get("size_estimate", "unknown")
+        ev = out.get("evidence_quote", "")
+        entry["parent_company"] = parent
+        entry["size_estimate"] = size
+        if out.get("business_model") == "mlm" and conf in ("high", "medium"):
+            # MLMs hide their structure on rebranded sites (Stella & Dot's
+            # "ambassadors") but are plainly documented off-site.
+            entry.update(verdict="mlm", method="ownership_search",
+                         confidence=conf,
+                         evidence=f"documented MLM/direct-sales company. {ev}"[:2000])
+        elif size == "enterprise" and conf == "high":
+            entry.update(verdict="too_large", method="ownership_search",
+                         confidence=conf,
+                         evidence=f"enterprise-size company. {ev}"[:2000])
+        elif out.get("independence") == "subsidiary" and conf == "high":
+            entry.update(verdict="unknown", method="ownership_search",
+                         confidence="low",
+                         evidence=(f"owned by {parent or 'a corporate parent'} "
+                                   f"— acquired-but-independent is a policy "
+                                   f"call, review. {ev}")[:2000])
+
+
+# ---------------------------------------------------------------------------
 # Stage 1a — SmartScout / Amazon confirm
 # ---------------------------------------------------------------------------
 
@@ -613,12 +803,15 @@ def _smartscout_confirm(conn, entries: list[dict]) -> None:
 # Public entry
 # ---------------------------------------------------------------------------
 
-def verify_domains(conn, leads: list[dict], on_log=print) -> dict[str, dict]:
+def verify_domains(conn, leads: list[dict], on_log=print,
+                   force: bool = False) -> dict[str, dict]:
     """Verdict per unique company domain in `leads`.
 
-    Returns {domain: {verdict: brand|reseller|unknown, method, confidence,
-    evidence}}. Decisive verdicts are cached in domain_brand_verdicts;
-    'unknown' passes through for later stages / human review.
+    Returns {domain: {verdict: brand|<reject verdict>|unknown, method,
+    confidence, evidence}} — reject verdicts are the REJECT_VERDICTS keys.
+    Decisive verdicts are cached in domain_brand_verdicts; 'unknown' passes
+    through for later stages / human review. force=True bypasses the cache
+    READ (still writes) — used by regression runs and scheduled re-audits.
     """
     entries: dict[str, dict] = {}
     for lead in leads:
@@ -631,7 +824,7 @@ def verify_domains(conn, leads: list[dict], on_log=print) -> dict[str, dict]:
         return {}
 
     # Stage 0 — cache.
-    cached = _cache_lookup(conn, list(entries))
+    cached = {} if force else _cache_lookup(conn, list(entries))
     for dom, v in cached.items():
         entries[dom].update(v)
     fresh = [e for e in entries.values() if "verdict" not in e]
@@ -654,8 +847,13 @@ def verify_domains(conn, leads: list[dict], on_log=print) -> dict[str, dict]:
     # Stage 1a — SmartScout confirm on the remainder.
     _smartscout_confirm(conn, fresh)
 
-    # Stage 2 — homepage fetch + site-LLM on whatever the free layer left.
-    todo = [e for e in fresh if "verdict" not in e]
+    # Stage 2 — homepage fetch + site-LLM for ALL fresh domains (bv2):
+    # undecided ones get the full brand/reseller + ICP judgment; domains the
+    # free layer already brand-confirmed still get the ICP checks (MLM,
+    # category, DTC store, US/CA market) — a high-confidence ICP failure
+    # overrides a catalog confirm, the site's brand/reseller label does not.
+    todo = [e for e in fresh
+            if e.get("verdict") in (None, "brand") or "verdict" not in e]
     if todo:
         with ThreadPoolExecutor(PROBE_WORKERS) as ex:
             list(ex.map(_fetch_homepage, todo))
@@ -663,16 +861,24 @@ def verify_domains(conn, leads: list[dict], on_log=print) -> dict[str, dict]:
             _extract_signals(e)
         judgeable = [e for e in todo if e.get("homepage")]
         on_log(f"    brand_verify: stage 2 — {len(judgeable)}/{len(todo)} "
-               f"homepages fetched, judging via {MODEL}")
+               f"homepages fetched, judging via {MODEL} ({PROMPT_VERSION})")
         _site_llm_verdicts(judgeable, on_log)
 
     # Stage 3 — web-search fallback for what Stage 2 couldn't judge
-    # (fetch-failed sites and low-confidence verdicts).
-    todo = [e for e in fresh if "verdict" not in e]
+    # (fetch-failed sites and low-confidence verdicts). force_review
+    # entries are NOT sent here — their open question is an ICP concern
+    # the reseller-focused agentic check can't clear.
+    todo = [e for e in fresh
+            if "verdict" not in e and not e.get("force_review")]
     if todo:
         on_log(f"    brand_verify: stage 3 — web-search fallback for "
                f"{len(todo)} domain(s)")
         _agentic_verdicts(todo, on_log)
+
+    # Ownership & true-size check on every fresh brand verdict (corporate
+    # parents and enterprise size are invisible to scraped data and sites).
+    _ownership_size_check(
+        [e for e in fresh if e.get("verdict") == "brand"], on_log)
 
     # Still unresolved -> unknown; passes through flagged, never auto-rejected.
     for e in fresh:
