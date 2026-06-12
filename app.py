@@ -147,7 +147,7 @@ def fetch_batch_by_token(token: str) -> dict | None:
                 select id, status, approval, scraped_count, moved_count,
                        credits_spent, max_credits, created_at, ready_at, moved_at,
                        review_token, notes, requested_leads,
-                       industries, skip_industries, countries
+                       industries, skip_industries, countries, enrichment
                   from scrape_requests
                  where review_token = %s
             """, (token,))
@@ -164,7 +164,7 @@ def fetch_leads_for_batch(scrape_request_id: int) -> list[dict]:
                 select id, email, first_name, last_name, title, company_name,
                        source_industry, lead_approval, lead_moved_at, rejected,
                        brand_verify_result, brand_verify_method,
-                       brand_verify_evidence, mv_result
+                       brand_verify_evidence, mv_result, amazon_presence
                   from prospeo_new_leads
                  where scrape_request_id = %s
                  order by id
@@ -177,6 +177,7 @@ def fetch_leads_for_batch(scrape_request_id: int) -> list[dict]:
 def insert_scrape_request(
     requested_leads: int, industries: list[str], skip_industries: list[str],
     countries: list[str], notes: str, max_credits: int | None = None,
+    enrichment: str = "email",
 ) -> dict:
     """Insert a new scrape_requests row at status='pending'. Returns the
     row (incl. the auto-generated review_token).
@@ -184,6 +185,9 @@ def insert_scrape_request(
     `max_credits=None` means "let the worker auto-compute the budget cap
     from requested_leads". An explicit value overrides that — Jam picks
     it when she wants a tighter ceiling or more headroom than the default.
+
+    `enrichment` is 'email' (default) or 'both' (emails + mobile phones;
+    phones bill 10 BetterContact credits each — ClickUp 86exxhgek).
     """
     conn = connect()
     try:
@@ -191,8 +195,8 @@ def insert_scrape_request(
             cur.execute("""
                 insert into scrape_requests
                   (requested_leads, industries, skip_industries, countries,
-                   notes, max_credits)
-                values (%s, %s, %s, %s, %s, %s)
+                   notes, max_credits, enrichment)
+                values (%s, %s, %s, %s, %s, %s, %s)
                 returning id, review_token
             """, (
                 requested_leads,
@@ -201,6 +205,7 @@ def insert_scrape_request(
                 _csv(countries),
                 notes or None,
                 max_credits,
+                enrichment,
             ))
             return cur.fetchone()
     finally:
@@ -300,6 +305,7 @@ def submit_form():
         "skip_industries": _parse_csv_list(request.args.get("skip_industries")),
         "countries":       _parse_csv_list(request.args.get("countries")),
         "max_credits":     request.args.get("max_credits"),
+        "enrichment":      request.args.get("enrichment"),
         "notes":           "",   # intentionally NOT prefilled — new batch, new context
     }
     return render_template(
@@ -333,10 +339,15 @@ def submit_post():
     # Max-credits: optional. Empty -> NULL -> worker auto-computes the
     # default budget. Out-of-bounds also -> NULL (silently ignored).
     max_credits = _parse_int_or_none(request.form.get("max_credits"))
+    # Enrichment: 'email' (default) or 'both'. Anything else falls back to
+    # 'email' so a tampered form can't enable paid phone enrichment.
+    enrichment = request.form.get("enrichment") or "email"
+    if enrichment not in ("email", "both"):
+        enrichment = "email"
 
     row = insert_scrape_request(
         requested_leads, industries, skip_industries, countries, notes,
-        max_credits=max_credits,
+        max_credits=max_credits, enrichment=enrichment,
     )
     return redirect(url_for("batches", submitted=row["id"]))
 

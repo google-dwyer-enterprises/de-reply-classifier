@@ -995,7 +995,8 @@ def write_leads(conn, rows: list[dict]) -> int:
 
 
 CSV_COLS = ["email", "mobile", "first_name", "last_name", "title", "company_name",
-            "company_website", "source_domain", "agency_filter_result"]
+            "company_website", "source_domain", "agency_filter_result",
+            "amazon_presence"]
 
 # XLSX adds audit columns: mobile_status, filter method/reason, and the new
 # mode + source_industry so audits can slice by which path produced each row.

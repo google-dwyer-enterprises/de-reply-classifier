@@ -26,7 +26,8 @@
                        industries=batch.industries or '',
                        skip_industries=batch.skip_industries or '',
                        countries=batch.countries or '',
-                       max_credits=batch.max_credits or '') }}"
+                       max_credits=batch.max_credits or '',
+                       enrichment=batch.enrichment or 'email') }}"
      class="btn btn-secondary btn-small">↻ Re-run with same filters</a>
   <span class="qa-sep">|</span>
   <span style="color:var(--muted); font-size:12px;">
@@ -70,6 +71,7 @@
       <th>Company</th>
       <th>Industry</th>
       <th title="Automated brand-vs-reseller check. Hover a value for the evidence.">Brand check</th>
+      <th title="Matched against the SmartScout registry of Amazon-selling brands (same identity guards as the brand check).">On Amazon</th>
       <th title="MillionVerifier email verification. Runs automatically before approved leads enter the pool.">Email verified</th>
       <th>Status</th>
     </tr>
@@ -93,6 +95,13 @@
         {% endif %}
       </td>
       <td>
+        {% if ld.amazon_presence == 'yes' %}
+          <span class="badge badge-approved">Yes</span>
+        {% elif ld.amazon_presence == 'no' %}
+          <span class="badge badge-pending">No</span>
+        {% endif %}
+      </td>
+      <td>
         {% if ld.mv_result == 'ok' %}
           <span class="badge badge-approved">✓ verified</span>
         {% elif ld.mv_result %}
@@ -106,7 +115,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="9" class="empty">No leads in this batch.</td></tr>
+    <tr><td colspan="10" class="empty">No leads in this batch.</td></tr>
     {% endfor %}
   </tbody>
 </table>

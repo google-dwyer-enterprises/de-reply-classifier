@@ -152,7 +152,7 @@ def claim_pending_request(conn) -> dict | None:
               from claimed
              where r.id = claimed.id
             returning r.id, r.requested_leads, r.industries, r.skip_industries,
-                      r.countries, r.notes, r.max_credits
+                      r.countries, r.notes, r.max_credits, r.enrichment
             """
         )
         row = cur.fetchone()
@@ -167,6 +167,7 @@ def claim_pending_request(conn) -> dict | None:
         "countries": _csv_to_list(row[4]),
         "notes": row[5],
         "max_credits": row[6],   # None -> worker auto-computes; int -> explicit cap
+        "enrichment": row[7] or "email",   # 'email' | 'both' (phones = 10 cr each)
     }
 
 
@@ -248,7 +249,8 @@ def run_scrape(req: dict) -> dict:
         cap_src = "auto"
     log(f"req #{req['id']}: scraping target={req['requested_leads']}, "
         f"countries={req['countries']}, skip={skip}, "
-        f"page_limit={page_limit}, max_credits={max_credits} ({cap_src})")
+        f"page_limit={page_limit}, max_credits={max_credits} ({cap_src}), "
+        f"enrichment={req.get('enrichment', 'email')}")
     return bettercontact_sync.main(
         mode="category",
         target_leads=req["requested_leads"],
@@ -256,6 +258,7 @@ def run_scrape(req: dict) -> dict:
         skip_industries=skip,
         page_limit=page_limit,
         max_credits=max_credits,
+        enrichment=req.get("enrichment", "email"),
         scrape_request_id=req["id"],
     )
 
@@ -553,11 +556,12 @@ def move_approved_leads_for_request(conn, request_id: int) -> int:
             insert into lead_contacts (
               lead_email, first_name, last_name, title, company_name,
               website, industry, lead_list_source, imported_at,
-              mv_result, mv_checked_at
+              mv_result, mv_checked_at, mobile
             )
             select p.email, p.first_name, p.last_name, p.title, p.company_name,
                    p.company_website, p.source_industry,
-                   'BetterContact', now(), p.mv_result, p.mv_checked_at
+                   'BetterContact', now(), p.mv_result, p.mv_checked_at,
+                   p.mobile
               from prospeo_new_leads p
              where p.scrape_request_id = %s
                and p.lead_approval = 'approved'
@@ -567,7 +571,8 @@ def move_approved_leads_for_request(conn, request_id: int) -> int:
                set mv_result = coalesce(excluded.mv_result,
                                         lead_contacts.mv_result),
                    mv_checked_at = coalesce(excluded.mv_checked_at,
-                                            lead_contacts.mv_checked_at)
+                                            lead_contacts.mv_checked_at),
+                   mobile = coalesce(excluded.mobile, lead_contacts.mobile)
             returning (xmax = 0) as is_insert
             """,
             (request_id, emails),
