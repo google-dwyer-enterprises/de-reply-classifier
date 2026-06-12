@@ -331,6 +331,13 @@ def main() -> None:
             # args are silently ignored.
             if args.mode != "category":
                 sys.exit("--provider bettercontact requires --mode category")
+            # Phones bill 10 cr each; without a cap the budget guard is
+            # skipped entirely and a single page can burn up to
+            # page_limit * 11 credits (2,200 at the default 200).
+            if args.enrichment == "both" and args.max_credits is None:
+                sys.exit("--enrichment both requires an explicit --max-credits "
+                         "(phones cost 10 credits each; an uncapped phones run "
+                         "can burn 11x per page)")
             bettercontact_main(mode=args.mode,
                                target_leads=args.target_leads,
                                country=country_list,
