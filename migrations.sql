@@ -561,3 +561,16 @@ create table if not exists icp_gate_cache (
 -- refreshes; one good call resets the counter).
 alter table bettercontact_scrape_state add column if not exists consecutive_zero_yield int not null default 0;
 alter table bettercontact_scrape_state add column if not exists parked_at timestamptz;
+
+-- Phone/email enrichment choice per scrape request (ClickUp 86exxhgek).
+-- 'email' (default) or 'both' — phones cost 10 credits each (probe-verified
+-- 2026-06-12: 22 credits for 2 leads with both flags on), so the worker
+-- scales its credit reservations by 11x when phones are enabled.
+alter table scrape_requests add column if not exists enrichment text not null default 'email';
+alter table lead_contacts add column if not exists mobile text;
+
+-- "Are they on Amazon" (Victor, 6/12): per-domain Amazon-registry presence
+-- from the 275k-brand SmartScout table (guarded fuzzy match), stamped on
+-- every verified company independent of the brand/reseller verdict.
+alter table domain_brand_verdicts add column if not exists amazon_presence text;
+alter table prospeo_new_leads add column if not exists amazon_presence text;

@@ -76,6 +76,24 @@
   </div>
 
   <div class="form-field">
+    <label>What to enrich</label>
+    {% set chosen_enrich = p.enrichment if p.enrichment else (form.enrichment if form else 'email') %}
+    <div class="chip-group">
+      <label class="chip-label">
+        <input type="radio" name="enrichment" value="email"
+               {% if chosen_enrich != 'both' %}checked{% endif %}>
+        <span>Emails only (default)</span>
+      </label>
+      <label class="chip-label">
+        <input type="radio" name="enrichment" value="both"
+               {% if chosen_enrich == 'both' %}checked{% endif %}>
+        <span>Emails + phone numbers</span>
+      </label>
+    </div>
+    <p class="hint">Phone numbers cost <strong>10 credits each</strong> on top of 1 credit per email — a batch with phones can cost up to <strong>11×</strong> more. Phone-only isn't offered: every lead needs an email to enter the pool.</p>
+  </div>
+
+  <div class="form-field">
     <label for="notes">Notes <span class="hint-inline">(optional)</span></label>
     <textarea id="notes" name="notes" rows="2"
               placeholder="Anything specific about this batch?">{{ form.notes if form else '' }}</textarea>

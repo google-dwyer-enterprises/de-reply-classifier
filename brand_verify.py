@@ -177,12 +177,14 @@ def _cache_lookup(conn, domains: list[str]) -> dict[str, dict]:
         return {}
     with conn.cursor() as cur:
         cur.execute(
-            """select domain, verdict, method, confidence, evidence
+            """select domain, verdict, method, confidence, evidence,
+                      amazon_presence
                from domain_brand_verdicts where domain = any(%s)""",
             (domains,),
         )
         return {r[0]: {"verdict": r[1], "method": f"cache:{r[2]}",
-                       "confidence": r[3], "evidence": r[4]}
+                       "confidence": r[3], "evidence": r[4],
+                       **({"amazon_presence": r[5]} if r[5] else {})}
                 for r in cur.fetchall()}
 
 
@@ -193,7 +195,8 @@ def _cache_write(conn, verdicts: dict[str, dict]) -> None:
              (v.get("evidence") or "")[:2000], v.get("vendor_count"),
              PROMPT_VERSION if "llm" in v["method"] or "search" in v["method"]
              else None,
-             v.get("parent_company"), v.get("size_estimate"))
+             v.get("parent_company"), v.get("size_estimate"),
+             v.get("amazon_presence"))
             for d, v in verdicts.items()
             if v["verdict"] != "unknown"
             and not v["method"].startswith("cache:")]
@@ -204,8 +207,8 @@ def _cache_write(conn, verdicts: dict[str, dict]) -> None:
             """insert into domain_brand_verdicts
                (domain, verdict, method, confidence, evidence,
                 shopify_vendor_count, prompt_version,
-                parent_company, size_estimate)
-               values (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                parent_company, size_estimate, amazon_presence)
+               values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                on conflict (domain) do update set
                  verdict = excluded.verdict, method = excluded.method,
                  confidence = excluded.confidence, evidence = excluded.evidence,
@@ -213,6 +216,8 @@ def _cache_write(conn, verdicts: dict[str, dict]) -> None:
                  prompt_version = excluded.prompt_version,
                  parent_company = excluded.parent_company,
                  size_estimate = excluded.size_estimate,
+                 amazon_presence = coalesce(excluded.amazon_presence,
+                                            domain_brand_verdicts.amazon_presence),
                  decided_at = now()""",
             rows,
         )
@@ -896,43 +901,69 @@ def _ownership_size_check(entries: list[dict], on_log) -> None:
 _brand_norms_cache: list[str] | None = None
 
 
-def _smartscout_confirm(conn, entries: list[dict]) -> None:
+def _smartscout_brand_match(conn, company: str, domain: str) -> tuple[str, float] | None:
+    """Guarded SmartScout-registry match: (matched_brand, score) or None.
+
+    The guards make this an IDENTITY check ("this company IS that Amazon-
+    registered brand"), not a name-similarity lookup: token_sort_ratio (a
+    token-subset can't score 100), length ratio, retailer-vocabulary names
+    excluded, and the company domain must corroborate the matched brand so
+    a brand named 'Ayla' can't vouch for aylabeauty.com the retailer.
+    """
     global _brand_norms_cache
-    todo = [e for e in entries if "verdict" not in e]
-    if not todo:
-        return
     if _brand_norms_cache is None:
         with conn.cursor() as cur:
             cur.execute("select brand_norm from smartscout_brands")
             _brand_norms_cache = [r[0] for r in cur.fetchall()
                                   if r[0] and len(r[0]) >= MIN_BRAND_LEN]
-    for e in todo:
-        norm = normalize_brand(e["company"] or "")
-        if not norm or len(norm) < MIN_BRAND_LEN:
+    norm = normalize_brand(company or "")
+    if not norm or len(norm) < MIN_BRAND_LEN:
+        return None
+    result = process.extractOne(norm, _brand_norms_cache,
+                                scorer=fuzz.token_sort_ratio,
+                                score_cutoff=FUZZY_HIGH)
+    if not result:
+        return None
+    matched, score, _ = result
+    if len(matched) / max(len(norm), 1) < MIN_LEN_RATIO:
+        return None
+    tokens = set(re.findall(r"[a-z]+", (company or "").lower()))
+    if tokens & RETAILER_NAME_WORDS:
+        return None
+    dom_norm = normalize_brand((domain or "").split(".")[0])
+    if fuzz.token_sort_ratio(dom_norm, matched) < 85 and dom_norm != norm:
+        return None
+    return matched, score
+
+
+def _smartscout_confirm(conn, entries: list[dict]) -> None:
+    for e in entries:
+        if "verdict" in e:
             continue
-        # token_sort_ratio, not token_set_ratio: set-ratio scores token
-        # subsets as 100 ("704 supply" vs "supply") — fine for attaching
-        # market data, not for a brand-PASS gate.
-        result = process.extractOne(norm, _brand_norms_cache,
-                                    scorer=fuzz.token_sort_ratio,
-                                    score_cutoff=FUZZY_HIGH)
+        result = _smartscout_brand_match(conn, e["company"], e["domain"])
         if not result:
             continue
-        matched, score, _ = result
-        if len(matched) / max(len(norm), 1) < MIN_LEN_RATIO:
-            continue
-        # Retailer-vocabulary names never auto-pass on a name match alone.
-        tokens = set(re.findall(r"[a-z]+", (e["company"] or "").lower()))
-        if tokens & RETAILER_NAME_WORDS:
-            continue
-        # The domain must corroborate the matched brand, so a brand named
-        # 'Ayla' can't vouch for aylabeauty.com the retailer.
-        dom_norm = normalize_brand(e["domain"].split(".")[0])
-        if fuzz.token_sort_ratio(dom_norm, matched) < 85 and dom_norm != norm:
-            continue
+        matched, score = result
         e.update(verdict="brand", method="smartscout", confidence="high",
                  evidence=f"Amazon-registered brand match: '{matched}' "
                           f"(score {score:.0f})")
+
+
+def _amazon_presence(conn, entries: list[dict]) -> None:
+    """Stamp e['amazon_presence'] = 'yes'/'no' on every entry missing it.
+
+    Informational column ("Are they on Amazon" — Reggie/Victor ask), fully
+    independent of the brand/reseller verdict: it runs for ALL domains, even
+    ones the funnel rejects. 'yes' = the company matches a SmartScout-
+    registered Amazon brand under the same identity guards the brand-confirm
+    step uses; everything else (incl. unmatched retailer-vocab names) = 'no'.
+    """
+    for e in entries:
+        if e.get("amazon_presence"):
+            continue
+        result = _smartscout_brand_match(conn, e.get("company") or "",
+                                         e.get("domain") or "")
+        e["amazon_presence"] = "yes" if result else "no"
 
 
 # ---------------------------------------------------------------------------
@@ -966,6 +997,20 @@ def verify_domains(conn, leads: list[dict], on_log=print,
     fresh = [e for e in entries.values() if "verdict" not in e]
     on_log(f"    brand_verify: {len(entries)} domains "
            f"({len(cached)} cached, {len(fresh)} to judge)")
+
+    # "Are they on Amazon" stamp (Reggie/Victor column) — informational and
+    # verdict-independent, so it runs for every domain incl. cached/rejected
+    # ones. Cached rows from before the column existed get backfilled here.
+    _amazon_presence(conn, list(entries.values()))
+    backfill = [(e["amazon_presence"], d) for d, e in entries.items()
+                if d in cached and not cached[d].get("amazon_presence")]
+    if backfill:
+        with conn.cursor() as cur:
+            cur.executemany(
+                "update domain_brand_verdicts set amazon_presence = %s "
+                "where domain = %s", backfill)
+        conn.commit()
+
     if not fresh:
         return entries
 

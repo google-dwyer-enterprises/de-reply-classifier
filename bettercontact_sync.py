@@ -317,13 +317,20 @@ class InsufficientCreditsError(Exception):
 # Low-level API calls
 # ---------------------------------------------------------------------------
 
-def _submit_search(filters: dict, limit: int, offset: int, api_key: str) -> str:
-    """POST a Lead Finder search; returns the async request_id."""
+def _submit_search(filters: dict, limit: int, offset: int, api_key: str,
+                   enrich_phones: bool = False) -> str:
+    """POST a Lead Finder search; returns the async request_id.
+
+    enrich_phones (probe-verified 2026-06-12): the Lead Finder accepts
+    enrich_phone_number and bills 10 credits per delivered phone on top of
+    1 per email — callers must scale their credit reservations accordingly.
+    """
     body = {
         "filters": filters,
         "limit": limit,
         "offset": offset,
         "enrich_email_address": True,
+        "enrich_phone_number": bool(enrich_phones),
     }
     headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
     url = f"{BC_BASE}/lead_finder/async"
@@ -723,7 +730,7 @@ def _insert_leads(conn, leads: list[dict],
             "agency_filter_result", "agency_filter_method",
             "agency_filter_reason", "rejected",
             "brand_verify_result", "brand_verify_method",
-            "brand_verify_evidence", "bettercontact_raw",
+            "brand_verify_evidence", "amazon_presence", "bettercontact_raw",
             "scrape_request_id", "lead_approval"]
 
     def _approval_for(lead: dict) -> str | None:
@@ -816,6 +823,7 @@ def _run_category(conn, api_key: str, *,
                    dry_run: bool, max_credits: int | None,
                    skip_llm: bool = False,
                    skip_brand_verify: bool = False,
+                   enrichment: str = "email",
                    scrape_request_id: int | None = None) -> dict:
     """Round-robin over BC_INDUSTRIES, advancing each industry's offset by
     BC_PAGE_LIMIT each cycle until target/budget/exhaustion.
@@ -882,6 +890,13 @@ def _run_category(conn, api_key: str, *,
     consec_failures: dict[str, int] = {ind: 0 for ind in queue}
     MAX_CONSEC_FAILURES = 3
 
+    # Phones bill 10 credits each on top of 1/email (probe-verified), so
+    # the worst-case credit reservation per page scales 11x when enabled.
+    enrich_phones = enrichment in ("both", "phone")
+    reserve_per_page = page_limit * (11 if enrich_phones else 1)
+    if enrich_phones:
+        print(f"  phone enrichment ON — 10 cr/phone; per-page reservation {reserve_per_page}")
+
     existing_emails = _load_existing_emails(conn)
     total_existing_before_run = len(existing_emails)
     print(f"  existing emails in DB: {total_existing_before_run:,}")
@@ -935,29 +950,30 @@ def _run_category(conn, api_key: str, *,
                 aborted_reason = f"target_leads reached ({len(accepted)}/{target_leads})"
                 break
             if (max_credits is not None
-                    and credits_spent + in_flight_credits + page_limit > max_credits):
+                    and credits_spent + in_flight_credits + reserve_per_page > max_credits):
                 aborted_reason = (
                     f"budget cap hit (spent={credits_spent:.1f} + "
-                    f"in_flight={in_flight_credits:.1f} + next_reserve={page_limit} "
+                    f"in_flight={in_flight_credits:.1f} + next_reserve={reserve_per_page} "
                     f"> {max_credits})"
                 )
                 break
             s = state.get(ind, {})
             offset = s.get("last_offset_consumed", 0)
-            in_flight_credits += page_limit
+            in_flight_credits += reserve_per_page
             try:
                 rid = _submit_search(
                     _industry_filters(ind, countries,
                                       exclude_domains=suppression),
-                    page_limit, offset, api_key)
+                    page_limit, offset, api_key,
+                    enrich_phones=enrich_phones)
                 submitted[rid] = (ind, offset)
             except InsufficientCreditsError as e:
-                in_flight_credits -= page_limit
+                in_flight_credits -= reserve_per_page
                 print(f"  !!! {e}", file=sys.stderr)
                 aborted_reason = "BetterContact INSUFFICIENT_CREDITS"
                 break
             except Exception as e:
-                in_flight_credits -= page_limit
+                in_flight_credits -= reserve_per_page
                 submit_failures[ind] = e
 
         if not submitted:
@@ -995,18 +1011,18 @@ def _run_category(conn, api_key: str, *,
             if rid not in results:
                 # Poll timeout: BC very likely still charged us. Treat
                 # reservation as spent (mirrors batch 1 recovery semantic).
-                in_flight_credits -= page_limit
-                credits_spent += page_limit
+                in_flight_credits -= reserve_per_page
+                credits_spent += reserve_per_page
                 consec_failures[ind] = consec_failures.get(ind, 0) + 1
                 if consec_failures[ind] >= MAX_CONSEC_FAILURES:
                     print(f"  ! {ind!r} offset={offset}: poll timeout "
                           f"[dropping after {MAX_CONSEC_FAILURES} consecutive failures; "
-                          f"assumed {page_limit} credits charged]",
+                          f"assumed {reserve_per_page} credits charged]",
                           file=sys.stderr)
                 else:
                     print(f"  ! {ind!r} offset={offset}: poll timeout "
                           f"[{consec_failures[ind]}/{MAX_CONSEC_FAILURES}; "
-                          f"assumed {page_limit} credits charged]",
+                          f"assumed {reserve_per_page} credits charged]",
                           file=sys.stderr)
                     next_queue.append(ind)
                 continue
@@ -1015,7 +1031,7 @@ def _run_category(conn, api_key: str, *,
             result = results[rid]
 
             cc = float(result.get("credits_consumed") or 0)
-            in_flight_credits -= page_limit
+            in_flight_credits -= reserve_per_page
             credits_spent += cc
             leads_found = ((result.get("summary") or {}).get("leads_found") or 0)
             bc_leads = result.get("leads") or []
@@ -1126,6 +1142,7 @@ def _run_category(conn, api_key: str, *,
                     lead["brand_verify_result"] = v["verdict"]
                     lead["brand_verify_method"] = v["method"]
                     lead["brand_verify_evidence"] = (v.get("evidence") or "")[:1000]
+                    lead["amazon_presence"] = v.get("amazon_presence")
                     reason = brand_verify.REJECT_VERDICTS.get(v["verdict"])
                     if reason:
                         lead["agency_filter_result"] = v["verdict"]
@@ -1252,6 +1269,7 @@ def main(*, mode: str = "category", target_leads: int | None = None,
          page_limit: int = BC_PAGE_LIMIT,
          dry_run: bool = False, max_credits: int | None = None,
          skip_llm: bool = False, skip_brand_verify: bool = False,
+         enrichment: str = "email",
          scrape_request_id: int | None = None) -> dict:
     """Entry point for `run.py scrape-leads --provider bettercontact`.
 
@@ -1286,6 +1304,7 @@ def main(*, mode: str = "category", target_leads: int | None = None,
                              dry_run=dry_run, max_credits=max_credits,
                              skip_llm=skip_llm,
                              skip_brand_verify=skip_brand_verify,
+                             enrichment=enrichment,
                              scrape_request_id=scrape_request_id)
     finally:
         conn.close()
