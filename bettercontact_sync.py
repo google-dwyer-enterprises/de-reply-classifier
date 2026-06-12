@@ -29,8 +29,14 @@ API shape (verified 2026-06-01 via debug/bettercontact_verify_all.py):
     "enrich_email_address": true
   }
 
-  Pricing: 0.1 credit per limit slot when results exist + 1 credit per
-  *deliverable* email returned. undeliverable / not_found = free.
+  Pricing (best-fit model across all measured runs, 2026-06-12): 1 credit per
+  FOUND email (deliverable AND catch-all — catch-alls are billed but dropped
+  at parse), 10 credits per delivered phone, ~0.1 credit only for returned
+  leads with no billable email; nothing-found slots are free. NB: BC's docs
+  claim a flat 0.1/slot search fee, but 44 logged production pages contradict
+  it (max observed 0.92 cr/slot; integer credit totals reconcile exactly as
+  found-email counts). Billing-semantics support ticket still open — credit
+  reservations carry 10% headroom for the worse model until BC confirms.
 
 Quality gates (BETTERCONTACT_LEAD_QUALITY_PLAN.md):
   - P1: "Alternative Medicine" industry dropped from the shared industry list.
@@ -318,12 +324,22 @@ class InsufficientCreditsError(Exception):
 # ---------------------------------------------------------------------------
 
 def _submit_search(filters: dict, limit: int, offset: int, api_key: str,
-                   enrich_phones: bool = False) -> str:
+                   enrich_phones: bool = False,
+                   ambiguous_attempts: list | None = None) -> str:
     """POST a Lead Finder search; returns the async request_id.
 
     enrich_phones (probe-verified 2026-06-12): the Lead Finder accepts
     enrich_phone_number and bills 10 credits per delivered phone on top of
     1 per email — callers must scale their credit reservations accordingly.
+
+    ambiguous_attempts: caller-owned list. Every retried failure where BC may
+    have ACCEPTED the POST before the transport died (read-timeout, reset,
+    gateway 5xx) appends one entry — each such attempt may have created a
+    server-side search that bills but whose request_id we never saw. The
+    caller must book those against the budget the same way poll timeouts are
+    booked (BC demonstrably keeps billing for requests we abandon — see
+    BC_POLL_TIMEOUT_S note). Attempts that provably never reached BC
+    (connect-timeout, 429 rejection) are not counted.
     """
     body = {
         "filters": filters,
@@ -340,9 +356,18 @@ def _submit_search(filters: dict, limit: int, offset: int, api_key: str,
         try:
             r = requests.post(url, json=body, headers=headers,
                               timeout=BC_REQUEST_TIMEOUT_S)
+        except requests.exceptions.ConnectTimeout as e:
+            # Never connected — BC cannot have created the search.
+            last_err = e
+            time.sleep(2 * (attempt + 1))
+            continue
         except (requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout,
                 requests.exceptions.ChunkedEncodingError) as e:
+            # POST may have landed before the transport died — the search
+            # could exist and bill server-side. Record it for booking.
+            if ambiguous_attempts is not None:
+                ambiguous_attempts.append(type(e).__name__)
             last_err = e
             time.sleep(2 * (attempt + 1))
             continue
@@ -366,7 +391,10 @@ def _submit_search(filters: dict, limit: int, offset: int, api_key: str,
         if r.status_code == 400:
             raise RuntimeError(f"BC submit 400 (bad filters?): {r.text[:300]}")
 
-        # 429 / 5xx — back off and retry
+        # 5xx — a gateway error can mask an accepted request; count it.
+        # 429 means BC rejected the request outright — free, not counted.
+        if r.status_code >= 500 and ambiguous_attempts is not None:
+            ambiguous_attempts.append(f"http_{r.status_code}")
         last_err = RuntimeError(f"BC submit {r.status_code}: {r.text[:200]}")
         time.sleep(2 * (attempt + 1))
 
@@ -892,8 +920,16 @@ def _run_category(conn, api_key: str, *,
 
     # Phones bill 10 credits each on top of 1/email (probe-verified), so
     # the worst-case credit reservation per page scales 11x when enabled.
+    # The extra 10% headroom covers BC's documented-but-unconfirmed
+    # 0.1 cr/slot search fee: production logs (44 pages, max 0.92 cr/slot)
+    # contradict that fee, but the billing-semantics support ticket is
+    # still open, so reserve for the worse model — over-reserving aborts
+    # earlier, under-reserving could settle past the cap.
     enrich_phones = enrichment in ("both", "phone")
-    reserve_per_page = page_limit * (11 if enrich_phones else 1)
+    # ceil(page * 11.1) / ceil(page * 1.1) in exact integer arithmetic
+    # (floats put ceil(50 * 1.1) at 56).
+    factor_tenths = 111 if enrich_phones else 11
+    reserve_per_page = (page_limit * factor_tenths + 9) // 10
     if enrich_phones:
         print(f"  phone enrichment ON — 10 cr/phone; per-page reservation {reserve_per_page}")
 
@@ -960,12 +996,19 @@ def _run_category(conn, api_key: str, *,
             s = state.get(ind, {})
             offset = s.get("last_offset_consumed", 0)
             in_flight_credits += reserve_per_page
+            # Retried submits whose POST may have reached BC before the
+            # transport died can leave ORPHANED server-side searches that
+            # bill but never settle. Book each one as spent at the full
+            # reservation — the submit-side mirror of the poll-timeout
+            # booking below (BC keeps billing for abandoned requests).
+            ambiguous: list = []
             try:
                 rid = _submit_search(
                     _industry_filters(ind, countries,
                                       exclude_domains=suppression),
                     page_limit, offset, api_key,
-                    enrich_phones=enrich_phones)
+                    enrich_phones=enrich_phones,
+                    ambiguous_attempts=ambiguous)
                 submitted[rid] = (ind, offset)
             except InsufficientCreditsError as e:
                 in_flight_credits -= reserve_per_page
@@ -975,6 +1018,14 @@ def _run_category(conn, api_key: str, *,
             except Exception as e:
                 in_flight_credits -= reserve_per_page
                 submit_failures[ind] = e
+            finally:
+                if ambiguous:
+                    credits_spent += reserve_per_page * len(ambiguous)
+                    print(f"  ! {ind!r}: {len(ambiguous)} ambiguous submit "
+                          f"attempt(s) ({', '.join(ambiguous)}) — booked "
+                          f"{reserve_per_page * len(ambiguous)} credits as "
+                          f"possibly billed by orphaned searches",
+                          file=sys.stderr)
 
         if not submitted:
             # Nothing made it through — either we hit a hard abort during
@@ -1030,7 +1081,11 @@ def _run_category(conn, api_key: str, *,
             consec_failures[ind] = 0
             result = results[rid]
 
-            cc = float(result.get("credits_consumed") or 0)
+            # Missing (not zero) credits_consumed books the full reservation:
+            # the whole ledger trusts this one field, and a silent API shape
+            # change must fail toward early abort, not an uncapped run.
+            cc_raw = result.get("credits_consumed")
+            cc = float(cc_raw) if cc_raw is not None else float(reserve_per_page)
             in_flight_credits -= reserve_per_page
             credits_spent += cc
             leads_found = ((result.get("summary") or {}).get("leads_found") or 0)
@@ -1289,6 +1344,14 @@ def main(*, mode: str = "category", target_leads: int | None = None,
     # as a traceback, same as any other invalid-input error.
     if mode != "category":
         raise ValueError(f"BetterContact only supports --mode category (got {mode!r})")
+    # Enforced HERE (not just in run.py's arg parsing) so programmatic callers
+    # can't reach the scraper with paid phone enrichment and no budget cap —
+    # phones bill 10 cr each and the budget guard is inert when max_credits
+    # is None. Covers 'both' and the (unused) 'phone' value alike.
+    if enrichment != "email" and max_credits is None:
+        raise ValueError(
+            f"enrichment={enrichment!r} requires an explicit max_credits "
+            f"(phones bill 10 credits each; uncapped phone runs are refused)")
 
     load_dotenv()
     api_key = (os.environ.get("BETTERCONTACT_API_KEY") or "").strip()
@@ -1311,4 +1374,11 @@ def main(*, mode: str = "category", target_leads: int | None = None,
 
 
 if __name__ == "__main__":
-    main()
+    # Deliberately NOT runnable directly: a bare `python bettercontact_sync.py`
+    # used to launch an immediate, uncapped, untargeted scrape of every
+    # industry at page_limit=200 — real credits with a single keystroke.
+    # All invocations go through run.py (CLI) or worker.py (automation),
+    # both of which handle budget caps.
+    sys.exit("bettercontact_sync.py is not a standalone script. Use:\n"
+             "  python run.py scrape-leads --provider bettercontact "
+             "--mode category --target-leads N --max-credits M")

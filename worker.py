@@ -80,32 +80,40 @@ DEFAULT_PAGE_LIMIT = 50
 # ---------------------------------------------------------------------------
 
 def sweep_stuck_running(conn) -> None:
-    """At startup, reset any rows stuck in 'running' for > threshold.
+    """At startup, fail any rows stuck in 'running' for > threshold.
 
     A worker crashing mid-scrape (OOM, redeploy, etc.) would otherwise leave
-    rows pinned in 'running' forever. We treat anything older than
-    RUNNING_STUCK_THRESHOLD_S as crashed and demote it back to 'pending' so
-    the next poll re-picks it. Idempotent.
+    rows pinned in 'running' forever. Stuck rows go to 'failed', NOT back to
+    'pending': the in-memory credit ledger died with the crashed run, so an
+    automatic re-run would spend the request's full max_credits a second time
+    (and Railway's restart policy could repeat that on every crash — N
+    recoveries = (N+1)x the configured cap). It also prevented a healthy run
+    slower than the threshold from being claimed a second time concurrently.
+    The submitter re-runs deliberately via the portal's re-run button, which
+    creates a NEW request with its own budget. Idempotent.
     """
     with conn.cursor() as cur:
         cur.execute(
             """
             update scrape_requests
-               set status        = 'pending',
-                   started_at    = null,
+               set status        = 'failed',
                    error_message = coalesce(error_message, '') ||
-                                   '[recovered from stuck running at '
-                                   || now()::text || ']'
+                                   '[stuck in running > 3h (worker crash or '
+                                   'overlong run) — failed at ' || now()::text
+                                   || '; NOT auto-retried to protect the '
+                                   'credit budget. Re-submit via the portal '
+                                   'if still needed.]'
              where status     = 'running'
                and started_at < now() - make_interval(secs => %s)
             returning id
             """,
             (RUNNING_STUCK_THRESHOLD_S,),
         )
-        recovered = [r[0] for r in cur.fetchall()]
+        failed = [r[0] for r in cur.fetchall()]
     conn.commit()
-    if recovered:
-        log(f"sweep: recovered {len(recovered)} stuck-running rows: {recovered}")
+    if failed:
+        log(f"sweep: failed {len(failed)} stuck-running rows "
+            f"(no auto-retry, budget protection): {failed}")
 
 
 # ---------------------------------------------------------------------------
@@ -247,13 +255,14 @@ def run_scrape(req: dict) -> dict:
     else:
         max_credits = max(DEFAULT_MAX_CREDITS_WHEN_BLANK, page_limit * 3 + 5)
         cap_src = "auto"
-    # Phones reserve 11x per page, so at the standard page size a 1,000-credit
-    # cap fits only ONE in-flight page and the round-robin fan-out would abort
-    # after a single industry. Shrink the page instead of raising the cap:
-    # reservation (page_limit * 11) <= ~max_credits / 3 keeps >= 3 pages in
-    # flight per cycle without authorizing a single extra credit.
+    # Phones reserve 11.1x per page, so at the standard page size a 1,000-
+    # credit cap fits only ONE in-flight page and the round-robin fan-out
+    # would abort after a single industry. Shrink the page instead of raising
+    # the cap: reservation (ceil(page_limit * 11.1)) <= ~max_credits / 3
+    # keeps >= 3 pages in flight per cycle without authorizing a single
+    # extra credit.
     if req.get("enrichment", "email") == "both":
-        page_limit = max(5, min(page_limit, max_credits // 33))
+        page_limit = max(5, min(page_limit, max_credits // 34))
     log(f"req #{req['id']}: scraping target={req['requested_leads']}, "
         f"countries={req['countries']}, skip={skip}, "
         f"page_limit={page_limit}, max_credits={max_credits} ({cap_src}), "
