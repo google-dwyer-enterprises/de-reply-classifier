@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cost Resequencing — Before &amp; After</title>
+<style>
+  :root {
+    --fg: #1a1d23; --muted: #5e6470; --bg: #fafafa; --card: #ffffff;
+    --border: #e1e4e8; --accent: #0550ae; --accent-soft: #ddeefc;
+    --green: #1a7f37; --green-soft: #ddf4e3; --amber: #9a6700;
+    --amber-soft: #fff4cc; --red: #cf222e; --red-soft: #ffeef0;
+    --pill-bg: #f0f4f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.6;
+    max-width: 1020px; margin: 0 auto; padding: 32px 28px 80px;
+  }
+  header { text-align: center; padding: 24px 0 28px; border-bottom: 1px solid var(--border); margin-bottom: 32px; }
+  header h1 { font-size: 2.1em; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+  header .tag { color: var(--muted); font-size: 1.05em; }
+  h2 { font-size: 1.5em; font-weight: 700; margin: 48px 0 16px; letter-spacing: -0.01em; }
+  h2 .num {
+    display: inline-block; width: 36px; height: 36px; background: var(--accent);
+    color: white; border-radius: 50%; text-align: center; line-height: 36px;
+    font-size: 0.8em; margin-right: 10px; vertical-align: middle;
+  }
+  h3 { font-size: 1.12em; margin: 24px 0 10px; font-weight: 600; }
+  p { margin: 0.6em 0; }
+  code { font-family: ui-monospace, "SF Mono", Consolas, monospace; background: var(--pill-bg); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.95em; }
+  th, td { padding: 9px 11px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--pill-bg); font-weight: 600; font-size: 0.9em; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.good { color: var(--green); font-weight: 600; }
+  td.bad { color: var(--red); font-weight: 600; }
+  .callout { border-radius: 10px; padding: 18px 22px; margin: 16px 0; }
+  .callout.insight { background: #fff8c5; border-left: 4px solid #d4a72c; }
+  .callout.note    { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+  .callout.caution { background: var(--red-soft); border-left: 4px solid var(--red); }
+  .callout.good    { background: var(--green-soft); border-left: 4px solid var(--green); }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.78em; font-weight: 600; vertical-align: middle; white-space: nowrap; }
+  .pill.green { background: var(--green-soft); color: var(--green); }
+  .pill.red   { background: var(--red-soft); color: var(--red); }
+  .pill.amber { background: var(--amber-soft); color: var(--amber); }
+  .pill.blue  { background: var(--accent-soft); color: var(--accent); }
+  .kpis { display: flex; gap: 14px; flex-wrap: wrap; margin: 18px 0; }
+  .kpi { flex: 1 1 170px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; text-align: center; }
+  .kpi .v { font-size: 1.7em; font-weight: 700; color: var(--accent); }
+  .kpi .v.red { color: var(--red); }
+  .kpi .v.green { color: var(--green); }
+  .kpi .l { color: var(--muted); font-size: 0.85em; margin-top: 2px; }
+  .ba { display: flex; gap: 16px; flex-wrap: wrap; margin: 18px 0; align-items: stretch; }
+  .ba .col { flex: 1 1 380px; border-radius: 10px; padding: 18px 22px; }
+  .ba .before { background: var(--red-soft); border: 1px solid #f0c4c9; }
+  .ba .after  { background: var(--green-soft); border: 1px solid #bfe3cb; }
+  .ba h3 { margin-top: 0; }
+  .flow { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 0.83em; line-height: 1.7; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 10px 0; white-space: pre-wrap; }
+  .flow .pay { color: var(--red); font-weight: 700; }
+  .flow .free { color: var(--green); font-weight: 700; }
+  .bar { height: 24px; border-radius: 6px; background: var(--pill-bg); position: relative; margin: 6px 0 14px; overflow: hidden; }
+  .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-right: 2px solid var(--red); background: var(--red-soft); }
+  .bar .fill.g { border-right-color: var(--green); background: var(--green-soft); }
+  .bar .label { position: absolute; left: 10px; top: 0; line-height: 24px; font-size: 0.82em; font-weight: 600; }
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Cost Resequencing: Before &amp; After</h1>
+  <div class="tag">What changed in the scraping pipeline, and what it measurably did to the cost of a lead.<br>
+  Every number from production runs and live A/B tests · June 11–12, 2026 · PR #18</div>
+</header>
+
+<h2><span class="num">1</span>The headline</h2>
+<div class="kpis">
+  <div class="kpi"><div class="v red">11.6 → <span style="color:var(--green)">3.65</span></div><div class="l">credits per accepted lead,<br>measured A/B on identical segments (3.2×)</div></div>
+  <div class="kpi"><div class="v red">57% → <span style="color:var(--green)">25%</span></div><div class="l">duplicate share of<br>paid-then-rejected leads</div></div>
+  <div class="kpi"><div class="v red">10% → <span style="color:var(--green)">39%</span></div><div class="l">share of paid leads<br>that get accepted</div></div>
+  <div class="kpi"><div class="v green">$0</div><div class="l">change to lead quality —<br>every QA layer untouched</div></div>
+</div>
+
+<div class="callout note">
+<strong>The one-sentence change:</strong> the pipeline used to <em>pay first and filter later</em> — now every
+lead is rejected by the cheapest stage able to reject it, and as much rejection as possible happens
+<strong>server-side, before BetterContact bills us</strong>. Same leads, same quality gates, money spent only
+on candidates that have a real chance of surviving.
+</div>
+
+<h2><span class="num">2</span>Before: where the money went</h2>
+<p>Measured from the 6/9 production run (1,428 credits, 2,200 leads returned, 343 accepted):</p>
+<div class="bar"><div class="fill" style="width:67%"></div><div class="label">~67% of paid enrichments discarded by our own later checks (≈960 of 1,428 credits)</div></div>
+<table>
+  <tr><th>What happened to paid leads</th><th class="num">Count</th><th>Why it was wasteful</th></tr>
+  <tr><td>✅ Accepted</td><td class="num">343 (33%)</td><td>—</td></tr>
+  <tr><td class="bad">Duplicates we already owned</td><td class="num">236 (22%)</td><td>paid BetterContact to re-enrich emails already in our database; at stale segments this hit 57%</td></tr>
+  <tr><td class="bad">AI-gate rejects (resellers, services…)</td><td class="num">~140 (13%)</td><td>judged <em>after</em> the email was bought — and judged per-contact: 1,013 AI calls for 591 companies</td></tr>
+  <tr><td class="bad">Over the 3-contacts-per-company cap</td><td class="num">67 (6%)</td><td>a free, deterministic check — but it ran <em>after</em> the paid AI gate</td></tr>
+  <tr><td class="bad">Wrong job titles</td><td class="num">~15+</td><td>BetterContact's loose matching let "President" match "Vice President of <em>Sales</em>" — we paid, then threw away</td></tr>
+  <tr><td class="bad">Categories / domains / language + tail</td><td class="num">~250</td><td>mixed; partly unavoidable post-payment</td></tr>
+</table>
+<div class="callout insight">
+<strong>Two myths the measurements killed along the way:</strong> deep search pages do <em>not</em> decay
+(healthy segments were flat at 3.3–5.1 credits/accepted at any depth — the expensive runs came from
+<em>exhausted segments</em>, which is a different problem with a different fix); and "leads without an email
+are free" is false — probe billing showed BetterContact charges for found-but-undeliverable emails
+(catch-alls), now raised with their support.
+</div>
+
+<h2><span class="num">3</span>The resequencing, side by side</h2>
+<div class="ba">
+  <div class="col before">
+    <h3>❌ Before — pay, then filter</h3>
+    <div class="flow">BC search (industries, headcount)
+<span class="pay">→ BC BILLS for every found email</span>
+→ drop no-email rows
+→ dedup vs our DB        <span class="pay">(paid waste)</span>
+→ TLD/size/category/language rules
+→ wrong-title check      <span class="pay">(paid waste)</span>
+→ AI gate, per CONTACT, serial,
+  no cache               <span class="pay">(paid + token waste)</span>
+→ 3-per-company cap      <span class="pay">(after the AI gate!)</span>
+→ website-verification funnel
+→ human review → MV gate → pool</div>
+  </div>
+  <div class="col after">
+    <h3>✅ After — filter, then pay</h3>
+    <div class="flow"><span class="free">SERVER-SIDE, before billing:</span>
+<span class="free">• suppression list: 500 known/capped/
+  rejected companies excluded</span>
+<span class="free">• title excludes (sales/finance/HR VPs…)</span>
+<span class="free">• segment auto-park when yield dies</span>
+→ BC bills (for a far cleaner stream)
+→ local rules (unchanged, as backstop)
+→ 3-per-company cap  <span class="free">(moved before AI)</span>
+→ AI gate per COMPANY, cached
+  across runs, 6-way parallel
+→ website-verification funnel (unchanged)
+→ human review → MV gate → pool</div>
+  </div>
+</div>
+
+<h3>What each change does</h3>
+<table>
+  <tr><th>Change</th><th>Kills which waste</th><th>Verified how</th></tr>
+  <tr><td><strong>Suppression list</strong> — every search excludes up to 500 company domains we've capped or rejected (resellers, MLMs, services, corporates)</td><td>the duplicate class (22–57% of paid rejects)</td><td>live positive control: a domain present in baseline results vanishes when excluded</td></tr>
+  <tr><td><strong>Server-side title excludes</strong> — known-bad title classes filtered before billing (exclude-only: can never lose a lead the local check would keep)</td><td>paid wrong-title leads</td><td>live probe: result set demonstrably changes</td></tr>
+  <tr><td><strong>Cap before AI gate</strong></td><td>tokens spent judging contacts the free cap then discarded (5 judged, 3 kept)</td><td>code-order verification</td></tr>
+  <tr><td><strong>AI gate per company + cached + parallel</strong></td><td>42% duplicate judgments (1,013 calls for 591 companies); repeat judgments across runs</td><td>history equivalence check (only 2/178 multi-contact companies ever diverged — both known gate errors) + cache-hit smoke test</td></tr>
+  <tr><td><strong>Segment auto-park</strong> — two zero-yield calls ≥10 credits parks a segment for 30 days</td><td>the 11.6-credits/accepted runs (exhausted segments)</td><td>smoke test: park after 2 bad calls, reset on a good one</td></tr>
+</table>
+
+<h2><span class="num">4</span>After: the A/B proof</h2>
+<p>Same code path, same industries, same (worst-case, stale) segment cursors — the only difference is the
+resequencing being live:</p>
+<table>
+  <tr><th></th><th class="num">Before (6/11, same segments)</th><th class="num">After (A/B run)</th><th class="num">Healthy-segment baseline</th></tr>
+  <tr><td>Credits per accepted lead</td><td class="num bad">11.6</td><td class="num good">3.65</td><td class="num">4.16</td></tr>
+  <tr><td>Duplicate share of paid rejects</td><td class="num bad">57%</td><td class="num good">25%</td><td class="num">22%</td></tr>
+  <tr><td>Paid leads accepted</td><td class="num bad">10%</td><td class="num good">39%</td><td class="num">33%</td></tr>
+</table>
+<div class="bar"><div class="fill" style="width:100%"></div><div class="label">Before — 11.6 credits per accepted lead (worst-case segments)</div></div>
+<div class="bar"><div class="fill g" style="width:31%"></div><div class="label">After — 3.65 credits per accepted lead, same segments (3.2× cheaper)</div></div>
+<p>Residual duplicates are by design: companies still under the 3-contact cap are deliberately <em>not</em>
+suppressed (we want their remaining contacts), so same-email repeats there still get deduped locally.</p>
+
+<h2><span class="num">5</span>What it means at 20,000 leads/month</h2>
+<table>
+  <tr><th>Scenario</th><th class="num">cr / accepted</th><th class="num">Monthly credits</th><th class="num">vs old baseline</th></tr>
+  <tr><td>Old pipeline (healthy segments, measured)</td><td class="num">4.16</td><td class="num">~84k</td><td class="num">—</td></tr>
+  <tr><td><strong>Resequenced (projected steady state)</strong></td><td class="num good">~2.5–3.0</td><td class="num good">~50–60k</td><td class="num good">−30–40%</td></tr>
+</table>
+<p>Plus the silent riders: the AI-gate cache and 6-way parallel calls cut token spend and bring a 5k-lead
+weekly batch's verification from a projected 5–6 hours to ~1–1.5 hours.</p>
+
+<div class="callout caution">
+<strong>Evaluated and deliberately NOT shipped:</strong> the Prospeo "search-then-enrich" hybrid. A $15 pilot
+measured it honestly — inventory is ample (60,998 in-ICP people) and email quality holds (94% deliverability-
+verified), but only 52% of enriched emails are deliverable and BetterContact bills the rest, so the real
+saving is ~25–35% more, not the 60–70% the documentation implied. <strong>Deferred</strong> — the recorded
+trigger to revisit is BetterContact's answer on deliverable-only billing, which would roughly double the
+hybrid's value. Also dropped: two micro-optimizations whose quality risk or premise didn't survive
+re-verification.
+</div>
+
+<div class="callout good">
+<strong>What did not change — by construction:</strong> lead quality. Server-side filters only reduce what we
+<em>pay for</em>, never what we accept: every local rule still runs as a backstop, the website-verification
+funnel, review queue, and MillionVerifier gate are untouched, and the per-company AI verdict is provably
+<em>more</em> consistent than the old per-contact coin flips. The leads reaching Victor and Jam are identical
+or better — they just cost a third as much.
+</div>
+
+<footer>
+  Cost Resequencing Before &amp; After · measured 2026-06-11/12 · implementation: PR #18 · full plan with
+  sources: <code>COST_RESEQUENCING_PLAN.md</code> / <code>.html</code> · raw evidence:
+  <code>docs_evidence/</code> (6/9 full run, 6/11 A/B, hybrid pilot) · probes:
+  <code>scripts/bc_cost_probes.py</code>, <code>scripts/hybrid_pilot_prospeo_bc.py</code>
+</footer>
+
+</body>
+</html>

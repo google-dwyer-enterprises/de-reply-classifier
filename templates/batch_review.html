@@ -70,6 +70,7 @@
       <th>Company</th>
       <th>Industry</th>
       <th title="Automated brand-vs-reseller check. Hover a value for the evidence.">Brand check</th>
+      <th title="MillionVerifier email verification. Runs automatically before approved leads enter the pool.">Email verified</th>
       <th>Status</th>
     </tr>
   </thead>
@@ -91,12 +92,21 @@
           <span class="badge badge-rejected" title="{{ ld.brand_verify_method }}: {{ ld.brand_verify_evidence or '' }}">{{ ld.brand_verify_result }}</span>
         {% endif %}
       </td>
+      <td>
+        {% if ld.mv_result == 'ok' %}
+          <span class="badge badge-approved">✓ verified</span>
+        {% elif ld.mv_result %}
+          <span class="badge badge-rejected" title="MillionVerifier result: {{ ld.mv_result }}">✗ {{ ld.mv_result }}</span>
+        {% else %}
+          <span class="badge badge-pending" title="Verified automatically on approval, before entering the pool">—</span>
+        {% endif %}
+      </td>
       <td><span class="badge badge-{{ ld.lead_approval or 'pending' }}">{{ ld.lead_approval or 'pending' }}</span>
         {% if ld.lead_moved_at %}<span class="moved-tag" title="moved to lead_contacts">✓ moved</span>{% endif %}
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="8" class="empty">No leads in this batch.</td></tr>
+    <tr><td colspan="9" class="empty">No leads in this batch.</td></tr>
     {% endfor %}
   </tbody>
 </table>

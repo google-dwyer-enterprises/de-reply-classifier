@@ -105,6 +105,24 @@ BC_TITLE_KEYWORDS = [
     "Ecommerce Director", "Ecommerce Manager",
 ]
 
+# Cost reseq R1 (probe-verified 2026-06-11: the exclude param demonstrably
+# changes the result set server-side). BC matches include-keywords loosely —
+# "President" matches "Vice President of Sales" — so these excludes stop us
+# being billed for title classes our local bc_title_rank rejects anyway.
+# EXCLUDE-only by design: an include-allowlist could silently drop valid
+# decision-makers; an exclude-list of known-bad titles cannot lose a lead
+# the local filter would have kept (it stays as the backstop).
+BC_TITLE_EXCLUDE = [
+    "Vice President of Sales", "VP of Sales", "SVP of Sales",
+    "Vice President of Finance", "VP of Finance", "VP Finance",
+    "Vice President of Operations", "VP of Operations",
+    "VP of Business Development", "Vice President of Business Development",
+    "Sales Manager", "Account Manager", "Account Executive",
+    "Human Resources", "HR Manager", "Recruiter",
+    # Observed in the 6/11 A/B run's paid-then-rejected titles:
+    "VP of Product", "Vice President of Product", "Project Manager",
+]
+
 # Headcount min as revenue-floor proxy. Verified: 5 and 10 are the same
 # bracket in BC's data; 20 cuts ~44%. 5 excludes only solo-founder shops.
 BC_HEADCOUNT_MIN = 5
@@ -381,16 +399,64 @@ def _poll_for_result(request_id: str, api_key: str,
     raise RuntimeError(f"BC poll {request_id} timeout after {timeout_s}s")
 
 
-def _industry_filters(industry: str, countries: list[str] | None) -> dict:
+def _industry_filters(industry: str, countries: list[str] | None,
+                      exclude_domains: list[str] | None = None) -> dict:
     filters: dict = {
         "company_industry": {"include": [industry]},
-        "lead_job_title": {"include": BC_TITLE_KEYWORDS},
+        "lead_job_title": {"include": BC_TITLE_KEYWORDS,
+                           "exclude": BC_TITLE_EXCLUDE},
         "company_headcount_min": BC_HEADCOUNT_MIN,
         "company_headcount_max": BC_HEADCOUNT_MAX,
     }
     if countries:
         filters["lead_location"] = {"include": list(countries)}
+    if exclude_domains:
+        # Cost reseq R2 (probe-verified incl. positive control: an excluded
+        # domain present in baseline results disappears; 500-entry lists
+        # accepted): suppress companies we'd reject or cap anyway, BEFORE
+        # BetterContact bills us for their emails.
+        filters["company"] = {"exclude": exclude_domains[:500]}
     return filters
+
+
+def _build_suppression_list(conn, limit: int = 500) -> list[str]:
+    """Company domains to exclude from Lead Finder searches (cost reseq R2).
+
+    Only company-LEVEL exclusions — never domains rejected for contact-level
+    reasons (a bad title on one contact must not block the company's other,
+    possibly valid, contacts):
+      1. companies already at the contact cap (their emails are pure dedup
+         waste — the single biggest measured waste class, 22-57% of paid
+         rejects), newest first;
+      2. companies rejected for company-level reasons (reseller / MLM /
+         service / prohibited / corporate / banned category).
+    """
+    with conn.cursor() as cur:
+        cur.execute(r"""
+          with d as (
+            select lower(regexp_replace(company_domain,'^www\.','')) as dom,
+                   bool_or(not rejected) as has_accepted,
+                   count(*) filter (where not rejected) as n_accepted,
+                   max(scraped_at) as latest,
+                   bool_or(rejected and (
+                     agency_filter_reason ~ '^(reseller|mlm_|banned_|out_of_scope|too_large|corporate_|prohibited)'
+                     or agency_filter_reason like 'QA: prohibited%%'
+                     or agency_filter_reason like 'QA: service%%'
+                     or agency_filter_reason like 'LLM: reseller%%'
+                     or agency_filter_reason like 'LLM: service%%'
+                     or agency_filter_reason like 'LLM: agency%%'
+                     or agency_filter_reason like 'LLM: marketplace%%'
+                   )) as company_level_reject
+            from prospeo_new_leads
+            where provider = 'bettercontact' and company_domain is not null
+            group by 1
+          )
+          select dom from d
+          where n_accepted >= %s or (company_level_reject and not has_accepted)
+          order by latest desc
+          limit %s
+        """, (BC_MAX_CONTACTS_PER_COMPANY, limit))
+        return [r[0] for r in cur.fetchall()]
 
 
 def _search_industry(industry: str, countries: list[str] | None,
@@ -574,29 +640,42 @@ def _load_state(conn) -> dict[str, dict]:
     with conn.cursor() as cur:
         cur.execute("""
           select industry, last_offset_consumed, total_leads_estimated,
-                 exhausted, total_credits_spent
+                 exhausted, total_credits_spent, parked_at
           from bettercontact_scrape_state
         """)
-        for ind, lo, tle, ex, cr in cur.fetchall():
+        for ind, lo, tle, ex, cr, parked in cur.fetchall():
             state[ind] = {
                 "last_offset_consumed": lo or 0,
                 "total_leads_estimated": tle,
                 "exhausted": bool(ex),
                 "total_credits_spent": float(cr or 0),
+                "parked_at": parked,
             }
     return state
 
 
 def _update_state(conn, industry: str, *, new_offset: int,
                   leads_found: int | None, credits_spent_delta: float,
-                  exhausted: bool, countries: list[str] | None) -> None:
-    """Upsert per-industry state."""
+                  exhausted: bool, countries: list[str] | None,
+                  accepted_delta: int = 0) -> None:
+    """Upsert per-industry state.
+
+    Cost reseq R3 (segment health): a segment that burns >=10 credits on a
+    call yielding 0 accepted leads twice IN A ROW gets parked (parked_at
+    set). Parked segments are skipped at queue-build for 30 days, then
+    auto-retried (BC's inventory refreshes). One good call resets the
+    counter. This is what actually caused the 11.6-credits/accepted run —
+    exhausted segments, not deep offsets (measured: healthy segments were
+    flat 3.3-5.1 cr/accepted at any depth).
+    """
+    bad_call = accepted_delta == 0 and credits_spent_delta >= 10
     with conn.cursor() as cur:
         cur.execute("""
           insert into bettercontact_scrape_state
             (industry, countries, last_offset_consumed, total_leads_estimated,
-             exhausted, last_scraped_at, total_credits_spent)
-          values (%s, %s, %s, %s, %s, now(), %s)
+             exhausted, last_scraped_at, total_credits_spent,
+             consecutive_zero_yield)
+          values (%s, %s, %s, %s, %s, now(), %s, %s)
           on conflict (industry) do update set
             countries = excluded.countries,
             last_offset_consumed = excluded.last_offset_consumed,
@@ -605,10 +684,19 @@ def _update_state(conn, industry: str, *, new_offset: int,
             exhausted = excluded.exhausted,
             last_scraped_at = now(),
             total_credits_spent =
-              bettercontact_scrape_state.total_credits_spent + %s
+              bettercontact_scrape_state.total_credits_spent + %s,
+            consecutive_zero_yield = case when %s
+              then bettercontact_scrape_state.consecutive_zero_yield + 1
+              else 0 end,
+            parked_at = case
+              when %s and bettercontact_scrape_state.consecutive_zero_yield + 1 >= 2
+              then now()
+              when not %s then null
+              else bettercontact_scrape_state.parked_at end
         """, (
             industry, countries or [], new_offset, leads_found, exhausted,
-            credits_spent_delta, credits_spent_delta,
+            credits_spent_delta, 1 if bad_call else 0,
+            credits_spent_delta, bad_call, bad_call, bad_call,
         ))
 
 
@@ -660,6 +748,66 @@ def _insert_leads(conn, leads: list[dict],
 # Round-robin runner
 # ---------------------------------------------------------------------------
 
+_norm_dom = brand_verify.norm_domain
+
+
+def _gate_per_domain(conn, client, system, leads: list[dict]) -> dict:
+    """ICP-gate verdicts keyed by normalized domain (cost reseq R8).
+
+    One Haiku judgment per unique company domain instead of one per lead
+    (measured 42% duplicates), cached across runs in icp_gate_cache, fanned
+    through a small thread pool. Domain-less leads are judged individually
+    under a 'lead:<email>' key and never cached.
+
+    Quality note: this is strictly MORE coherent than the old per-lead loop
+    — previously each contact of a company got an independent (non-zero
+    temperature) draw, so companies could be half-accepted; now one verdict
+    applies to the whole company, and the website-verification funnel still
+    re-judges every accepted company from primary evidence.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    reps: dict[str, dict] = {}
+    keyed: dict[str, tuple[str, str]] = {}
+    for lead in leads:
+        dom = _norm_dom(lead.get("company_domain"))
+        key = dom or f"lead:{lead['email']}"
+        if key not in reps:
+            reps[key] = lead
+
+    domains = [k for k in reps if not k.startswith("lead:")]
+    if domains:
+        with conn.cursor() as cur:
+            cur.execute("select domain, result, reason from icp_gate_cache "
+                        "where domain = any(%s)", (domains,))
+            for d, res, why in cur.fetchall():
+                keyed[d] = (res, f"cache: {why}")
+
+    todo = [k for k in reps if k not in keyed]
+
+    def judge(key: str) -> None:
+        result, reason = llm_classify_batch(client, system, [reps[key]])[0]
+        keyed[key] = (result, reason)
+
+    if todo:
+        with ThreadPoolExecutor(min(6, len(todo))) as ex:
+            list(ex.map(judge, todo))
+
+    fresh = [(k, *keyed[k]) for k in todo if not k.startswith("lead:")
+             and k in keyed]
+    if fresh:
+        with conn.cursor() as cur:
+            cur.executemany(
+                """insert into icp_gate_cache (domain, result, reason)
+                   values (%s, %s, %s)
+                   on conflict (domain) do update
+                     set result = excluded.result, reason = excluded.reason,
+                         decided_at = now()""",
+                [(d, r, (w or "")[:400]) for d, r, w in fresh])
+        conn.commit()
+    return keyed
+
+
 def _run_category(conn, api_key: str, *,
                    target_leads: int | None,
                    country: list[str] | None,
@@ -702,6 +850,14 @@ def _run_category(conn, api_key: str, *,
         if s.get("exhausted"):
             print(f"  [skip] {ind!r} exhausted (offset={s.get('last_offset_consumed')})")
             continue
+        parked = s.get("parked_at")
+        if parked is not None:
+            from datetime import datetime, timezone, timedelta
+            if datetime.now(timezone.utc) - parked < timedelta(days=30):
+                print(f"  [skip] {ind!r} parked since {parked:%Y-%m-%d} "
+                      f"(2+ zero-yield calls; auto-retries after 30d)")
+                continue
+            print(f"  [retry] {ind!r} park expired — probing segment again")
         queue.append(ind)
 
     if not queue:
@@ -729,6 +885,12 @@ def _run_category(conn, api_key: str, *,
     existing_emails = _load_existing_emails(conn)
     total_existing_before_run = len(existing_emails)
     print(f"  existing emails in DB: {total_existing_before_run:,}")
+
+    # Cost reseq R2: server-side suppression of companies whose emails we'd
+    # pay for and then discard (capped companies + company-level rejects).
+    # Local dedup/cap stay as backstops — this only reduces what BC bills.
+    suppression = _build_suppression_list(conn)
+    print(f"  suppression list: {len(suppression)} company domains excluded server-side")
 
     # Per-company contact cap: seed with how many accepted BC contacts each
     # domain already has, so we never exceed BC_MAX_CONTACTS_PER_COMPANY across
@@ -784,8 +946,10 @@ def _run_category(conn, api_key: str, *,
             offset = s.get("last_offset_consumed", 0)
             in_flight_credits += page_limit
             try:
-                rid = _submit_search(_industry_filters(ind, countries),
-                                     page_limit, offset, api_key)
+                rid = _submit_search(
+                    _industry_filters(ind, countries,
+                                      exclude_domains=suppression),
+                    page_limit, offset, api_key)
                 submitted[rid] = (ind, offset)
             except InsufficientCreditsError as e:
                 in_flight_credits -= page_limit
@@ -886,34 +1050,14 @@ def _run_category(conn, api_key: str, *,
                 batch_accepted.append(lead)
                 existing_emails.add(lead["email"])
 
-            # ICP LLM brand-gate on rule-passed leads (BC-specific prompt): only
-            # an in-scope manufacturer/private-label "brand" survives; reseller /
-            # dropshipper / agency / service / marketplace / blog /
-            # excluded_category / unknown are rejected. LLM-rejected rows are
-            # still inserted (as rejected) for audit and stay in existing_emails.
-            if batch_accepted and not skip_llm:
-                if llm_client is None:
-                    llm_client = anthropic.Anthropic()
-                    llm_system = BC_ICP_PROMPT.read_text(encoding="utf-8")
-                outcomes = llm_classify_batch(llm_client, llm_system, batch_accepted)
-                survivors: list[dict] = []
-                for lead, (result, reason) in zip(batch_accepted, outcomes):
-                    lead["agency_filter_method"] = "llm"
-                    lead["agency_filter_result"] = result
-                    if result == "brand":
-                        lead["agency_filter_reason"] = reason
-                        survivors.append(lead)
-                    else:
-                        lead["agency_filter_reason"] = f"{result}: {reason}"
-                        lead["rejected"] = True
-                        batch_rejected.append(lead)
-                        key = f"llm_{result}"
-                        rejected_counts[key] = rejected_counts.get(key, 0) + 1
-                batch_accepted = survivors
-
-            # Per-company cap: keep at most BC_MAX_CONTACTS_PER_COMPANY contacts
-            # per domain (highest title priority first), counting contacts already
-            # accepted in earlier pages/runs.
+            # Per-company cap FIRST (cost reseq R7): the cap is free and
+            # deterministic, the LLM gate costs tokens — previously up to 5
+            # contacts per company were gate-judged and only 3 survived the
+            # cap. Safe to reorder: the gate's verdict is company-level, so
+            # capping never changes which companies get judged. Keep at most
+            # BC_MAX_CONTACTS_PER_COMPANY contacts per domain (highest title
+            # priority first), counting contacts already accepted in earlier
+            # pages/runs.
             if batch_accepted:
                 capped: list[dict] = []
                 for lead in sorted(batch_accepted,
@@ -930,6 +1074,39 @@ def _run_category(conn, api_key: str, *,
                             company_counts[dom] = company_counts.get(dom, 0) + 1
                         capped.append(lead)
                 batch_accepted = capped
+
+            # ICP LLM brand-gate, per-DOMAIN + cached + parallel (cost reseq
+            # R8): measured 1,013 judgments for 591 companies (42% duplicate)
+            # under the old per-lead serial loop. The verdict is company-
+            # level (verified: only 2/178 multi-lead companies ever got
+            # accept-vs-reject divergence, both documented gate errors), so
+            # judge each domain once, cache in icp_gate_cache across runs,
+            # and fan uncached judgments through a small thread pool. Only
+            # an in-scope manufacturer/private-label "brand" survives;
+            # LLM-rejected rows are still inserted (as rejected) for audit.
+            if batch_accepted and not skip_llm:
+                if llm_client is None:
+                    llm_client = anthropic.Anthropic()
+                    llm_system = BC_ICP_PROMPT.read_text(encoding="utf-8")
+                verdicts = _gate_per_domain(conn, llm_client, llm_system,
+                                            batch_accepted)
+                survivors = []
+                for lead in batch_accepted:
+                    dom = _norm_dom(lead.get("company_domain"))
+                    result, reason = verdicts.get(
+                        dom or f"lead:{lead['email']}", ("brand", "no verdict"))
+                    lead["agency_filter_method"] = "llm"
+                    lead["agency_filter_result"] = result
+                    if result == "brand":
+                        lead["agency_filter_reason"] = reason
+                        survivors.append(lead)
+                    else:
+                        lead["agency_filter_reason"] = f"{result}: {reason}"
+                        lead["rejected"] = True
+                        batch_rejected.append(lead)
+                        key = f"llm_{result}"
+                        rejected_counts[key] = rejected_counts.get(key, 0) + 1
+                batch_accepted = survivors
 
             # Website verification (RESELLER_DETECTION_PLAN.md + the bv2
             # gap-fixes): per-domain verdicts — reseller, MLM, banned /
@@ -975,7 +1152,8 @@ def _run_category(conn, api_key: str, *,
                           leads_found=leads_found,
                           credits_spent_delta=cc,
                           exhausted=exhausted,
-                          countries=countries or [])
+                          countries=countries or [],
+                          accepted_delta=len(batch_accepted))
             conn.commit()
             state.setdefault(ind, {})["last_offset_consumed"] = new_offset
             state[ind]["exhausted"] = exhausted

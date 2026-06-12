@@ -1,8 +1,59 @@
 # Cost Resequencing Plan — Pay Less for the Same (or Better) Leads
 
-**Status:** PLANNED — measured 2026-06-11; every number below is sourced from
-production data, run logs, or primary API documentation (adversarially
-verified). Implementation gated on the probes in §6.
+**Status:** Track 1 + Track 3 IMPLEMENTED and A/B-verified (2026-06-11,
+branch `feat/cost-reseq`). Probes P1/P2 passed including a positive control
+(an excluded domain present in baseline results disappears; 500-entry
+exclusion lists accepted; title excludes demonstrably filter server-side).
+**A/B acceptance scrape on the worst-case stale segments: 3.65 cr/accepted
+vs 11.6 before on the same segments (3.2×), dedup share 57% → 25%, and
+better than the 4.16 healthy-segment baseline.** Billing discovery: BC
+charges for found-but-undeliverable emails (catch-all pages billed with zero
+deliverables) — support ticket required (§6 P6).
+
+R3 segment health: IMPLEMENTED (auto-park after 2 consecutive zero-yield
+calls ≥10 credits; 30-day auto-retry; smoke-verified park/reset cycle).
+R10: deferred after re-verification — the costmap's `_parse_bc_lead` claim
+was false (the status check already precedes dict construction) and the
+existing-email load is a 4.5k-row query (trivial).
+
+**Track 2 probes P4/P5 RUN (2026-06-11): the two-stage flow works** — 50
+Founder/Owner Cosmetics US/CA people for 2 credits with emails withheld;
+free QA killed 23/50 pre-payment (incl. 21 duplicate companies BC would
+have billed); Bulk Enrich matched 14/15 for 11 credits. **Quality caveat,
+measured: only ~55% of Prospeo's verified emails pass MillionVerifier vs
+95% for BC-sourced emails.** → Track 2 pivoted to the HYBRID: Prospeo
+discovery + QA-before-payment, BC enrichment API as the enricher.
+Implementer notes: Prospeo rejects bad filters loudly (`INVALID_FILTERS`);
+seniority enum value is `Founder/Owner`; `company_headcount_range` rejected
+both documented shapes — omit it and filter size locally.
+
+**HYBRID PILOT RUN (2026-06-12, ~$15 — `scripts/hybrid_pilot_prospeo_bc.py`,
+raw output `docs_evidence/hybrid_pilot_20260612.log`). All three unknowns
+measured:**
+
+| Unknown | Measured | Verdict |
+|---|---|---|
+| Prospeo inventory | **60,998** Founder/Owner US/CA people across our 11 industries (single seniority tier) | sustains 20k/mo |
+| BC enrichment find-rate | 74/75 emails returned, but only **39 deliverable (52%)**; 28 catch_all_safe, 7 undeliverable | usable-rate 52% |
+| Email quality | **37/39 = 94% MV-ok** (bar: 95%) | waterfall quality preserved |
+| Billing reality | **67 credits for 74 emails — BC billed the catch-alls and undeliverables** | confirms the §2 billing leak |
+
+**Revised hybrid economics (measured): ~1.9–2.0 BC cr/accepted** (67cr ÷ 39
+deliverable = 1.72 cr/usable email, ×~0.94 MV survival, + ~0.15 Prospeo cr
+discovery) vs ~2.5–3.5 for optimized BC-only — **~25–35% additional
+saving, NOT the 60–70% the docs-based model projected.** The entire gap is
+catch-all billing.
+
+**DECISION (2026-06-12): hybrid DEFERRED, not abandoned.** Rationale: (1)
+modest measured ROI vs a new orchestration path + second credit pool + a
+reversal of the team's BC-standardization decision; (2) the BC support
+ticket on deliverable-only billing is the dominant variable — a favorable
+answer roughly doubles the hybrid's savings (~1.1 cr/accepted) and is the
+trigger to build it; (3) Track 1's production steady-state should be
+measured first as the true baseline. Bonus finding for the future build:
+the enrichment API returns full firmographics (employee counts,
+organization type — fields that are 100% null in Lead Finder), usable as
+free ICP inputs.
 
 **The problem in one sentence:** the pipeline was built outside-in ("make it
 work, then make it right"), so today **~67% of every BetterContact credit we
