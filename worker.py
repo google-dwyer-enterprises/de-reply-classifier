@@ -247,6 +247,13 @@ def run_scrape(req: dict) -> dict:
     else:
         max_credits = max(DEFAULT_MAX_CREDITS_WHEN_BLANK, page_limit * 3 + 5)
         cap_src = "auto"
+    # Phones reserve 11x per page, so at the standard page size a 1,000-credit
+    # cap fits only ONE in-flight page and the round-robin fan-out would abort
+    # after a single industry. Shrink the page instead of raising the cap:
+    # reservation (page_limit * 11) <= ~max_credits / 3 keeps >= 3 pages in
+    # flight per cycle without authorizing a single extra credit.
+    if req.get("enrichment", "email") == "both":
+        page_limit = max(5, min(page_limit, max_credits // 33))
     log(f"req #{req['id']}: scraping target={req['requested_leads']}, "
         f"countries={req['countries']}, skip={skip}, "
         f"page_limit={page_limit}, max_credits={max_credits} ({cap_src}), "
