@@ -337,8 +337,21 @@ def submit_post():
     countries = request.form.getlist("countries") or COUNTRIES.copy()
     notes = (request.form.get("notes") or "").strip()
     # Max-credits: optional. Empty -> NULL -> worker auto-computes the
-    # default budget. Out-of-bounds also -> NULL (silently ignored).
-    max_credits = _parse_int_or_none(request.form.get("max_credits"))
+    # default budget. A NON-empty value that doesn't parse to a sane cap
+    # (typo, 0, negative, scientific notation) is rejected loudly — silently
+    # substituting the 1,000-credit default would replace the cap the user
+    # thought they set with a bigger one.
+    raw_cap = (request.form.get("max_credits") or "").strip()
+    max_credits = _parse_int_or_none(raw_cap)
+    if raw_cap and max_credits is None:
+        return render_template(
+            "submit.html",
+            industries=BC_INDUSTRIES,
+            countries=COUNTRIES,
+            error=f"Max credits {raw_cap!r} isn't a whole number between "
+                  f"1 and 100,000. Leave it empty for the default 1,000.",
+            form=request.form,
+        ), 400
     # Enrichment: 'email' (default) or 'both'. Anything else falls back to
     # 'email' so a tampered form can't enable paid phone enrichment.
     enrichment = request.form.get("enrichment") or "email"
