@@ -88,6 +88,30 @@ def is_excluded_sender(email: str | None) -> bool:
     return False
 
 
+def tag_to_label(tag: str | None) -> str | None:
+    """Map an Instantly per-lead interest tag to a taxonomy label, booked/interested only.
+
+    Tags are human-applied by the client's sales team in Instantly's Unibox
+    (e.g. 'Epic - Booked', 'interested - DE SALES', 'EC - Interested'). For
+    booked/interested they are ground truth — more reliable than the LLM's
+    read of reply text — so they PROMOTE a lead's headline status (see the
+    rank-based promotion in excel_writer.fetch_per_lead_summary). Returns None
+    for negative/neutral tags (Not interested, Unsubscribe, Lead, etc.), which
+    never override the classifier.
+
+    Matching is case-insensitive substring: any tag containing 'booked' -> booked;
+    any tag containing 'interested' (but not 'not interested') -> interested.
+    """
+    if not tag:
+        return None
+    t = tag.strip().lower()
+    if "booked" in t:
+        return "booked"
+    if "interested" in t and "not interested" not in t and "uninterested" not in t:
+        return "interested"
+    return None
+
+
 def extract_client(campaign_name: str) -> str:
     """Temporary passthrough. Full CLIENT_MAP lands once prefixes are confirmed;
     historical rows get retrofitted via SQL update at that point."""

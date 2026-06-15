@@ -15,7 +15,7 @@ from openpyxl.utils import get_column_letter
 from supabase import create_client
 
 from classify import clean_body
-from config import is_excluded_sender
+from config import is_excluded_sender, tag_to_label
 
 EXCLUDED_STATUS_LABELS = {"oof", "customer_service"}
 
@@ -166,6 +166,21 @@ def fetch_per_lead_summary(supabase) -> dict[str, dict]:
 
         preview = clean_body(body)[:200]
 
+        # Gap 2: the human-applied Instantly tag (status4) is ground truth for
+        # booked/interested and PROMOTES the headline status — it never demotes.
+        # (A strict override would wrongly demote leads the LLM already booked
+        # but whose tag is only 'interested'.) status1/2/3 stay the pure
+        # classifier view; only auto_status — what NocoDB shows as the headline
+        # "status" and what the client's booked count reads — is promoted. The
+        # headline reason is rewritten to cite the tag so status + reason agree.
+        auto_status = status1
+        status_from_tag = False
+        tag_label = tag_to_label(status4)
+        if tag_label is not None and STATUS_RANK.get(tag_label, 999) < STATUS_RANK.get(status1 or "", 999):
+            auto_status = tag_label
+            status_from_tag = True
+            reason = f"Status set from Instantly sales tag '{status4}'."
+
         by_thread: dict[str, int] = {}
         for r in rlist:
             key = r.get("thread_id") or f"__noth_{r['id']}"
@@ -185,6 +200,8 @@ def fetch_per_lead_summary(supabase) -> dict[str, dict]:
             "status2": status2,
             "status3": status3,
             "status4": status4,
+            "auto_status": auto_status,        # status1, promoted by an Instantly booked/interested tag (Gap 2)
+            "status_from_tag": status_from_tag,
             "status_confidence": confidence,
             "score": score,
             "reason": reason,
