@@ -14,7 +14,7 @@ FILES = [
     # Handoff docs
     "SESSION_HANDOFF.html",
     "SESSION_HANDOFF.md",
-    "PROSPEO.html",
+    "docs/scraping/PROSPEO.html",
     "PROSPEO.md",
     "CLAUDE.md",
     # Code
