@@ -1,8 +1,13 @@
 # Implementation Plan — Descriptive Cross-Lead "Which Follow-ups Are Working" Analysis
 
 **Deliverable:** a descriptive cross-lead analysis of manual follow-up effectiveness, surfaced as (a) a NocoDB plain view `followup_patterns_mv` and (b) a committed HTML report `docs/replies/FOLLOWUP_EFFECTIVENESS.html`.
-**Status:** plan for sign-off / direct implementation. No code run yet.
+**Status:** ✅ **Phase 0/1 SHIPPED** (deterministic features). Phase 2 (LLM hook/tone/CTA) pending.
 **Snapshot facts used below are verified against live data via a 57-agent code+DB pass and an adversarial methodology review; the review's fixes override the raw design where they conflict.**
+
+> **⚠️ As-built divergences from this plan (the shipped code + `FOLLOWUP_EFFECTIVENESS.html` are authoritative):**
+> - **Reverse-causality (§3.4/§5.1):** the shipped view does NOT exclude `prior_positive_exists` rows from the primary rate (option (a) below). Excluding them collapsed positives 323→16 and killed statistical power, so the view keeps them and surfaces **"Lead Already Positive"** as its own characteristic instead (the confound is made *visible*, not hidden). The embedded SQL below still shows the `and not prior_positive_exists` clause — that clause was dropped in `scripts/apply_followup_patterns_view.py`.
+> - **Greeting/signoff features (§4.1):** authored fresh as `_GREETING`/`_SIGNOFF` in `followup_features.py`; they do NOT reuse `classify._SIG_CUT_PATTERNS` (that set is a signature-truncation list with no greeting detector).
+> - **Gap-4 runbook (§5.4):** shipped at `docs/reference/ADDING_A_NOCODB_VIEW.md` (not `docs/replies/`).
 
 ---
 
@@ -88,6 +93,8 @@ Outcome columns:
 **Fix:** add base-view column `prior_positive_exists` (bool) = a booked/interested reply exists for L strictly before T. Then either:
 - **(a, default)** drop `prior_positive_exists` rows from the **primary** positive-rate analysis, OR
 - **(b)** "first-positive only" — credit a follow-up only when the in-window reply is the lead's **first-ever** positive reply.
+
+> **As-built:** NEITHER (a) nor (b) shipped — excluding warm-lead rows collapsed positives 323→16 and killed power. The shipped view keeps them in the primary population and exposes **"Lead Already Positive"** as its own characteristic so the confound is visible (see the as-built banner at top).
 
 State the exclusion explicitly in the caveat block. `interested` is the label most exposed to this leak — note it.
 
@@ -323,7 +330,7 @@ Idiom from `debug/_gen_tracker_html.py` (reuse its `<style>`, `.card`, `.group`,
 New subcommand `run.py refresh-followup-patterns` runs: extract features → apply view → regenerate HTML (all idempotent/incremental). The deterministic extract (`extractor_version='fx1'`, cheap, incremental on new `unibox_manual` rows) may be appended as **one line at the end of `cmd_refresh`** (run.py:74, after `update_status_main()`) **only after one clean reviewed run** — it is $0 and the view auto-recomputes. The **LLM pass and the HTML regen stay manual**. The existing Railway daily cron (`python run.py refresh`) then keeps the data fresh with no new cron object.
 
 ### 5.4 Gap-4 procedure doc
-`docs/replies/ADDING_A_NOCODB_VIEW.md` (one-line pointer added to CLAUDE.md Subsystems). Contents: plain-view-vs-MV decision (plain is default; MV brings the drop-view-before-MV + unique-index + `refresh concurrently` + re-grant dance — cite `lead_status_mv` gotcha and `debug/_mv_view_swap2.py`); Title-Case alias convention; postgres-owned grant inheritance; the `apply_hybrid_views.py` copy-me template; NocoDB Sync-Now (required on DDL change, not on data refresh); add-a-column = drop+recreate; inspect columns via `pg_attribute` (information_schema omits MV columns in this PG version); zombie `idle in transaction` check before any MV DDL.
+`docs/reference/ADDING_A_NOCODB_VIEW.md` (one-line pointer added to CLAUDE.md Subsystems). Contents: plain-view-vs-MV decision (plain is default; MV brings the drop-view-before-MV + unique-index + `refresh concurrently` + re-grant dance — cite `lead_status_mv` gotcha and `debug/_mv_view_swap2.py`); Title-Case alias convention; postgres-owned grant inheritance; the `apply_hybrid_views.py` copy-me template; NocoDB Sync-Now (required on DDL change, not on data refresh); add-a-column = drop+recreate; inspect columns via `pg_attribute` (information_schema omits MV columns in this PG version); zombie `idle in transaction` check before any MV DDL.
 
 ---
 
@@ -402,6 +409,6 @@ New subcommand `run.py refresh-followup-patterns` runs: extract features → app
 | 1 | Table + new-text extractor + deterministic features + view + HTML + 2 CLI cmds (**Jun 17 headline**) | ~2 days | **No** |
 | 2 | LLM feature pass (gated, additive) + view recreate + HTML regen | ~1–1.5 days | **Yes (deferred)** — does not block Phase 1 |
 | 3 | Append deterministic extract to daily cron | ~0.5 day | No |
-| Gap-4 doc | `docs/replies/ADDING_A_NOCODB_VIEW.md` | ~0.25 day (fold into Phase 1) | No |
+| Gap-4 doc | `docs/reference/ADDING_A_NOCODB_VIEW.md` | ~0.25 day (fold into Phase 1) | No |
 
 **Critical path to the headline = Phases 0 + 1 ≈ 2.5 days, zero LLM cost, no model-tier decision.** Phases 2–3 layer on without re-architecting.
