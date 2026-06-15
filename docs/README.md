@@ -34,6 +34,7 @@ Feature documentation, plans, and reports, grouped by area. (Project-level
 - [FOLLOWUP_ANALYSIS_PLAN.md](replies/FOLLOWUP_ANALYSIS_PLAN.md) — follow-up tracker plan v3
 - [LEAD_CLEANING_PLAN.md](replies/LEAD_CLEANING_PLAN.md) — booked-count fix, names, reply tracking
 - [TRACKER_EMPTY_CELLS.html](replies/TRACKER_EMPTY_CELLS.html) — which tracker cells are blank and why
+- [FOLLOWUP_EFFECTIVENESS_PLAN.md](replies/FOLLOWUP_EFFECTIVENESS_PLAN.md) / [.html](replies/FOLLOWUP_EFFECTIVENESS_PLAN.html) — descriptive "which follow-ups are working" cross-lead analysis plan (NocoDB view + HTML report)
 
 ## reference/ — Developer reference
 - [DEVELOPMENT.md](reference/DEVELOPMENT.md) — developer onboarding
