@@ -4,10 +4,11 @@
 **Status:** ✅ **Phase 0/1 SHIPPED** (deterministic features). Phase 2 (LLM hook/tone/CTA) pending.
 **Snapshot facts used below are verified against live data via a 57-agent code+DB pass and an adversarial methodology review; the review's fixes override the raw design where they conflict.**
 
-> **⚠️ As-built divergences from this plan (the shipped code + `FOLLOWUP_EFFECTIVENESS.html` are authoritative):**
-> - **Reverse-causality (§3.4/§5.1):** the shipped view does NOT exclude `prior_positive_exists` rows from the primary rate (option (a) below). Excluding them collapsed positives 323→16 and killed statistical power, so the view keeps them and surfaces **"Lead Already Positive"** as its own characteristic instead (the confound is made *visible*, not hidden). The embedded SQL below still shows the `and not prior_positive_exists` clause — that clause was dropped in `scripts/apply_followup_patterns_view.py`.
-> - **Greeting/signoff features (§4.1):** authored fresh as `_GREETING`/`_SIGNOFF` in `followup_features.py`; they do NOT reuse `classify._SIG_CUT_PATTERNS` (that set is a signature-truncation list with no greeting detector).
-> - **Gap-4 runbook (§5.4):** shipped at `docs/reference/ADDING_A_NOCODB_VIEW.md` (not `docs/replies/`).
+**⚠️ As-built divergences from this plan** — the shipped code + `FOLLOWUP_EFFECTIVENESS.html` are authoritative where they conflict with the design below:
+
+- **Reverse-causality (§3.4/§5.1):** the shipped view does NOT exclude `prior_positive_exists` rows from the primary rate (option (a) below). Excluding them collapsed positives 323→16 and killed statistical power, so the view keeps them and surfaces **"Lead Already Positive"** as its own characteristic instead (the confound is made *visible*, not hidden). The embedded SQL below still shows the `and not prior_positive_exists` clause — that clause was dropped in `scripts/apply_followup_patterns_view.py`.
+- **Greeting/signoff features (§4.1):** authored fresh as `_GREETING`/`_SIGNOFF` in `followup_features.py`; they do NOT reuse `classify._SIG_CUT_PATTERNS` (that set is a signature-truncation list with no greeting detector).
+- **Gap-4 runbook (§5.4):** shipped at `docs/reference/ADDING_A_NOCODB_VIEW.md` (not `docs/replies/`).
 
 ---
 
@@ -94,7 +95,7 @@ Outcome columns:
 - **(a, default)** drop `prior_positive_exists` rows from the **primary** positive-rate analysis, OR
 - **(b)** "first-positive only" — credit a follow-up only when the in-window reply is the lead's **first-ever** positive reply.
 
-> **As-built:** NEITHER (a) nor (b) shipped — excluding warm-lead rows collapsed positives 323→16 and killed power. The shipped view keeps them in the primary population and exposes **"Lead Already Positive"** as its own characteristic so the confound is visible (see the as-built banner at top).
+**As-built:** NEITHER (a) nor (b) shipped — excluding warm-lead rows collapsed positives 323→16 and killed power. The shipped view keeps them in the primary population and exposes **"Lead Already Positive"** as its own characteristic so the confound is visible (see the as-built banner at top).
 
 State the exclusion explicitly in the caveat block. `interested` is the label most exposed to this leak — note it.
 
