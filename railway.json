@@ -7,6 +7,6 @@
   "deploy": {
     "startCommand": "python run.py refresh",
     "restartPolicyType": "NEVER",
-    "cronSchedule": "0 9 * * *"
+    "cronSchedule": "0 11 * * *"
   }
 }
