@@ -1,0 +1,126 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>Follow-up Tracker — empty-cell explainer</title>
+<style>
+ body{font:15px/1.55 -apple-system,Segoe UI,Roboto,sans-serif;color:#1f2328;max-width:980px;margin:0 auto;padding:32px 24px;background:#fff}
+ h1{font-size:26px;margin:0 0 4px} .sub{color:#57606a;margin:0 0 28px}
+ .cards{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 28px}
+ .card{flex:1;min-width:150px;background:#f6f8fa;border:1px solid #d0d7de;border-radius:10px;padding:16px}
+ .card .big{font-size:30px;font-weight:700} .card .lbl{color:#57606a;font-size:13px;margin-top:2px}
+ .card.green .big{color:#1a7f37} .card.amber .big{color:#9a6700}
+ h2{font-size:20px;margin:34px 0 8px;border-bottom:2px solid #eaeef2;padding-bottom:6px}
+ .group{margin:18px 0;border:1px solid #d0d7de;border-radius:10px;overflow:hidden}
+ .ghead{padding:12px 16px;background:#f6f8fa;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+ .ghead h3{margin:0;font-size:16px} .gstat{color:#57606a;font-size:13px}
+ .gdesc{margin:10px 16px;color:#3d444d}
+ table{width:100%;border-collapse:collapse;font-size:13px}
+ th,td{text-align:left;padding:6px 16px;border-top:1px solid #eaeef2} th{color:#57606a;font-weight:600}
+ td:nth-child(2),td:nth-child(3),td:nth-child(4){text-align:right;font-variant-numeric:tabular-nums}
+ .bar{background:#eaeef2;border-radius:4px;height:10px;overflow:hidden} .fill{height:100%}
+ .callout{background:#ddf4ff;border:1px solid #54aeff;border-radius:10px;padding:16px 18px;margin:16px 0}
+ .callout.warn{background:#fff8c5;border-color:#d4a72c}
+ .ib{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}
+ .ibc{flex:1;min-width:170px;border:1px solid #d0d7de;border-radius:10px;padding:14px}
+ .ibc .n{font-size:24px;font-weight:700} .ibc .t{font-size:13px;color:#57606a;margin-top:3px}
+ .ibc.ok{border-left:5px solid #1a7f37} .ibc.neutral{border-left:5px solid #57606a} .ibc.flag{border-left:5px solid #bf8700}
+ .drow{display:flex;align-items:center;gap:10px;margin:2px 0;font-size:12px}
+ .dn{width:24px;text-align:right;color:#57606a} .dbar{flex:1;background:#eaeef2;border-radius:3px;height:14px;overflow:hidden}
+ .dfill{height:100%;background:#6639ba} .dc{width:70px;color:#57606a}
+ code{background:#eff1f3;padding:1px 5px;border-radius:4px;font-size:13px}
+ .foot{color:#8c959f;font-size:12px;margin-top:30px;border-top:1px solid #eaeef2;padding-top:12px}
+</style></head><body>
+<h1>Follow-up Tracker &mdash; what's empty, and why</h1>
+<p class="sub">NocoDB view <code>followup_tracker_mv</code> &middot; snapshot 2026-06-15 19:54 (after a full <code>run.py refresh</code>)</p>
+
+<div class="cards">
+ <div class="card"><div class="big">853</div><div class="lbl">leads (rows)</div></div>
+ <div class="card"><div class="big">59</div><div class="lbl">columns</div></div>
+ <div class="card green"><div class="big">14,741</div><div class="lbl">cells filled (29%)</div></div>
+ <div class="card amber"><div class="big">35,586</div><div class="lbl">cells blank (71%)</div></div>
+</div>
+
+<div class="callout">
+<strong>The headline:</strong> about 71% of cells are blank, but almost none of that is missing data.
+The overwhelming majority is <strong>structural</strong> &mdash; the 40-column follow-up ladder (ffup&nbsp;1&ndash;20) where most leads simply
+didn't receive 20 follow-ups, plus analysis columns that only apply to a subset. The data that <em>should</em> be there is there.
+</div>
+
+<h2>Blank cells by column group</h2>
+
+    <div class="group">
+      <div class="ghead" style="border-left:5px solid #1a7f37">
+        <h3>Lead identity &amp; status</h3>
+        <div class="gstat">4 columns &middot; 29 / 3,412 cells blank (0.8%)</div>
+      </div>
+      <p class="gdesc">Pulled from Jam's <code>lead_outcomes</code> upload. Essentially always present.</p>
+      <table>
+        <tr><th>Column</th><th>Filled</th><th>Blank</th><th>Blank %</th><th></th></tr><tr><td>Client</td><td>847</td><td>6</td><td>0.7%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:0.7%;background:#1a7f37"></div></div></td></tr><tr><td>Email Address</td><td>853</td><td>0</td><td>0.0%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:0.0%;background:#1a7f37"></div></div></td></tr><tr><td>Status</td><td>830</td><td>23</td><td>2.7%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:2.7%;background:#1a7f37"></div></div></td></tr><tr><td>Total Follow-ups</td><td>853</td><td>0</td><td>0.0%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:0.0%;background:#1a7f37"></div></div></td></tr></table></div>
+    <div class="group">
+      <div class="ghead" style="border-left:5px solid #9a6700">
+        <h3>Optional CSV metadata</h3>
+        <div class="gstat">4 columns &middot; 2,625 / 3,412 cells blank (76.9%)</div>
+      </div>
+      <p class="gdesc">Only filled when Jam's source spreadsheet carried that field for the lead. A blank means the column wasn't in her file for that row &mdash; not a sync gap.</p>
+      <table>
+        <tr><th>Column</th><th>Filled</th><th>Blank</th><th>Blank %</th><th></th></tr><tr><td>Campaign</td><td>551</td><td>302</td><td>35.4%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:35.4%;background:#9a6700"></div></div></td></tr><tr><td>Leadlist Source</td><td>104</td><td>749</td><td>87.8%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:87.8%;background:#9a6700"></div></div></td></tr><tr><td>Qualified</td><td>116</td><td>737</td><td>86.4%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:86.4%;background:#9a6700"></div></div></td></tr><tr><td>NOTE (JOYCE)</td><td>16</td><td>837</td><td>98.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:98.1%;background:#9a6700"></div></div></td></tr></table></div>
+    <div class="group">
+      <div class="ghead" style="border-left:5px solid #0969da">
+        <h3>Inbound reply (from Instantly)</h3>
+        <div class="gstat">4 columns &middot; 686 / 3,412 cells blank (20.1%)</div>
+      </div>
+      <p class="gdesc">Filled when the lead actually replied and Instantly indexed the reply under their address. Blanks are explained in detail below.</p>
+      <table>
+        <tr><th>Column</th><th>Filled</th><th>Blank</th><th>Blank %</th><th></th></tr><tr><td>Initial Reply Date</td><td>684</td><td>169</td><td>19.8%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:19.8%;background:#0969da"></div></div></td></tr><tr><td>What was their initial reply</td><td>679</td><td>174</td><td>20.4%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:20.4%;background:#0969da"></div></div></td></tr><tr><td>Last Reply At</td><td>684</td><td>169</td><td>19.8%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:19.8%;background:#0969da"></div></div></td></tr><tr><td>Last reply from Instantly</td><td>679</td><td>174</td><td>20.4%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:20.4%;background:#0969da"></div></div></td></tr></table></div>
+    <div class="group">
+      <div class="ghead" style="border-left:5px solid #6639ba">
+        <h3>Follow-up ladder (ffup 1&ndash;20)</h3>
+        <div class="gstat">40 columns &middot; 26,557 / 34,120 cells blank (77.8%)</div>
+      </div>
+      <p class="gdesc">One date + body pair per follow-up we sent. A lead who got 3 follow-ups fills slots 1&ndash;3 and leaves 4&ndash;20 blank &mdash; the blank just means &ldquo;no Nth follow-up was sent.&rdquo; Correct by design.</p>
+      <table>
+        <tr><th>Column</th><th>Filled</th><th>Blank</th><th>Blank %</th><th></th></tr><tr><td>Email ffup 1 Date</td><td>541</td><td>312</td><td>36.6%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:36.6%;background:#6639ba"></div></div></td></tr><tr><td>Email FF 1 what we sent</td><td>760</td><td>93</td><td>10.9%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:10.9%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 2 Date</td><td>493</td><td>360</td><td>42.2%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:42.2%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 2</td><td>493</td><td>360</td><td>42.2%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:42.2%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 3 Date</td><td>416</td><td>437</td><td>51.2%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:51.2%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 3</td><td>416</td><td>437</td><td>51.2%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:51.2%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 4 Date</td><td>360</td><td>493</td><td>57.8%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:57.8%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 4</td><td>360</td><td>493</td><td>57.8%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:57.8%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 5 Date</td><td>323</td><td>530</td><td>62.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:62.1%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 5</td><td>323</td><td>530</td><td>62.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:62.1%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 6 Date</td><td>293</td><td>560</td><td>65.7%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:65.7%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 6</td><td>293</td><td>560</td><td>65.7%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:65.7%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 7 Date</td><td>268</td><td>585</td><td>68.6%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:68.6%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 7</td><td>268</td><td>585</td><td>68.6%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:68.6%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 8 Date</td><td>248</td><td>605</td><td>70.9%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:70.9%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 8</td><td>248</td><td>605</td><td>70.9%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:70.9%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 9 Date</td><td>213</td><td>640</td><td>75.0%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:75.0%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 9</td><td>213</td><td>640</td><td>75.0%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:75.0%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 10 Date</td><td>157</td><td>696</td><td>81.6%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:81.6%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 10</td><td>157</td><td>696</td><td>81.6%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:81.6%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 11 Date</td><td>127</td><td>726</td><td>85.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:85.1%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 11</td><td>127</td><td>726</td><td>85.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:85.1%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 12 Date</td><td>88</td><td>765</td><td>89.7%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:89.7%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 12</td><td>88</td><td>765</td><td>89.7%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:89.7%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 13 Date</td><td>43</td><td>810</td><td>95.0%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:95.0%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 13</td><td>43</td><td>810</td><td>95.0%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:95.0%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 14 Date</td><td>33</td><td>820</td><td>96.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:96.1%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 14</td><td>33</td><td>820</td><td>96.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:96.1%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 15 Date</td><td>21</td><td>832</td><td>97.5%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:97.5%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 15</td><td>21</td><td>832</td><td>97.5%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:97.5%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 16 Date</td><td>13</td><td>840</td><td>98.5%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:98.5%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 16</td><td>13</td><td>840</td><td>98.5%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:98.5%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 17 Date</td><td>11</td><td>842</td><td>98.7%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:98.7%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 17</td><td>11</td><td>842</td><td>98.7%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:98.7%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 18 Date</td><td>8</td><td>845</td><td>99.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:99.1%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 18</td><td>8</td><td>845</td><td>99.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:99.1%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 19 Date</td><td>8</td><td>845</td><td>99.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:99.1%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 19</td><td>8</td><td>845</td><td>99.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:99.1%;background:#6639ba"></div></div></td></tr><tr><td>Email ffup 20 Date</td><td>8</td><td>845</td><td>99.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:99.1%;background:#6639ba"></div></div></td></tr><tr><td>Sent ff 20</td><td>8</td><td>845</td><td>99.1%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:99.1%;background:#6639ba"></div></div></td></tr></table></div>
+    <div class="group">
+      <div class="ghead" style="border-left:5px solid #cf222e">
+        <h3>Call follow-up</h3>
+        <div class="gstat">1 column &middot; 853 / 853 cells blank (100.0%)</div>
+      </div>
+      <p class="gdesc">100% blank: Instantly is email-only, so phone-call follow-ups aren't synced. This column is a manual-entry placeholder.</p>
+      <table>
+        <tr><th>Column</th><th>Filled</th><th>Blank</th><th>Blank %</th><th></th></tr><tr><td>Call ffup</td><td>0</td><td>853</td><td>100.0%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:100.0%;background:#cf222e"></div></div></td></tr></table></div>
+    <div class="group">
+      <div class="ghead" style="border-left:5px solid #bf8700">
+        <h3>Winning-reply analysis (LLM)</h3>
+        <div class="gstat">6 columns &middot; 4,836 / 5,118 cells blank (94.5%)</div>
+      </div>
+      <p class="gdesc">Only populated for leads where the &ldquo;which follow-up won the booking&rdquo; LLM selection has been run. Currently a small booked subset.</p>
+      <table>
+        <tr><th>Column</th><th>Filled</th><th>Blank</th><th>Blank %</th><th></th></tr><tr><td>Winning Ffup #</td><td>47</td><td>806</td><td>94.5%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:94.5%;background:#bf8700"></div></div></td></tr><tr><td>Confidence</td><td>47</td><td>806</td><td>94.5%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:94.5%;background:#bf8700"></div></div></td></tr><tr><td>Winning Subject</td><td>47</td><td>806</td><td>94.5%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:94.5%;background:#bf8700"></div></div></td></tr><tr><td>Winning Message</td><td>47</td><td>806</td><td>94.5%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:94.5%;background:#bf8700"></div></div></td></tr><tr><td>What Lead Said (Booking)</td><td>47</td><td>806</td><td>94.5%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:94.5%;background:#bf8700"></div></div></td></tr><tr><td>Why We Think It Won</td><td>47</td><td>806</td><td>94.5%</td><td style="width:160px"><div class="bar"><div class="fill" style="width:94.5%;background:#bf8700"></div></div></td></tr></table></div>
+
+<h2>Why the follow-up ladder looks so empty (it's correct)</h2>
+<p>Each lead gets one row, but the table reserves 20 follow-up slots for everyone. A lead with 3 follow-ups fills slots 1&ndash;3
+and leaves 4&ndash;20 blank. Here's the actual distribution &mdash; <strong>312 leads got 0 follow-ups</strong>, and very few reach the high slots,
+so the right-hand columns are <em>expected</em> to be mostly empty:</p>
+<div class="drow"><span class="dn">0</span><div class="dbar"><div class="dfill" style="width:100%"></div></div><span class="dc">312 leads</span></div><div class="drow"><span class="dn">1</span><div class="dbar"><div class="dfill" style="width:15%"></div></div><span class="dc">48 leads</span></div><div class="drow"><span class="dn">2</span><div class="dbar"><div class="dfill" style="width:25%"></div></div><span class="dc">77 leads</span></div><div class="drow"><span class="dn">3</span><div class="dbar"><div class="dfill" style="width:18%"></div></div><span class="dc">56 leads</span></div><div class="drow"><span class="dn">4</span><div class="dbar"><div class="dfill" style="width:12%"></div></div><span class="dc">37 leads</span></div><div class="drow"><span class="dn">5</span><div class="dbar"><div class="dfill" style="width:10%"></div></div><span class="dc">30 leads</span></div><div class="drow"><span class="dn">6</span><div class="dbar"><div class="dfill" style="width:8%"></div></div><span class="dc">25 leads</span></div><div class="drow"><span class="dn">7</span><div class="dbar"><div class="dfill" style="width:6%"></div></div><span class="dc">20 leads</span></div><div class="drow"><span class="dn">8</span><div class="dbar"><div class="dfill" style="width:11%"></div></div><span class="dc">35 leads</span></div><div class="drow"><span class="dn">9</span><div class="dbar"><div class="dfill" style="width:18%"></div></div><span class="dc">56 leads</span></div><div class="drow"><span class="dn">10</span><div class="dbar"><div class="dfill" style="width:10%"></div></div><span class="dc">30 leads</span></div><div class="drow"><span class="dn">11</span><div class="dbar"><div class="dfill" style="width:12%"></div></div><span class="dc">39 leads</span></div><div class="drow"><span class="dn">12</span><div class="dbar"><div class="dfill" style="width:14%"></div></div><span class="dc">45 leads</span></div><div class="drow"><span class="dn">13</span><div class="dbar"><div class="dfill" style="width:3%"></div></div><span class="dc">10 leads</span></div><div class="drow"><span class="dn">14</span><div class="dbar"><div class="dfill" style="width:4%"></div></div><span class="dc">12 leads</span></div><div class="drow"><span class="dn">15</span><div class="dbar"><div class="dfill" style="width:3%"></div></div><span class="dc">8 leads</span></div><div class="drow"><span class="dn">16</span><div class="dbar"><div class="dfill" style="width:1%"></div></div><span class="dc">2 leads</span></div><div class="drow"><span class="dn">17</span><div class="dbar"><div class="dfill" style="width:1%"></div></div><span class="dc">3 leads</span></div><div class="drow"><span class="dn">20</span><div class="dbar"><div class="dfill" style="width:1%"></div></div><span class="dc">2 leads</span></div><div class="drow"><span class="dn">21</span><div class="dbar"><div class="dfill" style="width:1%"></div></div><span class="dc">2 leads</span></div><div class="drow"><span class="dn">22</span><div class="dbar"><div class="dfill" style="width:1%"></div></div><span class="dc">2 leads</span></div><div class="drow"><span class="dn">25</span><div class="dbar"><div class="dfill" style="width:1%"></div></div><span class="dc">2 leads</span></div>
+
+<h2>The one group worth a closer look: inbound replies</h2>
+<p>The <code>Last Reply At</code> / <code>Last reply from Instantly</code> columns are blank for <strong>169 of 853</strong> leads.
+We traced every one:</p>
+<div class="ib">
+ <div class="ibc ok"><div class="n">143</div><div class="t">Contacted at their exact address &mdash; <strong>no reply came back</strong>. Blank is correct (booked off-platform, or simply never replied).</div></div>
+ <div class="ibc neutral"><div class="n">14</div><div class="t">Address <strong>never campaigned</strong> in this Instantly workspace &mdash; lead came from elsewhere.</div></div>
+ <div class="ibc flag"><div class="n">9</div><div class="t">Same company, <strong>different inbox</strong> than we emailed. Genuine identity mismatch &mdash; but the other inbox has no recoverable reply to attribute.</div></div>
+ <div class="ibc neutral"><div class="n">3</div><div class="t">Generic <code>@gmail.com</code> coincidence &mdash; not a real same-company match.</div></div>
+</div>
+<div class="callout warn">
+<strong>Bottom line on inbound blanks:</strong> 143 are correctly blank (no reply exists),
+14 were never in this workspace, and only <strong>~9</strong> are true identity mismatches
+&mdash; and even those have no reply to recover. This is real-world data reality, not a pipeline gap. (Earlier notes citing ~223 mismatches
+referred to a different, already-fixed metric: outbound follow-up coverage.)
+</div>
+
+<h2>Winning-reply analysis columns</h2>
+<p>The 6 &ldquo;Winning&rdquo; columns are filled for <strong>47</strong> leads. They only populate once the LLM
+&ldquo;which follow-up won the booking&rdquo; selection has been run &mdash; currently a subset of the <strong>431</strong> booked leads.
+Blank here means &ldquo;analysis not yet run for this lead,&rdquo; not missing source data.</p>
+
+<div class="foot">Generated from live Supabase counts &middot; cell totals treat NULL and empty-string as blank.</div>
+</body></html>
