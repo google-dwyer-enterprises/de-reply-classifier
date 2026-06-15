@@ -40,7 +40,7 @@ with manual as (
 ),
 withnext as (
   select m.*,
-         lead(sent_timestamp) over (partition by lead_email order by sent_timestamp) as next_out
+         lead(sent_timestamp) over (partition by lead_email order by sent_timestamp, id) as next_out
   from manual m
 ),
 credit as (

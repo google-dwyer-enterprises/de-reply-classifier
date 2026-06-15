@@ -1,3 +1,5 @@
+import re
+
 PROMPT_VERSION = "v3"
 MODEL = "claude-haiku-4-5"
 BATCH_SIZE = 25
@@ -88,6 +90,12 @@ def is_excluded_sender(email: str | None) -> bool:
     return False
 
 
+_TAG_SEP_RE = re.compile(r"[\s_\-]+")          # whitespace / underscores / hyphens -> one space
+_TAG_BOOKED_RE = re.compile(r"\bbooked\b")     # word-boundary: NOT 'overbooked'/'unbooked'/'rebooked'
+_TAG_INTERESTED_RE = re.compile(r"\binterested\b")    # NOT 'uninterested'/'disinterested'
+_TAG_NOT_INTERESTED_RE = re.compile(r"\bnot interested\b")
+
+
 def tag_to_label(tag: str | None) -> str | None:
     """Map an Instantly per-lead interest tag to a taxonomy label, booked/interested only.
 
@@ -99,15 +107,21 @@ def tag_to_label(tag: str | None) -> str | None:
     for negative/neutral tags (Not interested, Unsubscribe, Lead, etc.), which
     never override the classifier.
 
-    Matching is case-insensitive substring: any tag containing 'booked' -> booked;
-    any tag containing 'interested' (but not 'not interested') -> interested.
+    Matching is word-boundary, not raw substring, on a whitespace/hyphen-
+    normalized form, so 'not-interested' / 'Disinterested' / 'overbooked' do
+    NOT promote. A tag mentioning cancellation never counts as booked. The
+    post-booking Instantly built-in 'Meeting completed' counts as booked.
+    ('Won' is deliberately NOT matched — it would false-positive on a tag like
+    "won't buy"; it is also absent from current production tags.)
     """
     if not tag:
         return None
-    t = tag.strip().lower()
-    if "booked" in t:
+    t = _TAG_SEP_RE.sub(" ", tag.strip().lower())
+    if "cancel" in t:                          # 'Booked - cancelled' is not a live booking
+        return None
+    if _TAG_BOOKED_RE.search(t) or "meeting completed" in t:
         return "booked"
-    if "interested" in t and "not interested" not in t and "uninterested" not in t:
+    if _TAG_INTERESTED_RE.search(t) and not _TAG_NOT_INTERESTED_RE.search(t):
         return "interested"
     return None
 

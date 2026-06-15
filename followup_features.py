@@ -35,10 +35,14 @@ POSITIVE_LABELS = ("booked", "interested")
 # single line (no newlines) — verified — so boundary markers are NOT anchored
 # to \n. The dominant marker is "On <date> at <time> <addr> wrote:".
 # --------------------------------------------------------------------------
+# NOTE on anchoring: real quote headers carry a date/time (digits) and forwarded
+# headers carry an email address (@). Requiring those inside the lazy gap stops
+# ordinary prose like "On our last call your team wrote:" or "fill in the From:
+# and Subject: fields" from being mistaken for a quote boundary (over-truncation).
 BOUNDARY_PATTERNS = [
-    re.compile(r"On\s+.{0,160}?\bwrote:", re.IGNORECASE),
+    re.compile(r"On\s+.{0,180}?\d.{0,60}?\bwrote:", re.IGNORECASE),  # "On <date w/ digits> ... wrote:"
     re.compile(r"-{2,}\s*Original [Mm]essage\s*-{2,}", re.IGNORECASE),
-    re.compile(r"\bFrom:\s.{0,160}?\bSubject:\s", re.IGNORECASE),
+    re.compile(r"\bFrom:\s.{0,200}?@.{0,200}?\bSubject:\s", re.IGNORECASE),  # forwarded header w/ address
     re.compile(r"\bSent from my \w+", re.IGNORECASE),
 ]
 
@@ -50,8 +54,16 @@ def extract_new_text(subject: str | None, body: str | None) -> tuple[str, bool]:
         return "", False
     s = body
     if subject:
-        s = re.sub(r"^\s*(re|fwd|fw)\s*:\s*" + re.escape(subject.strip()) + r"\s*",
-                   "", s, flags=re.IGNORECASE)
+        # Strip a leading "Re:/Fwd: <subject>" echo. Normalize the subject first
+        # (drop its own leading Re:/Fwd:, collapse internal whitespace to \s+) so a
+        # stored subject that already carries "Re:" or has odd spacing still matches
+        # the body echo. re.escape keeps regex-special chars in the subject literal.
+        subj = re.sub(r"^\s*(re|fwd|fw)\s*:\s*", "", subject.strip(), flags=re.IGNORECASE).strip()
+        words = subj.split()
+        if words:
+            subj_pat = r"\s+".join(re.escape(w) for w in words)
+            s = re.sub(r"^\s*(re|fwd|fw)\s*:\s*" + subj_pat + r"\s*",
+                       "", s, flags=re.IGNORECASE)
     cut = len(s)
     found = False
     for pat in BOUNDARY_PATTERNS:
@@ -59,7 +71,12 @@ def extract_new_text(subject: str | None, body: str | None) -> tuple[str, bool]:
         if m and m.start() < cut:
             cut = m.start()
             found = True
-    return s[:cut].strip(), found
+    new = s[:cut].strip()
+    if found and not new:
+        # A boundary at the very start left no usable new text (pure forward/quote)
+        # -> not analyzable; don't count it as a clean extraction.
+        found = False
+    return new, found
 
 
 # --------------------------------------------------------------------------
@@ -103,6 +120,14 @@ def deterministic_features(new_text: str, sent_ts: datetime) -> dict:
     opens_q = bool(m_term and after_greet[m_term.start()] == "?")
     # has_url but ignore obvious unsubscribe/opt-out anchors
     urls = [u for u in _URL.findall(t) if "unsub" not in u.lower() and "optout" not in u.lower()]
+    # Compute send_dow + send_hour_utc from a SINGLE UTC value so the two never
+    # disagree across a date boundary; a naive datetime is assumed to be UTC
+    # (rather than silently shifted by the host's local offset via astimezone).
+    if sent_ts is not None:
+        utc_ts = (sent_ts if sent_ts.tzinfo else sent_ts.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+        send_dow, send_hour_utc = utc_ts.weekday(), utc_ts.hour
+    else:
+        send_dow = send_hour_utc = None
     return {
         "char_len": len(t),
         "word_count": words,
@@ -117,8 +142,8 @@ def deterministic_features(new_text: str, sent_ts: datetime) -> dict:
         "has_signoff": bool(_SIGNOFF.search(t)),
         "has_emoji": bool(_EMOJI.search(t)),
         "all_caps_word_count": len(_ALLCAPS.findall(t)),
-        "send_dow": sent_ts.weekday() if sent_ts else None,        # 0=Mon
-        "send_hour_utc": sent_ts.astimezone(timezone.utc).hour if sent_ts else None,
+        "send_dow": send_dow,          # 0=Mon, UTC
+        "send_hour_utc": send_hour_utc,
     }
 
 
@@ -134,7 +159,7 @@ with manual as (
 ),
 withnext as (
   select m.*,
-         lead(sent_timestamp) over (partition by lead_email order by sent_timestamp) as next_out
+         lead(sent_timestamp) over (partition by lead_email order by sent_timestamp, id) as next_out
   from manual m
 )
 select
@@ -189,7 +214,7 @@ def main() -> None:
     print(f"  {len(winners)} confirmed-winner sends")
 
     sql = ("select id, lead_email, subject, body, sent_timestamp, client, campaign_name "
-           "from sent_messages where send_kind='unibox_manual' order by lead_email, sent_timestamp")
+           "from sent_messages where send_kind='unibox_manual' order by lead_email, sent_timestamp, id")
     if args.limit:
         sql += f" limit {int(args.limit)}"
     cur.execute(sql)

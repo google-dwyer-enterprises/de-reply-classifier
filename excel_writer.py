@@ -26,6 +26,22 @@ STATUS_PRIORITY = [
 ]
 STATUS_RANK = {label: i for i, label in enumerate(STATUS_PRIORITY)}
 
+
+def promote_status(status1: str | None, tag: str | None) -> tuple[str | None, bool]:
+    """Gap 2: promote the classifier label `status1` to the Instantly tag's
+    booked/interested label when the tag outranks the classifier.
+
+    Promote-ONLY — the tag can only raise the status to a higher priority
+    (lower STATUS_RANK); it never demotes (a tagged-'interested' lead the
+    classifier already booked stays booked). A lead with no classifier label
+    (status1 is None -> rank 999) is promoted by any booked/interested tag.
+    Pure (no DB) so it is unit-testable. Returns (auto_status, status_from_tag).
+    """
+    tag_label = tag_to_label(tag)
+    if tag_label is not None and STATUS_RANK.get(tag_label, 999) < STATUS_RANK.get(status1 or "", 999):
+        return tag_label, True
+    return status1, False
+
 FRESH_COLUMNS = [
     "lead_email", "clients", "campaigns",
     "status1", "status2", "status3", "status4",
@@ -173,12 +189,8 @@ def fetch_per_lead_summary(supabase) -> dict[str, dict]:
         # classifier view; only auto_status — what NocoDB shows as the headline
         # "status" and what the client's booked count reads — is promoted. The
         # headline reason is rewritten to cite the tag so status + reason agree.
-        auto_status = status1
-        status_from_tag = False
-        tag_label = tag_to_label(status4)
-        if tag_label is not None and STATUS_RANK.get(tag_label, 999) < STATUS_RANK.get(status1 or "", 999):
-            auto_status = tag_label
-            status_from_tag = True
+        auto_status, status_from_tag = promote_status(status1, status4)
+        if status_from_tag:
             reason = f"Status set from Instantly sales tag '{status4}'."
 
         by_thread: dict[str, int] = {}

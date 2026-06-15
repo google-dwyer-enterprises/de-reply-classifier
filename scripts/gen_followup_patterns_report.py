@@ -49,7 +49,7 @@ def main() -> None:
                count(*) filter (where responded_booked),
                count(*) filter (where boundary_detected),
                count(*) filter (where boundary_detected),
-               count(*) filter (where prior_positive_exists)
+               count(*) filter (where prior_positive_exists and boundary_detected)
         from followup_message_features where extractor_version='fx1'""")
     total, had, pos, booked, boundary, base_n, prior = cur.fetchone()
 
