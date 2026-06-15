@@ -30,6 +30,7 @@ Feature documentation, plans, and reports, grouped by area. (Project-level
 - [REVIEW_BATCH_OPTIONS_MOCKUPS.html](reviewer/REVIEW_BATCH_OPTIONS_MOCKUPS.html) — review-batch scoping mockups
 
 ## replies/ — Reply classification & follow-up analysis
+- [REPLY_AI_BOT.html](replies/REPLY_AI_BOT.html) — **plain-English guide** to the whole cold-reply bundle (what it does, the 11 statuses, the booked-count fix, the follow-up report) — for stakeholders
 - [FOLLOWUP_ANALYSIS.html](replies/FOLLOWUP_ANALYSIS.html) — follow-up tracker v3 (spreadsheet shape)
 - [FOLLOWUP_ANALYSIS_PLAN.md](replies/FOLLOWUP_ANALYSIS_PLAN.md) — follow-up tracker plan v3
 - [LEAD_CLEANING_PLAN.md](replies/LEAD_CLEANING_PLAN.md) — booked-count fix, names, reply tracking

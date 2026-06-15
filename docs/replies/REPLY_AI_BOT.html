@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reply AI Bot — how it works (plain-English guide)</title>
+<style>
+  :root {
+    --fg:#1f2328; --muted:#59636e; --bg:#ffffff; --soft:#f6f8fa; --line:#d1d9e0;
+    --link:#0969da; --accent:#0550ae;
+    --green:#1a7f37; --green-bg:#dafbe1; --amber:#9a6700; --amber-bg:#fff8c5;
+    --red:#cf222e; --red-bg:#ffebe9; --grey:#6e7781; --grey-bg:#eef1f4; --blue-bg:#ddf4ff;
+  }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+         color:var(--fg); background:var(--bg); line-height:1.6; max-width:880px;
+         margin:0 auto; padding:40px 24px 90px; }
+  h1 { font-size:2em; border-bottom:1px solid var(--line); padding-bottom:.3em; margin:0 0 .2em; line-height:1.2; }
+  h2 { font-size:1.4em; border-bottom:1px solid var(--line); padding-bottom:.3em; margin:2em 0 .6em; }
+  h3 { font-size:1.12em; margin:1.4em 0 .4em; }
+  p { margin:.7em 0; }
+  a { color:var(--link); text-decoration:none; } a:hover { text-decoration:underline; }
+  code { font-family:ui-monospace,"SF Mono",Consolas,monospace; background:var(--soft);
+         padding:.12em .4em; border-radius:4px; font-size:.88em; }
+  .lede { color:var(--muted); font-size:1.05em; margin-top:.4em; }
+  ul,ol { margin:.6em 0; padding-left:1.5em; } li { margin:.3em 0; }
+
+  /* flow diagram */
+  .flow { display:flex; flex-wrap:wrap; align-items:stretch; gap:8px; margin:18px 0; }
+  .flow .step { flex:1; min-width:120px; background:var(--soft); border:1px solid var(--line);
+                border-radius:10px; padding:12px 14px; }
+  .flow .step b { display:block; font-size:.95em; } .flow .step span { color:var(--muted); font-size:.82em; }
+  .flow .arrow { align-self:center; color:var(--muted); font-size:1.4em; font-weight:700; }
+
+  /* status pills + grid */
+  .pill { display:inline-block; font-size:.78em; font-weight:700; padding:2px 9px; border-radius:999px; white-space:nowrap; }
+  .p-pos { background:var(--green-bg); color:var(--green); }
+  .p-soft { background:var(--amber-bg); color:var(--amber); }
+  .p-neg { background:var(--red-bg); color:var(--red); }
+  .p-noise { background:var(--grey-bg); color:var(--grey); }
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:.93em; }
+  th,td { border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top; }
+  th { background:var(--soft); font-weight:600; }
+
+  /* callouts */
+  .note { border:1px solid var(--line); border-left:4px solid var(--accent); background:var(--soft);
+          border-radius:8px; padding:12px 16px; margin:16px 0; }
+  .note.warn { border-left-color:var(--amber); background:var(--amber-bg); }
+  .note.good { border-left-color:var(--green); background:var(--green-bg); }
+  .note h3 { margin:0 0 .3em; font-size:1em; }
+
+  /* before / after */
+  .ba { display:flex; flex-wrap:wrap; gap:12px; margin:14px 0; }
+  .ba .col { flex:1; min-width:230px; border:1px solid var(--line); border-radius:10px; padding:12px 16px; }
+  .ba .before { background:var(--red-bg); } .ba .after { background:var(--green-bg); }
+  .ba .col b { display:block; margin-bottom:4px; }
+  .big { font-size:1.5em; font-weight:700; }
+
+  .cards { display:flex; flex-wrap:wrap; gap:10px; margin:14px 0; }
+  .card { flex:1; min-width:120px; background:var(--soft); border:1px solid var(--line);
+          border-radius:10px; padding:14px; text-align:center; }
+  .card .n { font-size:1.6em; font-weight:700; } .card .l { color:var(--muted); font-size:.8em; }
+  footer { margin-top:48px; padding-top:16px; border-top:1px solid var(--line); color:var(--grey); font-size:.82em; }
+  .tag { display:inline-block; font-size:.7em; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+         padding:2px 9px; border-radius:999px; background:var(--blue-bg); color:var(--accent); vertical-align:middle; }
+</style>
+</head>
+<body>
+
+<h1>Reply AI Bot — how it works</h1>
+<p class="lede"><span class="tag">Plain-English guide</span> &nbsp; What the cold-reply analysis does, what each status means, and the two newest pieces — the booked-count fix and the "which follow-ups are working" report. Snapshot: 2026-06-15.</p>
+
+<h2>1. What it does, in one breath</h2>
+<p>Every day, people reply to the cold emails we send. The Reply AI Bot <b>reads each reply, decides what the person actually meant</b> (are they booking a call? not interested? out of office?), and shows that on a simple per-lead status board in <b>NocoDB</b>. Nobody has to read thousands of replies by hand — and the sales team's own judgement is never overwritten.</p>
+
+<div class="flow">
+  <div class="step"><b>Instantly</b><span>where the cold emails &amp; replies live</span></div>
+  <div class="arrow">→</div>
+  <div class="step"><b>Pull replies</b><span>new replies copied in automatically</span></div>
+  <div class="arrow">→</div>
+  <div class="step"><b>AI reads each one</b><span>sorts it into one of 11 statuses</span></div>
+  <div class="arrow">→</div>
+  <div class="step"><b>NocoDB board</b><span>one row per lead, with its status</span></div>
+</div>
+
+<p>It refreshes on a schedule (daily, early morning Central time), so the board stays current without anyone pressing a button.</p>
+
+<h2>2. The 11 statuses, in plain words</h2>
+<p>Each reply is sorted into exactly one of these. A lead's headline status is its strongest signal.</p>
+
+<table>
+  <thead><tr><th>Status</th><th>What it means</th></tr></thead>
+  <tbody>
+    <tr><td><span class="pill p-pos">booked</span></td><td>A meeting or call is scheduled — the win.</td></tr>
+    <tr><td><span class="pill p-pos">interested</span></td><td>Wants to keep talking <i>now</i> — asks for pricing, a deck, or a next step.</td></tr>
+    <tr><td><span class="pill p-pos">interested_past</span></td><td>Was keen earlier, then the conversation went quiet.</td></tr>
+    <tr><td><span class="pill p-soft">not_now</span></td><td>A soft "not yet" tied to timing — circle back later. Door's still open.</td></tr>
+    <tr><td><span class="pill p-neg">not_interested</span></td><td>A clear "no" — not a fit, or they chose someone else.</td></tr>
+    <tr><td><span class="pill p-neg">wrong_person</span></td><td>"That's not me" — points to a colleague instead.</td></tr>
+    <tr><td><span class="pill p-neg">no_longer_there</span></td><td>They've left the company / the role is gone.</td></tr>
+    <tr><td><span class="pill p-neg">unsubscribe</span></td><td>"Take me off the list."</td></tr>
+    <tr><td><span class="pill p-noise">customer_service</span></td><td>A support/billing question — not a sales reply.</td></tr>
+    <tr><td><span class="pill p-noise">oof</span></td><td>An out-of-office auto-reply.</td></tr>
+    <tr><td><span class="pill p-noise">other</span></td><td>Doesn't fit anything above (e.g. a newsletter, or not in English).</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <h3>The sales team always wins</h3>
+  <p>If someone on the team has set a status by hand on a lead, the bot <b>never</b> overwrites it. The AI only fills in the leads nobody has touched.</p>
+</div>
+
+<h2>3. What's new (1): the booked count is no longer under-reported</h2>
+<p><b>The problem:</b> when a rep books a meeting, the confirming reply often reads like a casual "great, talk then!" — which the AI would file as merely <i>interested</i>. Meanwhile the rep had already tagged that lead <b>"Booked"</b> inside Instantly. The board trusted the AI's reading of the text and undercounted the real bookings.</p>
+
+<p><b>The fix:</b> the rep's <b>"Booked" / "Interested" tag in Instantly is now treated as the source of truth</b> and lifts the lead's status to match. It can only ever <i>raise</i> a status, never lower one — so a lead the AI already marked <i>booked</i> can't be knocked down by a weaker tag.</p>
+
+<div class="ba">
+  <div class="col before"><b>Before</b><div class="big">395 booked</div><span>tagged-booked leads sat under "interested" or "other"</span></div>
+  <div class="col after"><b>After</b><div class="big">449 booked</div><span>+54 leads the team had already tagged "Booked" now count correctly</span></div>
+</div>
+<p class="lede">Each promoted lead also says why, e.g. <code>Status set from Instantly sales tag 'Epic - Booked'</code>, so it's transparent — and the detailed "Status 1/2/3" columns still show the AI's own reading underneath.</p>
+
+<h2>4. What's new (2): which follow-ups are actually working?</h2>
+<p>When a first reply comes in, reps often send <b>manual follow-up messages</b> by hand from the Instantly inbox. This new report looks across all of them and asks: <b>after a follow-up like this, did a good reply come back?</b></p>
+
+<div class="cards">
+  <div class="card"><div class="n">3,722</div><div class="l">manual follow-ups sent</div></div>
+  <div class="card"><div class="n">443</div><div class="l">got any reply (11.9%)</div></div>
+  <div class="card"><div class="n">323</div><div class="l">got a positive reply (8.7%)</div></div>
+  <div class="card"><div class="n">111</div><div class="l">led to a booking (3.0%)</div></div>
+</div>
+
+<p>It then breaks the follow-ups down by their characteristics — length, whether they ask a question, whether they include a booking link, and so on — and shows the positive-reply rate <b>with</b> versus <b>without</b> each one. The full report lives at <code>FOLLOWUP_EFFECTIVENESS.html</code>, and the same tables are available as live views in NocoDB.</p>
+
+<div class="note warn">
+  <h3>⚠️ How to read it honestly (please read this)</h3>
+  <ul>
+    <li><b>It shows patterns, not proof.</b> "Shorter messages got more replies" is an <i>association</i> — it does not prove that making a message shorter <i>causes</i> more replies.</li>
+    <li><b>Most follow-ups go to already-warm leads.</b> A lot of these messages are gentle nudges to people who were <i>already</i> interested, so high reply rates there are expected — that's flagged in the report as its own row ("Lead Already Positive") rather than hidden.</li>
+    <li><b>"Positive" means the next reply was <span class="pill p-pos">booked</span> or <span class="pill p-pos">interested</span>.</b></li>
+    <li><b>It's a first read, not the whole story.</b> It's built from one mailbox's sent history so far, so treat it as a starting point for ideas to test — not a rulebook.</li>
+  </ul>
+</div>
+
+<h2>5. Where to find everything</h2>
+<ul>
+  <li><b>The status board</b> — NocoDB, the <code>lead_status</code> view (one row per lead, with its status, reasons, and company details).</li>
+  <li><b>The follow-up report</b> — <code>docs/replies/FOLLOWUP_EFFECTIVENESS.html</code>, plus the <code>followup_patterns_mv</code> / <code>followup_timing_mv</code> views in NocoDB.</li>
+  <li><b>New views need a one-time "Sync Now"</b> in NocoDB so they appear; after that they refresh on their own.</li>
+</ul>
+
+<footer>
+  Reply AI Bot — cold-reply analysis bundle. Plain-English guide for stakeholders; the technical detail lives in
+  <code>CLAUDE.md</code>, the implementation plan (<code>FOLLOWUP_EFFECTIVENESS_PLAN.html</code>), and the runbook
+  <code>docs/reference/ADDING_A_NOCODB_VIEW.md</code>. Numbers are a point-in-time snapshot (2026-06-15); the live
+  report and board are always current.
+</footer>
+
+</body>
+</html>
