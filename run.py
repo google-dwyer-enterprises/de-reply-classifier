@@ -185,6 +185,13 @@ def main() -> None:
     sw.add_argument("--limit", type=int, default=None,
                     help="Process only N booked leads (for testing)")
 
+    sub.add_parser("extract-followup-features",
+                   help="Extract deterministic features (quoted-thread-stripped) over manual "
+                        "follow-ups into followup_message_features")
+    sub.add_parser("refresh-followup-patterns",
+                   help="Full descriptive follow-up analysis: extract features → rebuild "
+                        "followup_patterns_mv/_timing_mv → regenerate the HTML report")
+
     sub.add_parser("update-status", help="Materialize auto_status onto leads table from latest non-oof classification")
 
     sy = sub.add_parser("sync", help="Pull latest replies from Instantly into replies table")
@@ -297,6 +304,12 @@ def main() -> None:
         followup_tracker_upload_main(args.file)
     elif args.command == "select-winning-replies":
         select_winning_replies_main(dry_run=args.dry_run, limit=args.limit)
+    elif args.command == "extract-followup-features":
+        run_script("followup_features.py")
+    elif args.command == "refresh-followup-patterns":
+        run_script("followup_features.py")
+        run_script("scripts/apply_followup_patterns_view.py")
+        run_script("scripts/gen_followup_patterns_report.py")
     elif args.command == "update-status":
         update_status_main()
     elif args.command == "sync":

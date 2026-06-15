@@ -1,0 +1,81 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Which Follow-ups Are Working — Descriptive Analysis</title>
+<style>
+ :root { --green:#1a7f37; --amber:#9a6700; --red:#cf222e; --ink:#1f2328; --muted:#57606a; --line:#d0d7de; }
+ body { font:15px/1.55 -apple-system,Segoe UI,Roboto,sans-serif; color:var(--ink); max-width:1000px; margin:0 auto; padding:34px 22px 70px; }
+ h1 { font-size:26px; margin:0 0 4px; } h2 { font-size:20px; margin:34px 0 8px; border-bottom:2px solid #eaeef2; padding-bottom:6px; }
+ h3 { font-size:16px; margin:22px 0 8px; }
+ .sub { color:var(--muted); margin:0 0 22px; }
+ .cards { display:flex; gap:12px; flex-wrap:wrap; margin:0 0 22px; }
+ .card { flex:1; min-width:120px; background:#f6f8fa; border:1px solid var(--line); border-radius:10px; padding:14px; }
+ .card .big { font-size:26px; font-weight:700; } .card .lbl { color:var(--muted); font-size:12px; margin-top:2px; }
+ .callout { background:#fff8c5; border:1px solid #d4a72c; border-radius:10px; padding:14px 18px; margin:16px 0; font-size:13.5px; }
+ .callout h3 { margin:0 0 6px; font-size:14px; } .callout ol { margin:6px 0 0; padding-left:20px; } .callout li { margin:3px 0; }
+ table { width:100%; border-collapse:collapse; font-size:13px; margin:6px 0 4px; }
+ th,td { border-top:1px solid #eaeef2; padding:6px 10px; text-align:left; } th { color:var(--muted); font-weight:600; }
+ td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+ tr.insuff td { color:#aab1b8; background:#fbfbfc; }
+ .ci { color:var(--muted); font-size:11px; }
+ .bar { background:#eaeef2; border-radius:4px; height:9px; width:90px; display:inline-block; overflow:hidden; } .fill { height:100%; }
+ .group { border:1px solid var(--line); border-radius:10px; padding:6px 14px 12px; margin:14px 0; }
+ code { background:#eff1f3; padding:1px 5px; border-radius:4px; }
+ footer { margin-top:34px; padding-top:12px; border-top:1px solid var(--line); color:#8c959f; font-size:12px; }
+</style></head><body>
+<h1>Which follow-ups are working — descriptive analysis</h1>
+<p class="sub">Manual (Unibox) follow-up messages vs the replies that followed · snapshot 2026-06-15 22:37 · <strong>descriptive, not causal</strong></p>
+
+<div class="cards">
+ <div class="card"><div class="big">3,722</div><div class="lbl">manual follow-ups</div></div>
+ <div class="card"><div class="big">443</div><div class="lbl">got any reply (12%)</div></div>
+ <div class="card"><div class="big">323</div><div class="lbl">positive reply (9%)</div></div>
+ <div class="card"><div class="big">111</div><div class="lbl">booked (3%)</div></div>
+ <div class="card"><div class="big">3,562</div><div class="lbl">analyzed (clean+new)</div></div>
+</div>
+
+<div class="callout"><h3>⚠️ Read this before reading the numbers</h3><ol>
+<li><strong>Descriptive, not causal.</strong> These are associations between a follow-up's characteristics and the reply that followed — not proof the characteristic caused the reply.</li>
+<li><strong>"Positive" = the next reply was classified <code>booked</code> or <code>interested</code></strong> (within the window before the next follow-up). All other labels were not counted positive.</li>
+<li><strong>Warm-lead confound (the big one):</strong> 2,946 of these follow-ups went to leads who were <em>already</em> positive before the send (nudges to warm leads). Rather than hide them, <strong>"Lead Already Positive"</strong> is shown below as its own characteristic — note its very high rate is largely tautological, and treat any body-feature lift that correlates with it with suspicion.</li>
+<li><strong>Quoted-thread stripped:</strong> 95.7% of bodies were mostly quoted history; features are computed only on the new text Jam wrote (3,562/3,722 cleanly extracted).</li>
+<li><strong>Power is limited:</strong> 3,722 sends → 443 replies → 323 positive → 111 booked. A value is only shown as a finding with ≥30 sends AND ≥15 positives; everything else is greyed "insufficient data". Booked-only is shown as an overall rate, never sliced.</li>
+<li><strong>Client mix confound:</strong> positive-rate spans ~7× across clients and one client is ~half the volume. "Largest client" column flags cells dominated by one account — read those as that account's style, not a universal tactic.</li>
+<li><strong>Coverage is partial:</strong> only one Instantly workspace's outbound is synced; the per-lead backfill is manual; 218 booked leads have zero synced manual follow-ups. This is a labelled snapshot.</li>
+</ol></div>
+
+<h2>Follow-up characteristics — positive-reply rate (with vs without)</h2>
+<div class="group"><h3>Has Booking Link</h3>
+        <table><tr><th>Value</th><th>With it</th><th>Positive replies</th>
+        <th>Positive % (with)</th><th>Without</th><th></th><th>Lift</th>
+        <th>Largest client</th><th>Confidence</th></tr><tr class="insuff"><td>Yes</td><td class="num">99</td><td class="num">9</td><td class="num">— </td><td class="num">—</td><td class="num"></td><td class="num">—</td><td class="num">33%</td><td style="color:#8c959f;font-weight:600">Insufficient data</td></tr><tr><td>No</td><td class="num">3463</td><td class="num">298</td><td class="num">8.6% <span class="ci">95% CI 8–10%</span></td><td class="num">9.1%</td><td class="num"><div class="bar"><div class="fill" style="width:40%;background:#1a7f37"></div></div></td><td class="num">0.95×</td><td class="num">49%</td><td style="color:#1a7f37;font-weight:600">High</td></tr></table></div><div class="group"><h3>Has Emoji</h3>
+        <table><tr><th>Value</th><th>With it</th><th>Positive replies</th>
+        <th>Positive % (with)</th><th>Without</th><th></th><th>Lift</th>
+        <th>Largest client</th><th>Confidence</th></tr><tr><td>No</td><td class="num">3500</td><td class="num">307</td><td class="num">8.8% <span class="ci">95% CI 8–10%</span></td><td class="num">0.0%</td><td class="num"><div class="bar"><div class="fill" style="width:41%;background:#1a7f37"></div></div></td><td class="num">—</td><td class="num">48%</td><td style="color:#1a7f37;font-weight:600">High</td></tr><tr class="insuff"><td>Yes</td><td class="num">62</td><td class="num">0</td><td class="num">— </td><td class="num">—</td><td class="num"></td><td class="num">—</td><td class="num">77%</td><td style="color:#8c959f;font-weight:600">Insufficient data</td></tr></table></div><div class="group"><h3>Has Link</h3>
+        <table><tr><th>Value</th><th>With it</th><th>Positive replies</th>
+        <th>Positive % (with)</th><th>Without</th><th></th><th>Lift</th>
+        <th>Largest client</th><th>Confidence</th></tr><tr class="insuff"><td>Yes</td><td class="num">23</td><td class="num">5</td><td class="num">— </td><td class="num">—</td><td class="num"></td><td class="num">—</td><td class="num">61%</td><td style="color:#8c959f;font-weight:600">Insufficient data</td></tr><tr><td>No</td><td class="num">3539</td><td class="num">302</td><td class="num">8.5% <span class="ci">95% CI 8–9%</span></td><td class="num">21.7%</td><td class="num"><div class="bar"><div class="fill" style="width:39%;background:#1a7f37"></div></div></td><td class="num">0.39×</td><td class="num">48%</td><td style="color:#1a7f37;font-weight:600">High</td></tr></table></div><div class="group"><h3>Has P.S.</h3>
+        <table><tr><th>Value</th><th>With it</th><th>Positive replies</th>
+        <th>Positive % (with)</th><th>Without</th><th></th><th>Lift</th>
+        <th>Largest client</th><th>Confidence</th></tr><tr><td>No</td><td class="num">3559</td><td class="num">307</td><td class="num">8.6% <span class="ci">95% CI 8–10%</span></td><td class="num">0.0%</td><td class="num"><div class="bar"><div class="fill" style="width:40%;background:#1a7f37"></div></div></td><td class="num">—</td><td class="num">48%</td><td style="color:#1a7f37;font-weight:600">High</td></tr><tr class="insuff"><td>Yes</td><td class="num">3</td><td class="num">0</td><td class="num">— </td><td class="num">—</td><td class="num"></td><td class="num">—</td><td class="num">33%</td><td style="color:#8c959f;font-weight:600">Insufficient data</td></tr></table></div><div class="group"><h3>Has Question</h3>
+        <table><tr><th>Value</th><th>With it</th><th>Positive replies</th>
+        <th>Positive % (with)</th><th>Without</th><th></th><th>Lift</th>
+        <th>Largest client</th><th>Confidence</th></tr><tr><td>No</td><td class="num">1546</td><td class="num">182</td><td class="num">11.8% <span class="ci">95% CI 10–13%</span></td><td class="num">6.2%</td><td class="num"><div class="bar"><div class="fill" style="width:54%;background:#1a7f37"></div></div></td><td class="num">1.90×</td><td class="num">46%</td><td style="color:#1a7f37;font-weight:600">High</td></tr><tr><td>Yes</td><td class="num">2016</td><td class="num">125</td><td class="num">6.2% <span class="ci">95% CI 5–7%</span></td><td class="num">11.8%</td><td class="num"><div class="bar"><div class="fill" style="width:29%;background:#1a7f37"></div></div></td><td class="num">0.53×</td><td class="num">50%</td><td style="color:#1a7f37;font-weight:600">High</td></tr></table></div><div class="group"><h3>Lead Already Positive</h3>
+        <table><tr><th>Value</th><th>With it</th><th>Positive replies</th>
+        <th>Positive % (with)</th><th>Without</th><th></th><th>Lift</th>
+        <th>Largest client</th><th>Confidence</th></tr><tr><td>Yes</td><td class="num">2821</td><td class="num">291</td><td class="num">10.3% <span class="ci">95% CI 9–11%</span></td><td class="num">2.2%</td><td class="num"><div class="bar"><div class="fill" style="width:47%;background:#1a7f37"></div></div></td><td class="num">4.78×</td><td class="num">50%</td><td style="color:#1a7f37;font-weight:600">High</td></tr><tr><td>No</td><td class="num">741</td><td class="num">16</td><td class="num">2.2% <span class="ci">95% CI 1–3%</span></td><td class="num">10.3%</td><td class="num"><div class="bar"><div class="fill" style="width:10%;background:#1a7f37"></div></div></td><td class="num">0.21×</td><td class="num">42%</td><td style="color:#1a7f37;font-weight:600">High</td></tr></table></div><div class="group"><h3>Length</h3>
+        <table><tr><th>Value</th><th>With it</th><th>Positive replies</th>
+        <th>Positive % (with)</th><th>Without</th><th></th><th>Lift</th>
+        <th>Largest client</th><th>Confidence</th></tr><tr><td>long</td><td class="num">92</td><td class="num">16</td><td class="num">17.4% <span class="ci">95% CI 11–26%</span></td><td class="num">8.4%</td><td class="num"><div class="bar"><div class="fill" style="width:80%;background:#9a6700"></div></div></td><td class="num">2.07×</td><td class="num">75%</td><td style="color:#9a6700;font-weight:600">Medium</td></tr><tr><td>very_short</td><td class="num">267</td><td class="num">35</td><td class="num">13.1% <span class="ci">95% CI 10–18%</span></td><td class="num">8.3%</td><td class="num"><div class="bar"><div class="fill" style="width:60%;background:#1a7f37"></div></div></td><td class="num">1.59×</td><td class="num">35%</td><td style="color:#1a7f37;font-weight:600">High</td></tr><tr><td>short</td><td class="num">1768</td><td class="num">149</td><td class="num">8.4% <span class="ci">95% CI 7–10%</span></td><td class="num">8.8%</td><td class="num"><div class="bar"><div class="fill" style="width:39%;background:#1a7f37"></div></div></td><td class="num">0.96×</td><td class="num">46%</td><td style="color:#1a7f37;font-weight:600">High</td></tr><tr><td>medium</td><td class="num">1435</td><td class="num">107</td><td class="num">7.5% <span class="ci">95% CI 6–9%</span></td><td class="num">9.4%</td><td class="num"><div class="bar"><div class="fill" style="width:35%;background:#1a7f37"></div></div></td><td class="num">0.79×</td><td class="num">53%</td><td style="color:#1a7f37;font-weight:600">High</td></tr></table></div><div class="group"><h3>Mentions Pricing</h3>
+        <table><tr><th>Value</th><th>With it</th><th>Positive replies</th>
+        <th>Positive % (with)</th><th>Without</th><th></th><th>Lift</th>
+        <th>Largest client</th><th>Confidence</th></tr><tr><td>Yes</td><td class="num">235</td><td class="num">29</td><td class="num">12.3% <span class="ci">95% CI 9–17%</span></td><td class="num">8.4%</td><td class="num"><div class="bar"><div class="fill" style="width:57%;background:#1a7f37"></div></div></td><td class="num">1.48×</td><td class="num">44%</td><td style="color:#1a7f37;font-weight:600">High</td></tr><tr><td>No</td><td class="num">3327</td><td class="num">278</td><td class="num">8.4% <span class="ci">95% CI 7–9%</span></td><td class="num">12.3%</td><td class="num"><div class="bar"><div class="fill" style="width:39%;background:#1a7f37"></div></div></td><td class="num">0.68×</td><td class="num">49%</td><td style="color:#1a7f37;font-weight:600">High</td></tr></table></div><div class="group"><h3>Opens With Question</h3>
+        <table><tr><th>Value</th><th>With it</th><th>Positive replies</th>
+        <th>Positive % (with)</th><th>Without</th><th></th><th>Lift</th>
+        <th>Largest client</th><th>Confidence</th></tr><tr><td>No</td><td class="num">2463</td><td class="num">245</td><td class="num">9.9% <span class="ci">95% CI 9–11%</span></td><td class="num">5.6%</td><td class="num"><div class="bar"><div class="fill" style="width:46%;background:#1a7f37"></div></div></td><td class="num">1.76×</td><td class="num">47%</td><td style="color:#1a7f37;font-weight:600">High</td></tr><tr><td>Yes</td><td class="num">1099</td><td class="num">62</td><td class="num">5.6% <span class="ci">95% CI 4–7%</span></td><td class="num">9.9%</td><td class="num"><div class="bar"><div class="fill" style="width:26%;background:#1a7f37"></div></div></td><td class="num">0.57×</td><td class="num">51%</td><td style="color:#1a7f37;font-weight:600">High</td></tr></table></div>
+
+<h2>Timing / survival (NOT a winning characteristic)</h2>
+<p class="sub">Earlier follow-ups show higher positive rates <strong>because leads who reply positively early stop getting more follow-ups</strong> (the window closes) — this is survival of the unconverted, not proof that later follow-ups are weak.</p>
+<table><tr><th>Follow-up #</th><th>Sends</th><th>Positive replies</th><th>Positive %</th></tr><tr><td>1</td><td class="num">637</td><td class="num">118</td><td class="num">18.5%</td></tr><tr><td>2</td><td class="num">524</td><td class="num">66</td><td class="num">12.6%</td></tr><tr><td>3</td><td class="num">435</td><td class="num">43</td><td class="num">9.9%</td></tr><tr><td>4</td><td class="num">369</td><td class="num">23</td><td class="num">6.2%</td></tr><tr><td>5</td><td class="num">322</td><td class="num">20</td><td class="num">6.2%</td></tr><tr><td>6+</td><td class="num">1435</td><td class="num">53</td><td class="num">3.7%</td></tr></table>
+
+<footer>Generated from live Supabase views <code>followup_patterns_mv</code> / <code>followup_timing_mv</code> + <code>followup_message_features</code>. Deterministic (v1) features only; LLM hook/tone/CTA features pending. Descriptive associations — investigate, don't treat as rules.</footer>
+</body></html>
