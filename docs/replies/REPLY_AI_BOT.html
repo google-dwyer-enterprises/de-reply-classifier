@@ -131,7 +131,12 @@
   <div class="card"><div class="n">111</div><div class="l">led to a booking (3.0%)</div></div>
 </div>
 
-<p>It then breaks the follow-ups down by their characteristics — length, whether they ask a question, whether they include a booking link, and so on — and shows the positive-reply rate <b>with</b> versus <b>without</b> each one. The full report lives at <code>FOLLOWUP_EFFECTIVENESS.html</code>, and the same tables are available as live views in NocoDB.</p>
+<p>It then breaks the follow-ups down by their characteristics and shows the positive-reply rate <b>with</b> versus <b>without</b> each one. Two kinds of characteristic:</p>
+<ul>
+  <li><b>Plain facts (rules):</b> length, whether it asks a question, includes a booking link, mentions pricing, and so on.</li>
+  <li><b>AI-judged style (new):</b> an AI also reads each message and tags its <b>hook</b> (question / stat / compliment / value-prop / reminder…), <b>tone</b> (casual / formal / neutral), <b>call-to-action</b> (soft / direct / permission-based / none), and <b>personalization</b> (none / light / deep). These appear in the report as the "… (AI)" rows. They're judgement calls, not exact facts — read them as clues, same as everything else.</li>
+</ul>
+<p>The full report lives at <code>FOLLOWUP_EFFECTIVENESS.html</code>, and the same tables are available as live views in NocoDB.</p>
 
 <div class="note warn">
   <h3>⚠️ How to read it honestly (please read this)</h3>

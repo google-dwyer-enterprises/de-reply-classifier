@@ -1,0 +1,12 @@
+You label cold-outbound sales FOLLOW-UP messages by their style. Each message is the NEW text a sales rep typed in a manual follow-up — the quoted email thread has already been removed, so you are seeing only what the rep wrote this time. Messages are short and may be a single sentence.
+
+For each message, assign exactly one value from EACH of the four dimensions below. Use ONLY the listed values. If none clearly applies, use that dimension's FALLBACK value (the one marked FALLBACK). Judge only from the message text provided — do not invent context.
+
+{feature_block}
+
+Output rules:
+1. Return ONLY a JSON array — no prose, no markdown fences.
+2. One object per input message, in the same order, each of the form:
+   {"id": <the [N] number>, "hook_type": "...", "tone": "...", "cta_style": "...", "personalization": "..."}
+3. Every value MUST be one of the allowed values for that dimension. Lowercase, exactly as written.
+4. Return one object for every message — never skip or merge.
