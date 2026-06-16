@@ -803,10 +803,12 @@ def main() -> None:
     anthropic_client = Anthropic(api_key=anthropic_key)
 
     if args.reclassify and args.variety:
-        all_replies = supabase.table("replies").select("*").order("reply_timestamp").execute().data or []
+        # _paginate_all, not raw .execute(): PostgREST caps a single request at 1000 rows,
+        # which silently truncated full reclassifies to the first 1000 replies.
+        all_replies = _paginate_all(supabase.table("replies").select("*").order("reply_timestamp"))
         replies = select_variety(all_replies, target=args.limit or 10)
     elif args.reclassify:
-        replies = (supabase.table("replies").select("*").order("reply_timestamp").execute().data or [])
+        replies = _paginate_all(supabase.table("replies").select("*").order("reply_timestamp"))
         if args.limit:
             replies = replies[: args.limit]
     elif args.variety:
