@@ -77,7 +77,8 @@ def _build_users() -> dict[str, tuple[str, str]]:
         u = (os.environ.get(env_user) or "").strip()
         p = (os.environ.get(env_pass) or "").strip()
         if u and p:
-            users[u] = (p, role)
+            # username case-insensitive (keyed lowercased); password stays exact.
+            users[u.lower()] = (p, role)
     return users
 
 
@@ -96,7 +97,7 @@ app.secret_key = (os.environ.get("SECRET_KEY") or "").strip()
 
 def _authenticate(username: str, password: str) -> str | None:
     """Return the role for valid credentials, else None (constant-time compare)."""
-    rec = USERS.get((username or "").strip())
+    rec = USERS.get((username or "").strip().lower())
     if not rec:
         return None
     stored_pw, role = rec
