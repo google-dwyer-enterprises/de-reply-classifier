@@ -12,10 +12,45 @@ Read-only. Reuses db.connect() (psycopg2). No new tables/views.
 from __future__ import annotations
 
 import math
+import re
 
 import psycopg2.extras
 
 from db import connect
+
+# --- example-text repair ------------------------------------------------------
+# Email bodies were stored flattened (newlines dropped WITHOUT a space) during
+# sync, so the rep's text comes through with run-ons: "questionsWhich",
+# "calendar linkOn", "brand?We". The original break positions are lost in the DB,
+# so we re-insert spaces heuristically for DISPLAY ONLY (never mutates the data /
+# the analytics stats). Conservative: protects URLs, emails and known camelCase
+# brands, and only splits a lower->Upper seam or a '?'/'!' glued to a word — never
+# '.'/',' (which would break domains, decimals, "inc.com").
+_HUMANIZE_BRANDS = re.compile(
+    r"eBay|iPhone|iPad|iPod|iOS|macOS|YouTube|TikTok|LinkedIn|PayPal|WooCommerce|"
+    r"BigCommerce|WordPress|GoDaddy|ClickFunnels|ConvertKit|MailChimp|QuickBooks|"
+    r"AliExpress|DoorDash|PageFly|ShipBob|GrubHub|"
+    r"MoM|YoY|WoW|QoQ|PoP|DtC|McK|MacBook")
+_URL_OR_EMAIL = re.compile(r"https?://\S+|www\.\S+|\b[\w.+-]+@[\w.-]+\.\w+\b")
+
+
+def humanize_text(text: str) -> str:
+    if not text:
+        return text
+    holds: list[str] = []
+
+    def _hold(m):
+        holds.append(m.group(0))
+        return f"\x00{len(holds) - 1}\x00"
+
+    t = _URL_OR_EMAIL.sub(_hold, text)
+    t = _HUMANIZE_BRANDS.sub(_hold, t)
+    t = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", t)   # "linkOn" -> "link On"
+    t = re.sub(r"([?!])(?=[A-Za-z])", r"\1 ", t)     # "brand?We" -> "brand? We"
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    for i, v in enumerate(holds):
+        t = t.replace(f"\x00{i}\x00", v)
+    return t.strip()
 
 # --- plain-English dictionary -------------------------------------------------
 # characteristic -> {label, blurb, kind: 'binary'|'multi', values:{raw:(label,blurb)}}
@@ -169,7 +204,7 @@ def _examples(cur) -> dict:
     """)
     out: dict = {}
     for r in cur.fetchall():
-        txt = (r["followup_new_text"] or "").replace("�", "").strip()
+        txt = humanize_text((r["followup_new_text"] or "").replace("�", "").strip())
         if len(txt) > 600:
             txt = txt[:600].rstrip() + "…"
         out.setdefault((r["dim"], r["val"]), []).append(
