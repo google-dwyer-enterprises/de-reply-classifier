@@ -39,6 +39,7 @@ lead_status_mv       ◄── what NocoDB shows the client (joins leads + lead_
 - **Fixed label taxonomy** in `config.py` (11 labels: `booked, interested, interested_past, not_now, not_interested, wrong_person, no_longer_there, customer_service, unsubscribe, oof, other`). Don't add/rename without updating `LABEL_DEFINITIONS`, `prompts/classifier.txt`, and re-validating.
 - **Idempotent sync**: `replies.instantly_message_id` is unique; upsert on conflict do nothing. `sync_state.last_synced_at` drives incremental pulls.
 - **Manual overrides untouched**: `leads.manual_status` and `leads.notes` are never written by automation. `coalesce(manual_status, auto_status)` is what the MV exposes as `status`.
+- **Instantly tag promotes the headline status** (Gap 2): `auto_status` = `status1` (the top classifier label) **promoted** by the human-applied Instantly per-lead tag in `status4`. `config.tag_to_label` maps a tag to `booked`/`interested` (case-insensitive substring; negatives → `None`); `excel_writer.fetch_per_lead_summary` then takes the higher-priority (lower `STATUS_RANK`) of `{status1, tag_label}`. It **only promotes, never demotes** — a tagged-`interested` lead the classifier already booked stays booked. `status1/2/3` and their reasons/replies remain the pure classifier view; only `auto_status` (and the headline `reason`, rewritten to cite the tag) reflect the promotion. This closes the booked undercount. No DDL — `auto_status`/`reason` are existing columns; just re-run `update-status`.
 - **Multiple `prompt_version`s coexist** in `classifications`. `excel_writer.fetch_per_lead_summary` orders by `classified_at` ascending and dict-merges so the newest row wins. Do NOT filter by a single `prompt_version` — that breaks reclassify history.
 - **Bump `PROMPT_VERSION` in `config.py` for any prompt change** so old/new are diff-able. Currently `v3`.
 - **Excluded senders** (config.py `is_excluded_sender`) — bots, internal addresses, do-not-reply prefixes — are dropped at writeback time, never classified out.
@@ -64,7 +65,11 @@ lead_status_mv       ◄── what NocoDB shows the client (joins leads + lead_
 | `prospeo_sync.py` | **Separate pipeline** — pulls new decision-maker leads from Prospeo for inclusion-list domains, two-stage filter (rules + Haiku LLM), writes to `prospeo_new_leads` table + `exports/*.xlsx` for Jam. Title list is owner-only (CEO/Founder/Owner/President + variants). Has `--max-credits` budget cap; always use it. |
 | `scripts/prospeo_category_pilot.py` | One-off pilot script that compares domain-mode vs category-mode Prospeo searches. Read-only (writes XLSX only, never touches DB). See `docs/scraping/FINDINGS.html` for the empirically-verified filter shape and accepted industry strings. |
 | `scripts/verify_claims.py`, `scripts/title_analysis.py`, `scripts/verify_prospeo_shape.py` | Read-only verification scripts. Used to validate every number in `docs/scraping/FINDINGS.html` against live data. |
-| `migrations.sql` | Source of truth for table DDL. The MV definition (`lead_status_mv`) lives in Supabase only — fetch via `select definition from pg_matviews`. Prospeo tables (`prospeo_new_leads`, `domain_inclusion_list`) are at the bottom. |
+| `followup_features.py` | **Follow-up effectiveness (descriptive cross-lead analysis).** Per manual (`unibox_manual`) follow-up: `extract_new_text` strips the quoted thread (BOUNDARY_PATTERNS) → `deterministic_features` (v1, zero-LLM) → windowed last-touch outcome attribution (ATTRIB_SQL; latest classification, never a single `prompt_version`) → upsert into `followup_message_features`. `EXTRACTOR_VERSION='fx1'`. |
+| `scripts/apply_followup_patterns_view.py` | Builds `followup_patterns_mv` (positive-rate WITH vs WITHOUT each characteristic + lift, support floor, largest-client share) and `followup_timing_mv` (survival panel) as **plain views**. Descriptive only. |
+| `scripts/gen_followup_patterns_report.py` | Writes `docs/replies/FOLLOWUP_EFFECTIVENESS.html` (power funnel, Wilson CIs, caveats) from the live views + feature table. Read-only. |
+| `scripts/check_followup_effectiveness_readiness.py` | Phase-0 read-only readiness check; shares the attribution SQL with `followup_features.py`. |
+| `migrations.sql` | Source of truth for table DDL. The MV definition (`lead_status_mv`) lives in Supabase only — fetch via `select definition from pg_matviews`. Prospeo tables (`prospeo_new_leads`, `domain_inclusion_list`) are at the bottom. `followup_message_features` (the follow-up analysis) is also at the bottom. |
 
 ## CLI (run.py)
 
@@ -76,6 +81,8 @@ python run.py refresh-status          # pull per-lead interest_status from Insta
 python run.py classify                # Haiku classify unclassified replies (only)
 python run.py update-status           # leads ← classifications, then refresh MV
 python run.py refresh [--days N]      # one-shot: sync → refresh-status → classify → update-status
+python run.py extract-followup-features    # deterministic features (quoted-thread-stripped) over manual follow-ups → followup_message_features
+python run.py refresh-followup-patterns    # extract features → rebuild followup_patterns_mv/_timing_mv → regen FOLLOWUP_EFFECTIVENESS.html
 python run.py upload-leads <file>     # Apollo enrichment upsert
 python run.py resolve-companies       # LLM company-name resolution
 python run.py export ...              # legacy Excel export (writeback or fresh)
@@ -122,6 +129,16 @@ Old `prompt_version` rows are kept so you can diff regressions.
 
 Python 3.11+, virtualenv in `venv/`. `requirements.txt` is committed.
 
+## Unit tests
+
+Stdlib `unittest` (no pytest dependency). Run from the repo root:
+
+```bash
+python -m unittest discover -s tests
+```
+
+Covers the pure, client-facing deterministic logic: `config.tag_to_label` (Gap 2 tag mapper), `excel_writer.promote_status` (rank-based promote-never-demote), and `followup_features` (`extract_new_text` quoted-thread stripping, `deterministic_features`, `length_bucket`). These are the high-regression-risk units — a wrong mapping or boundary silently corrupts the headline status or the follow-up feature vector. Keep them green before changing those functions. (The `debug/test_*.py` files are gitignored ad-hoc scripts, not part of this suite.)
+
 ## Validation gate
 
 Before any full reclassify, do a stratified hand-review on ~200–500 replies, weighted toward `other` / `wrong_person` / `no_longer_there` / `not_now` (the labels with the highest disagreement risk). Target >90% overall accuracy, >85% on rare labels. Iterate the prompt and bump `PROMPT_VERSION` between runs. `scripts/compare_models.py` exists for Haiku-vs-Sonnet bake-offs (writes test rows tagged `v3-haiku` / `v3-sonnet`; clean up with `delete from classifications where prompt_version in (...)`).
@@ -145,7 +162,12 @@ Before any full reclassify, do a stratified hand-review on ~200–500 replies, w
 - **`sent_messages` is populated in production** (327,091 rows as of 2026-06-15; first inserts 2026-05-22). The `instantly_sync.py --type sent` pass is live — `run.py sync` and `run.py refresh` both run it. The earlier note that this table was "empty (0 rows, verified 2026-05-19)" is obsolete: the sent pass was switched on three days later and has accumulated since. Routing: `TABLE_BY_TYPE` sends `received → replies`, `sent → sent_messages`. `send_kind` (stored generated column from `ue_type` + `step`): `campaign_auto` vs `unibox_manual`. Idempotent on `instantly_message_id`.
 - **Instantly v2 `/emails` per-lead filter:** the correct query parameter is `?lead=<email>`, NOT `?lead_email=<email>` (the latter is silently ignored and returns the global feed). `ue_type` distinguishes message kinds: `1`=campaign auto-send (has `step` like `"0_1_0"`), `2`=inbound reply, `3`=manual Unibox send (`step` is null). Verified by `scripts/probe_outbound_v4.py` against 5 booked leads.
 
-## Pending planning documents
+## Planning documents
 
-- `docs/replies/FOLLOWUP_ANALYSIS_PLAN.md` — "which replies are working" analysis. Pulls outbound emails from Instantly into `sent_messages`, scores Unibox manual follow-ups via Haiku, exposes `followup_effectiveness_mv` to NocoDB. Phase 0 (API probe) done; Phase 1+ pending sign-off.
+**Shipped:**
+- `docs/replies/FOLLOWUP_EFFECTIVENESS_PLAN.md` — descriptive "which follow-ups are working" cross-lead analysis. **Phase 0/1 shipped** (deterministic features): `followup_features.py`, `followup_patterns_mv`/`followup_timing_mv`, `docs/replies/FOLLOWUP_EFFECTIVENESS.html`, and the `extract-followup-features`/`refresh-followup-patterns` commands. Phase 2 (LLM hook/tone/CTA features; model tier) is still pending — the `followup_message_features` v2 columns exist but are nullable/unused. The plan `.md` is a pre-implementation artifact; where it diverges from ship (e.g. it keeps warm-lead rows and surfaces "Lead Already Positive" as a characteristic rather than excluding them), the shipped code + report are authoritative.
+- **Gap 2 (booked under-count):** the Instantly booked/interested tag now promotes the headline status (see Key invariants). This is part of the `LEAD_CLEANING_PLAN.md` booked-count fix.
+
+**Pending:**
+- `docs/replies/FOLLOWUP_ANALYSIS_PLAN.md` — earlier "which replies are working" plan (Haiku-scored, `followup_effectiveness_mv`). Superseded in practice by the deterministic FOLLOWUP_EFFECTIVENESS work above for the headline analysis; Phase 1+ of this LLM variant still pending sign-off.
 - `docs/replies/LEAD_CLEANING_PLAN.md` — Booked-count under-reporting fix (139→200+), name population, reply tracking view. Phase 1b first checked 2026-05-19 (sent_messages was empty then); the sent sync went live 2026-05-22 and `sent_messages` now holds 327k rows, so Phase 4's sync dependency is satisfied at the data level.

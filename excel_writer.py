@@ -15,7 +15,7 @@ from openpyxl.utils import get_column_letter
 from supabase import create_client
 
 from classify import clean_body
-from config import is_excluded_sender
+from config import is_excluded_sender, tag_to_label
 
 EXCLUDED_STATUS_LABELS = {"oof", "customer_service"}
 
@@ -25,6 +25,22 @@ STATUS_PRIORITY = [
     "unsubscribe", "other", "oof", "customer_service",
 ]
 STATUS_RANK = {label: i for i, label in enumerate(STATUS_PRIORITY)}
+
+
+def promote_status(status1: str | None, tag: str | None) -> tuple[str | None, bool]:
+    """Gap 2: promote the classifier label `status1` to the Instantly tag's
+    booked/interested label when the tag outranks the classifier.
+
+    Promote-ONLY — the tag can only raise the status to a higher priority
+    (lower STATUS_RANK); it never demotes (a tagged-'interested' lead the
+    classifier already booked stays booked). A lead with no classifier label
+    (status1 is None -> rank 999) is promoted by any booked/interested tag.
+    Pure (no DB) so it is unit-testable. Returns (auto_status, status_from_tag).
+    """
+    tag_label = tag_to_label(tag)
+    if tag_label is not None and STATUS_RANK.get(tag_label, 999) < STATUS_RANK.get(status1 or "", 999):
+        return tag_label, True
+    return status1, False
 
 FRESH_COLUMNS = [
     "lead_email", "clients", "campaigns",
@@ -166,6 +182,17 @@ def fetch_per_lead_summary(supabase) -> dict[str, dict]:
 
         preview = clean_body(body)[:200]
 
+        # Gap 2: the human-applied Instantly tag (status4) is ground truth for
+        # booked/interested and PROMOTES the headline status — it never demotes.
+        # (A strict override would wrongly demote leads the LLM already booked
+        # but whose tag is only 'interested'.) status1/2/3 stay the pure
+        # classifier view; only auto_status — what NocoDB shows as the headline
+        # "status" and what the client's booked count reads — is promoted. The
+        # headline reason is rewritten to cite the tag so status + reason agree.
+        auto_status, status_from_tag = promote_status(status1, status4)
+        if status_from_tag:
+            reason = f"Status set from Instantly sales tag '{status4}'."
+
         by_thread: dict[str, int] = {}
         for r in rlist:
             key = r.get("thread_id") or f"__noth_{r['id']}"
@@ -185,6 +212,8 @@ def fetch_per_lead_summary(supabase) -> dict[str, dict]:
             "status2": status2,
             "status3": status3,
             "status4": status4,
+            "auto_status": auto_status,        # status1, promoted by an Instantly booked/interested tag (Gap 2)
+            "status_from_tag": status_from_tag,
             "status_confidence": confidence,
             "score": score,
             "reason": reason,

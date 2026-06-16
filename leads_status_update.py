@@ -75,7 +75,7 @@ def main() -> None:
             "status2": s.get("status2") or None,
             "status3": s.get("status3") or None,
             "status4": status4,
-            "auto_status": status1,  # back-compat alias
+            "auto_status": s.get("auto_status") or status1,  # status1, promoted by Instantly booked/interested tag (Gap 2)
             "auto_confidence": s.get("status_confidence"),
             "last_reply_at": s.get("last_reply_date"),
             "auto_status_updated_at": now_iso,

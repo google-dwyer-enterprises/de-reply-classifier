@@ -574,3 +574,57 @@ alter table lead_contacts add column if not exists mobile text;
 -- every verified company independent of the brand/reseller verdict.
 alter table domain_brand_verdicts add column if not exists amazon_presence text;
 alter table prospeo_new_leads add column if not exists amazon_presence text;
+
+-- =========================================================================
+-- Follow-up effectiveness (descriptive cross-lead analysis) — FOLLOWUP_EFFECTIVENESS_PLAN.
+-- One row per unibox_manual follow-up. Features computed over the quoted-thread-
+-- stripped new text (followup_new_text). Idempotent on sent_message_id.
+-- Populated by followup_features.py; aggregated by followup_patterns_mv.
+-- =========================================================================
+create table if not exists followup_message_features (
+  sent_message_id       bigint primary key references sent_messages(id),
+  lead_email            text not null,
+  ffup_position         int  not null,            -- row_number per lead, asc by sent_timestamp
+  sent_timestamp        timestamptz not null,
+  followup_new_text     text,                     -- quoted-thread-stripped body
+  boundary_detected     boolean not null,         -- false => quote-strip uncertain
+  client                text,
+  campaign_name         text,
+  -- v1 deterministic features (over followup_new_text) --
+  char_len              int,
+  word_count            int,
+  length_bucket         text,                     -- very_short|short|medium|long
+  has_question          boolean,
+  opens_with_question   boolean,
+  has_url               boolean,
+  has_calendar_link     boolean,
+  mentions_pricing      boolean,
+  has_ps                boolean,
+  has_greeting          boolean,
+  has_signoff           boolean,
+  has_emoji             boolean,
+  all_caps_word_count   int,
+  send_dow              smallint,                 -- 0=Mon
+  send_hour_utc         smallint,
+  -- outcome attribution (descriptive, windowed last-touch) --
+  had_reply             boolean not null default false,
+  reply_label           text,
+  responded_positive    boolean not null default false,  -- booked|interested (PRIMARY)
+  responded_booked      boolean not null default false,  -- booked only (headline rate only)
+  prior_positive_exists boolean not null default false,  -- reverse-causality guard
+  is_confirmed_winner   boolean not null default false,  -- in followup_winning_selection
+  -- v2 LLM block (deferred model tier; nullable) --
+  hook_type             text,
+  tone                  text,
+  cta_style             text,
+  personalization       text,
+  llm_model             text,
+  llm_prompt_version    text,
+  llm_classified_at     timestamptz,
+  -- provenance --
+  extractor_version     text not null,            -- 'fx1'; bump on rule change
+  extracted_at          timestamptz default now()
+);
+create index if not exists fmf_lead_idx     on followup_message_features (lead_email);
+create index if not exists fmf_positive_idx on followup_message_features (responded_positive);
+create index if not exists fmf_client_idx   on followup_message_features (client);

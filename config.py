@@ -1,3 +1,5 @@
+import re
+
 PROMPT_VERSION = "v3"
 MODEL = "claude-haiku-4-5"
 BATCH_SIZE = 25
@@ -86,6 +88,42 @@ def is_excluded_sender(email: str | None) -> bool:
     if local in EXCLUDED_LOCAL_PREFIXES:
         return True
     return False
+
+
+_TAG_SEP_RE = re.compile(r"[\s_\-]+")          # whitespace / underscores / hyphens -> one space
+_TAG_BOOKED_RE = re.compile(r"\bbooked\b")     # word-boundary: NOT 'overbooked'/'unbooked'/'rebooked'
+_TAG_INTERESTED_RE = re.compile(r"\binterested\b")    # NOT 'uninterested'/'disinterested'
+_TAG_NOT_INTERESTED_RE = re.compile(r"\bnot interested\b")
+
+
+def tag_to_label(tag: str | None) -> str | None:
+    """Map an Instantly per-lead interest tag to a taxonomy label, booked/interested only.
+
+    Tags are human-applied by the client's sales team in Instantly's Unibox
+    (e.g. 'Epic - Booked', 'interested - DE SALES', 'EC - Interested'). For
+    booked/interested they are ground truth — more reliable than the LLM's
+    read of reply text — so they PROMOTE a lead's headline status (see the
+    rank-based promotion in excel_writer.fetch_per_lead_summary). Returns None
+    for negative/neutral tags (Not interested, Unsubscribe, Lead, etc.), which
+    never override the classifier.
+
+    Matching is word-boundary, not raw substring, on a whitespace/hyphen-
+    normalized form, so 'not-interested' / 'Disinterested' / 'overbooked' do
+    NOT promote. A tag mentioning cancellation never counts as booked. The
+    post-booking Instantly built-in 'Meeting completed' counts as booked.
+    ('Won' is deliberately NOT matched — it would false-positive on a tag like
+    "won't buy"; it is also absent from current production tags.)
+    """
+    if not tag:
+        return None
+    t = _TAG_SEP_RE.sub(" ", tag.strip().lower())
+    if "cancel" in t:                          # 'Booked - cancelled' is not a live booking
+        return None
+    if _TAG_BOOKED_RE.search(t) or "meeting completed" in t:
+        return "booked"
+    if _TAG_INTERESTED_RE.search(t) and not _TAG_NOT_INTERESTED_RE.search(t):
+        return "interested"
+    return None
 
 
 def extract_client(campaign_name: str) -> str:

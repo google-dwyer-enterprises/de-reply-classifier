@@ -30,12 +30,16 @@ Feature documentation, plans, and reports, grouped by area. (Project-level
 - [REVIEW_BATCH_OPTIONS_MOCKUPS.html](reviewer/REVIEW_BATCH_OPTIONS_MOCKUPS.html) — review-batch scoping mockups
 
 ## replies/ — Reply classification & follow-up analysis
+- [REPLY_AI_BOT.html](replies/REPLY_AI_BOT.html) — **plain-English guide** to the whole cold-reply bundle (what it does, the 11 statuses, the booked-count fix, the follow-up report) — for stakeholders
 - [FOLLOWUP_ANALYSIS.html](replies/FOLLOWUP_ANALYSIS.html) — follow-up tracker v3 (spreadsheet shape)
 - [FOLLOWUP_ANALYSIS_PLAN.md](replies/FOLLOWUP_ANALYSIS_PLAN.md) — follow-up tracker plan v3
 - [LEAD_CLEANING_PLAN.md](replies/LEAD_CLEANING_PLAN.md) — booked-count fix, names, reply tracking
 - [TRACKER_EMPTY_CELLS.html](replies/TRACKER_EMPTY_CELLS.html) — which tracker cells are blank and why
+- [FOLLOWUP_EFFECTIVENESS_PLAN.md](replies/FOLLOWUP_EFFECTIVENESS_PLAN.md) / [.html](replies/FOLLOWUP_EFFECTIVENESS_PLAN.html) — descriptive "which follow-ups are working" cross-lead analysis plan (NocoDB view + HTML report)
+- [FOLLOWUP_EFFECTIVENESS.html](replies/FOLLOWUP_EFFECTIVENESS.html) — the descriptive "which follow-ups are working" report (deterministic features; NocoDB views `followup_patterns_mv` / `followup_timing_mv`)
 
 ## reference/ — Developer reference
 - [DEVELOPMENT.md](reference/DEVELOPMENT.md) — developer onboarding
 - [COMMANDS.md](reference/COMMANDS.md) — commands cheat sheet
 - [COMPANY_RESOLUTION.md](reference/COMPANY_RESOLUTION.md) — company resolution developer guide
+- [ADDING_A_NOCODB_VIEW.md](reference/ADDING_A_NOCODB_VIEW.md) — runbook: surface new data to the client as a NocoDB view (plain vs. materialized, conventions, gotchas)
