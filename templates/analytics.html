@@ -38,32 +38,32 @@
 {%- endmacro %}
 
 {% block content %}
-<h1>Which follow-ups are working</h1>
-<p class="lede">A plain-English read of every manual follow-up email the team has sent, and which writing
-choices tend to go with more replies. Hover any label or badge for an explanation.</p>
+<h1>Which follow-up emails get replies</h1>
+<p class="lede">We looked at every follow-up email the team sent by hand and grouped them by how they were
+written, to see which ways got more replies. Hover over any label for a quick explanation.</p>
 
 <div class="stat-tiles">
   <div class="stat-tile">
     <div class="stat-n">{{ "{:,}".format(overview.analyzed) }}</div>
-    <div class="stat-k">Follow-ups analyzed</div>
+    <div class="stat-k">Follow-up emails we looked at</div>
   </div>
   <div class="stat-tile">
     <div class="stat-n">{{ overview.positive_rate }}%</div>
-    <div class="stat-k">Got a positive reply <span class="stat-sub">({{ "{:,}".format(overview.positive) }} of {{ "{:,}".format(overview.analyzed) }})</span></div>
+    <div class="stat-k">Got a reply that was interested or booked <span class="stat-sub">({{ "{:,}".format(overview.positive) }} of {{ "{:,}".format(overview.analyzed) }})</span></div>
   </div>
   <div class="stat-tile">
     <div class="stat-n">{{ "{:,}".format(overview.booked) }}</div>
-    <div class="stat-k">Led to a booked call</div>
+    <div class="stat-k">Ended in a booked call</div>
   </div>
 </div>
 
 <div class="callout">
-  <strong>How to read this — please read first.</strong>
+  <strong>How to read this page — a 30-second guide</strong>
   <ul>
-    <li><b>"Positive reply rate"</b> = of the follow-ups with a given trait, the share whose next reply was interested or booked.</li>
-    <li>We compare that <b>with vs. without</b> the trait. "{{ "%.1f"|format(2.0) }}× the reply rate" means roughly double the replies — but this is a <b>correlation, not proof</b> that the wording caused it.</li>
-    <li><b>Biggest caveat:</b> {{ overview.warm_rate }}% of these follow-ups went to leads who were <b>already interested</b> before the email was sent — so high numbers often reflect a warm lead, not great writing.</li>
-    <li>One client makes up nearly half the data, so anything marked <span class="rel rel-skewed">Skewed to one client</span> may just be that client's style. Items marked <span class="rel rel-thin">Not enough data</span> are too small to trust.</li>
+    <li><b>"Reply rate"</b> means: out of the emails written a certain way, how many got a reply that was <b>interested</b> or <b>booked a call</b>.</li>
+    <li>We compare the reply rate <b>when a style was used</b> against <b>when it wasn't</b>. These are <b>patterns we spotted, not proof</b> — a style that got more replies didn't necessarily cause them.</li>
+    <li><b>Most important:</b> {{ overview.warm_rate }}% of these emails went to people who had <b>already shown interest</b> before the email was sent. So a high score often means the person was already keen — not that the writing won them over.</li>
+    <li>One client sent nearly half of all these emails, so anything marked <span class="rel rel-skewed">Mostly one client</span> may just be that one client's habit. <span class="rel rel-thin">Not enough data</span> means too few emails to trust the number.</li>
   </ul>
 </div>
 
@@ -82,11 +82,12 @@ choices tend to go with more replies. Hover any label or badge for an explanatio
     </div>
   {% else %}<p class="example-empty">No clearly reliable losers yet.</p>{% endif %}
 
-  <p class="bar-avg-note">Bar length = share of those follow-ups that got a positive reply. The dashed line marks the <b>{{ avg_rate }}%</b> overall average, so bars past it beat average and bars short of it trail it. Only patterns with enough trustworthy data are shown here.</p>
+  <p class="bar-avg-note">Each bar shows how often that style got a reply. The dashed line is the <b>overall average ({{ avg_rate }}%)</b> — bars past it did better than usual, bars short of it did worse. We only list styles we have enough solid data to trust.</p>
 </div>
 
 <h2 class="section-head">Every writing choice, side by side</h2>
-<p class="lede">How each way of writing a follow-up compares on reply rate — open any row to see real examples.</p>
+<p class="lede">Each way of writing a follow-up, with how often it got a reply when it was used versus when it
+wasn't. Open any row to read the real emails we sent.</p>
 {% for g in groups %}
 <div class="pattern-card">
   <div class="pat-head">
@@ -96,12 +97,12 @@ choices tend to go with more replies. Hover any label or badge for an explanatio
   <table class="pat-table">
     <thead>
       <tr>
-        <th>{% if g.kind == 'binary' %}Tactic{% else %}Style{% endif %}</th>
-        <th class="num">Used in</th>
-        <th class="num">Reply rate</th>
-        <th class="num">Vs. without</th>
-        <th>Verdict</th>
-        <th>Reliability</th>
+        <th>{% if g.kind == 'binary' %}What we did{% else %}Style{% endif %}</th>
+        <th class="num">Emails like this</th>
+        <th class="num">Reply rate using it</th>
+        <th class="num">Reply rate without it</th>
+        <th>What it suggests</th>
+        <th>Can we trust it?</th>
       </tr>
     </thead>
     <tbody>
@@ -127,16 +128,16 @@ choices tend to go with more replies. Hover any label or badge for an explanatio
 <h2 class="section-head">Does it pay to keep following up?</h2>
 <div class="pattern-card">
   <div class="pat-head">
-    <p><b>Earlier follow-ups show higher reply rates</b> — but mostly because once a lead replies positively,
-    we stop following up. So this is survival bias, not proof that early follow-ups are better written.
-    Read it as "most positive replies come early," not "stop after #3."</p>
+    <p>The 1st and 2nd follow-ups show higher reply rates — but that's mostly because <b>once someone
+    replies, we stop emailing them</b>. So it really just means most replies come early, not that later
+    follow-ups are written worse. Don't read it as "stop after the 3rd."</p>
   </div>
   <table class="pat-table">
-    <thead><tr><th>Follow-up #</th><th class="num">Sent</th><th class="num">Positive replies</th><th class="num">Reply rate</th></tr></thead>
+    <thead><tr><th>Which follow-up</th><th class="num">Emails sent</th><th class="num">Interested / booked replies</th><th class="num">Reply rate</th></tr></thead>
     <tbody>
       {% for t in timing %}
       <tr>
-        <td class="strong">#{{ t['Follow-up #'] }}</td>
+        <td class="strong">Follow-up {{ t['Follow-up #'] }}</td>
         <td class="num">{{ "{:,}".format(t['Sends']) }}</td>
         <td class="num">{{ t['Positive Replies'] }}</td>
         <td class="num strong">{{ t['Positive %'] }}%</td>
