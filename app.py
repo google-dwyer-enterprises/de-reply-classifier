@@ -24,6 +24,7 @@ The Railway worker picks up everything else through its existing poll loop.
 
 from __future__ import annotations
 
+import hmac
 import os
 import sys
 from functools import wraps
@@ -33,8 +34,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from flask import (
-    Flask, Response, abort, jsonify, redirect, render_template,
-    request, url_for,
+    Flask, abort, jsonify, redirect, render_template,
+    request, session, url_for,
 )
 import psycopg2.extras
 
@@ -63,35 +64,63 @@ except Exception:
 
 COUNTRIES = ["United States", "Canada"]
 
-USERNAME = (os.environ.get("LEAD_REVIEWER_USERNAME") or "").strip()
-PASSWORD = (os.environ.get("LEAD_REVIEWER_PASSWORD") or "").strip()
+# Credential sets -> role. Two independent logins, strictly separate:
+#   scraper = Jam, the lead-scrape reviewer (/submit, /batches; /batch is token-only)
+#   analyst = the follow-up analytics group (/analytics)
+# A pair is skipped if either half is empty, so a misconfigured deploy fails closed.
+def _build_users() -> dict[str, tuple[str, str]]:
+    users: dict[str, tuple[str, str]] = {}
+    for env_user, env_pass, role in (
+        ("LEAD_REVIEWER_USERNAME", "LEAD_REVIEWER_PASSWORD", "scraper"),
+        ("ANALYST_USERNAME", "ANALYST_PASSWORD", "analyst"),
+    ):
+        u = (os.environ.get(env_user) or "").strip()
+        p = (os.environ.get(env_pass) or "").strip()
+        if u and p:
+            users[u] = (p, role)
+    return users
 
+
+USERS = _build_users()
+LANDING = {"scraper": "batches", "analyst": "analytics"}
 
 app = Flask(__name__)
+app.secret_key = (os.environ.get("SECRET_KEY") or "").strip()
 
 
 # ---------------------------------------------------------------------------
-# Auth
+# Auth — session login with two roles. Fails closed: no SECRET_KEY or no
+# matching credential pair => login impossible => protected routes redirect to
+# /login. The public /batch/<token> share links stay unauthenticated by design.
 # ---------------------------------------------------------------------------
 
-def _check_basic_auth(auth) -> bool:
-    if not USERNAME or not PASSWORD:
-        # Misconfigured deploy — fail closed so we don't accidentally expose.
-        return False
-    return bool(auth and auth.username == USERNAME and auth.password == PASSWORD)
+def _authenticate(username: str, password: str) -> str | None:
+    """Return the role for valid credentials, else None (constant-time compare)."""
+    rec = USERS.get((username or "").strip())
+    if not rec:
+        return None
+    stored_pw, role = rec
+    return role if hmac.compare_digest(stored_pw, password or "") else None
 
 
-def require_basic_auth(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if not _check_basic_auth(request.authorization):
-            return Response(
-                "Login required.",
-                401,
-                {"WWW-Authenticate": 'Basic realm="Lead Reviewer"'},
-            )
-        return fn(*args, **kwargs)
-    return wrapper
+def require_role(*roles):
+    """Gate a route to one or more roles. Missing session -> /login; wrong role -> 403."""
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            role = session.get("role")
+            if not role or not app.secret_key:
+                return redirect(url_for("login", next=request.path))
+            if role not in roles:
+                abort(403)
+            return fn(*args, **kwargs)
+        return wrapper
+    return deco
+
+
+@app.context_processor
+def inject_user():
+    return {"current_user": session.get("user"), "current_role": session.get("role")}
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +288,46 @@ def set_batch_approval(scrape_request_id: int, value: str) -> None:
 
 @app.route("/")
 def index():
-    return redirect(url_for("batches"))
+    role = session.get("role")
+    if role in LANDING:
+        return redirect(url_for(LANDING[role]))
+    return redirect(url_for("login"))
+
+
+def _safe_next(value) -> str | None:
+    """Only allow same-site relative redirects after login."""
+    v = (value or "").strip()
+    return v if v.startswith("/") and not v.startswith("//") else None
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        role = _authenticate(request.form.get("username", ""), request.form.get("password", ""))
+        nxt = _safe_next(request.form.get("next"))
+        if role and app.secret_key:
+            session.clear()
+            session["user"] = (request.form.get("username") or "").strip()
+            session["role"] = role
+            return redirect(nxt or url_for(LANDING.get(role, "index")))
+        return render_template("login.html", error="Incorrect username or password.",
+                               next=nxt or ""), 401
+    if session.get("role"):
+        return redirect(url_for("index"))
+    return render_template("login.html", next=_safe_next(request.args.get("next")) or "")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/analytics")
+@require_role("analyst")
+def analytics():
+    from followup_analytics import fetch_analytics
+    return render_template("analytics.html", **fetch_analytics())
 
 
 @app.route("/healthz")
@@ -294,7 +362,7 @@ def _parse_int_or_none(value, lo: int = 1, hi: int = 100000) -> int | None:
 
 
 @app.route("/submit", methods=["GET"])
-@require_basic_auth
+@require_role("scraper")
 def submit_form():
     # Query-string prefill — used by the "Re-run with same filters" button
     # on the per-batch review page. Lets Jam start a continuation batch
@@ -317,7 +385,7 @@ def submit_form():
 
 
 @app.route("/submit", methods=["POST"])
-@require_basic_auth
+@require_role("scraper")
 def submit_post():
     try:
         requested_leads = int(request.form.get("requested_leads") or 0)
@@ -386,7 +454,7 @@ def fetch_queue_position(scrape_request_id: int) -> int:
 
 
 @app.route("/batches")
-@require_basic_auth
+@require_role("scraper")
 def batches():
     submitted = request.args.get("submitted", type=int)
     rows = fetch_recent_batches()

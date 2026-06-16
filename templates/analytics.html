@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Follow-up Analytics · Dwyer Console{% endblock %}
+{% block brand %}Dwyer Console{% endblock %}
+
+{% macro relbadge(r) -%}
+  <span class="rel rel-{{ r.reliability }}" title="{% if r.reliability == 'solid' %}Plenty of data, not skewed to one client.{% elif r.reliability == 'fair' %}Reasonable data — treat as a hint, not proof.{% elif r.reliability == 'skewed' %}Most of these came from a single client, so it may just be that client's style.{% else %}Too few messages to draw any conclusion.{% endif %}">{{ r.reliability_label }}</span>
+{%- endmacro %}
+
+{% macro verdictchip(r) -%}
+  {% if r.verdict %}<span class="verdict v-{{ r.verdict[0] }}">{{ r.verdict[1] }}</span>{% else %}<span class="verdict v-flat">—</span>{% endif %}
+{%- endmacro %}
+
+{% macro examples(r) -%}
+  <details class="examples">
+    <summary>Show real examples ({{ r.examples|length }})</summary>
+    {% if r.examples %}
+      {% for ex in r.examples %}
+        <div class="example-msg">
+          <div class="example-meta">
+            {% if ex.booked %}<span class="badge badge-moved">Booked a call</span>{% else %}<span class="badge badge-approved">Positive reply</span>{% endif %}
+            <span class="example-client">{{ ex.client or "—" }}</span>
+          </div>
+          <p class="example-text">{{ ex.text }}</p>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="example-empty">No positive examples yet for this one.</p>
+    {% endif %}
+  </details>
+{%- endmacro %}
+
+{% block content %}
+<h1>Which follow-ups are working</h1>
+<p class="lede">A plain-English read of every manual follow-up email the team has sent, and which writing
+choices tend to go with more replies. Hover any label or badge for an explanation.</p>
+
+<div class="stat-tiles">
+  <div class="stat-tile">
+    <div class="stat-n">{{ "{:,}".format(overview.analyzed) }}</div>
+    <div class="stat-k">Follow-ups analyzed</div>
+  </div>
+  <div class="stat-tile">
+    <div class="stat-n">{{ overview.positive_rate }}%</div>
+    <div class="stat-k">Got a positive reply <span class="stat-sub">({{ "{:,}".format(overview.positive) }} of {{ "{:,}".format(overview.analyzed) }})</span></div>
+  </div>
+  <div class="stat-tile">
+    <div class="stat-n">{{ "{:,}".format(overview.booked) }}</div>
+    <div class="stat-k">Led to a booked call</div>
+  </div>
+</div>
+
+<div class="callout">
+  <strong>How to read this — please read first.</strong>
+  <ul>
+    <li><b>"Positive reply rate"</b> = of the follow-ups with a given trait, the share whose next reply was interested or booked.</li>
+    <li>We compare that <b>with vs. without</b> the trait. "{{ "%.1f"|format(2.0) }}× the reply rate" means roughly double the replies — but this is a <b>correlation, not proof</b> that the wording caused it.</li>
+    <li><b>Biggest caveat:</b> {{ overview.warm_rate }}% of these follow-ups went to leads who were <b>already interested</b> before the email was sent — so high numbers often reflect a warm lead, not great writing.</li>
+    <li>One client makes up nearly half the data, so anything marked <span class="rel rel-skewed">Skewed to one client</span> may just be that client's style. Items marked <span class="rel rel-thin">Not enough data</span> are too small to trust.</li>
+  </ul>
+</div>
+
+<div class="takeaways">
+  <div class="takeaway-col">
+    <h2 class="tk-head tk-up">Tends to go with more replies</h2>
+    {% if wins %}
+      {% for r in wins %}
+        <div class="tk-item">
+          <span class="tk-label">{{ r.label }}</span>
+          {{ verdictchip(r) }}
+          {{ relbadge(r) }}
+        </div>
+      {% endfor %}
+    {% else %}<p class="example-empty">No clearly reliable winners yet.</p>{% endif %}
+  </div>
+  <div class="takeaway-col">
+    <h2 class="tk-head tk-down">Tends to go with fewer replies</h2>
+    {% if losses %}
+      {% for r in losses %}
+        <div class="tk-item">
+          <span class="tk-label">{{ r.label }}</span>
+          {{ verdictchip(r) }}
+          {{ relbadge(r) }}
+        </div>
+      {% endfor %}
+    {% else %}<p class="example-empty">No clearly reliable losers yet.</p>{% endif %}
+  </div>
+</div>
+
+<h2 class="section-head">Full breakdown</h2>
+{% for g in groups %}
+<div class="pattern-card">
+  <div class="pat-head">
+    <h3>{{ g.label }}</h3>
+    <p>{{ g.blurb }}</p>
+  </div>
+  <table class="pat-table">
+    <thead>
+      <tr>
+        <th>{% if g.kind == 'binary' %}Tactic{% else %}Style{% endif %}</th>
+        <th class="num">Used in</th>
+        <th class="num">Reply rate</th>
+        <th class="num">Vs. without</th>
+        <th>Verdict</th>
+        <th>Reliability</th>
+        <th>Examples</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in g.rows %}
+      <tr class="rel-row-{{ r.reliability }}">
+        <td>
+          <span class="pat-val">{% if g.kind == 'binary' %}{{ g.label }}{% else %}{{ r.label }}{% endif %}</span>
+          {% if r.blurb and g.kind != 'binary' %}<span class="pat-blurb">{{ r.blurb }}</span>{% endif %}
+        </td>
+        <td class="num">{{ "{:,}".format(r.n) }}</td>
+        <td class="num strong">{{ r.with_pct }}%</td>
+        <td class="num muted">{{ r.without_pct }}%</td>
+        <td>{{ verdictchip(r) }}</td>
+        <td>{{ relbadge(r) }}</td>
+        <td>{{ examples(r) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+
+<h2 class="section-head">Does the 1st, 2nd, 3rd… follow-up matter?</h2>
+<div class="pattern-card">
+  <div class="pat-head">
+    <p><b>Earlier follow-ups show higher reply rates</b> — but mostly because once a lead replies positively,
+    we stop following up. So this is survival bias, not proof that early follow-ups are better written.
+    Read it as "most positive replies come early," not "stop after #3."</p>
+  </div>
+  <table class="pat-table">
+    <thead><tr><th>Follow-up #</th><th class="num">Sent</th><th class="num">Positive replies</th><th class="num">Reply rate</th></tr></thead>
+    <tbody>
+      {% for t in timing %}
+      <tr>
+        <td class="strong">#{{ t['Follow-up #'] }}</td>
+        <td class="num">{{ "{:,}".format(t['Sends']) }}</td>
+        <td class="num">{{ t['Positive Replies'] }}</td>
+        <td class="num strong">{{ t['Positive %'] }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
