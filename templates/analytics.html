@@ -102,12 +102,11 @@ choices tend to go with more replies. Hover any label or badge for an explanatio
         <th class="num">Vs. without</th>
         <th>Verdict</th>
         <th>Reliability</th>
-        <th>Examples</th>
       </tr>
     </thead>
     <tbody>
       {% for r in g.rows %}
-      <tr class="rel-row-{{ r.reliability }}">
+      <tr class="rel-row-{{ r.reliability }} data-row">
         <td>
           <span class="pat-val">{% if g.kind == 'binary' %}{{ g.label }}{% else %}{{ r.label }}{% endif %}</span>
           {% if r.blurb and g.kind != 'binary' %}<span class="pat-blurb">{{ r.blurb }}</span>{% endif %}
@@ -117,8 +116,8 @@ choices tend to go with more replies. Hover any label or badge for an explanatio
         <td class="num muted">{{ r.without_pct }}%</td>
         <td>{{ verdictchip(r) }}</td>
         <td>{{ relbadge(r) }}</td>
-        <td>{{ examples(r) }}</td>
       </tr>
+      <tr class="ex-row"><td colspan="6">{{ examples(r) }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
