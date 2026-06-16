@@ -92,7 +92,7 @@ body {
 .bar-row { display: grid; grid-template-columns: 230px 1fr 46px; align-items: center; gap: 12px; margin: 8px 0; }
 .bar-label { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
 .bar-track { position: relative; background: #eef1f5; border-radius: 5px; height: 24px; }
-.bar-fill { height: 100%; border-radius: 5px; min-width: 3px; }
+.bar-fill { display: block; height: 100%; border-radius: 5px; min-width: 3px; }
 .bar-fill.up { background: var(--green); }
 .bar-fill.down { background: var(--red); }
 /* dashed vertical line at the overall-average rate (var --avg set on .bars, inherited) */
@@ -117,6 +117,10 @@ table.pat-table td.muted { color: var(--muted); }
 .pat-val { font-weight: 600; display: block; }
 .pat-blurb { color: var(--muted); font-size: 12px; display: block; margin-top: 2px; }
 tr.rel-row-thin { opacity: 0.55; }
+/* group each data row with its full-width examples row */
+table.pat-table tr.data-row td { border-bottom: none; }
+table.pat-table tr.ex-row td { padding: 0 14px 12px; }
+table.pat-table tr.ex-row:last-child td { border-bottom: none; }
 
 /* reliability badges */
 .rel { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; cursor: help; }
