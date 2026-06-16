@@ -133,10 +133,10 @@ def grade(confidence: str, client_share) -> tuple[str, str]:
     if confidence == "Insufficient data":
         return ("thin", "Not enough data")
     if client_share is not None and float(client_share) >= 60:
-        return ("skewed", "Skewed to one client")
+        return ("skewed", "Mostly one client")
     if confidence == "High":
-        return ("solid", "Solid")
-    return ("fair", "Fair")
+        return ("solid", "Can trust this")
+    return ("fair", "Fairly sure")
 
 
 def verdict(lift) -> tuple[str, str] | None:
@@ -145,9 +145,9 @@ def verdict(lift) -> tuple[str, str] | None:
         return None
     l = float(lift)
     if l >= 1.15:
-        return ("up", f"{l:.1f}× the reply rate" if l >= 1.5 else "somewhat more replies")
+        return ("up", f"{l:.1f}× more replies" if l >= 1.5 else "a few more replies")
     if l <= 0.85:
-        return ("down", f"{(1 / l):.1f}× fewer replies" if l <= 0.66 and l > 0 else "somewhat fewer replies")
+        return ("down", f"{(1 / l):.1f}× fewer replies" if l <= 0.66 and l > 0 else "a few fewer replies")
     return ("flat", "about the same")
 
 
