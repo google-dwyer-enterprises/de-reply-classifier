@@ -11,6 +11,8 @@ Read-only. Reuses db.connect() (psycopg2). No new tables/views.
 """
 from __future__ import annotations
 
+import math
+
 import psycopg2.extras
 
 from db import connect
@@ -221,8 +223,13 @@ def fetch_analytics() -> dict:
 
     # headline takeaways: only trustworthy rows (solid/fair, not skewed/thin)
     flat = [r for g in groups for r in g["rows"] if r["reliability"] in ("solid", "fair") and r["lift"]]
-    wins = sorted([r for r in flat if r["lift"] >= 1.3], key=lambda r: -r["lift"])[:5]
-    losses = sorted([r for r in flat if r["lift"] <= 0.8], key=lambda r: r["lift"])[:5]
+    wins = sorted([r for r in flat if r["lift"] >= 1.3], key=lambda r: -r["with_pct"])[:6]
+    losses = sorted([r for r in flat if r["lift"] <= 0.8], key=lambda r: r["with_pct"])[:6]
+
+    # bar chart scale: round the biggest rate (incl. the average) up to the next 5%
+    rates = [r["with_pct"] for r in (wins + losses) if r["with_pct"]] + [overview["positive_rate"]]
+    bar_scale = max(5, 5 * math.ceil(max(rates) / 5)) if rates else 25
 
     return {"overview": overview, "groups": groups, "timing": timing,
-            "wins": wins, "losses": losses}
+            "wins": wins, "losses": losses,
+            "bar_scale": bar_scale, "avg_rate": overview["positive_rate"]}

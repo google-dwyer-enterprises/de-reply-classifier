@@ -10,6 +10,14 @@
   {% if r.verdict %}<span class="verdict v-{{ r.verdict[0] }}">{{ r.verdict[1] }}</span>{% else %}<span class="verdict v-flat">—</span>{% endif %}
 {%- endmacro %}
 
+{% macro bar(r, dir, scale) -%}
+  <div class="bar-row">
+    <span class="bar-label" title="{{ r.blurb }}">{{ r.label }}</span>
+    <span class="bar-track"><span class="bar-fill {{ dir }}" style="width: {{ (r.with_pct / scale * 100)|round(1) }}%;"></span></span>
+    <span class="bar-val">{{ r.with_pct }}%</span>
+  </div>
+{%- endmacro %}
+
 {% macro examples(r) -%}
   <details class="examples">
     <summary>Show real examples ({{ r.examples|length }})</summary>
@@ -59,34 +67,26 @@ choices tend to go with more replies. Hover any label or badge for an explanatio
   </ul>
 </div>
 
-<div class="takeaways">
-  <div class="takeaway-col">
-    <h2 class="tk-head tk-up">Tends to go with more replies</h2>
-    {% if wins %}
-      {% for r in wins %}
-        <div class="tk-item">
-          <span class="tk-label">{{ r.label }}</span>
-          {{ verdictchip(r) }}
-          {{ relbadge(r) }}
-        </div>
-      {% endfor %}
-    {% else %}<p class="example-empty">No clearly reliable winners yet.</p>{% endif %}
-  </div>
-  <div class="takeaway-col">
-    <h2 class="tk-head tk-down">Tends to go with fewer replies</h2>
-    {% if losses %}
-      {% for r in losses %}
-        <div class="tk-item">
-          <span class="tk-label">{{ r.label }}</span>
-          {{ verdictchip(r) }}
-          {{ relbadge(r) }}
-        </div>
-      {% endfor %}
-    {% else %}<p class="example-empty">No clearly reliable losers yet.</p>{% endif %}
-  </div>
+<div class="bars" style="--avg: {{ (avg_rate / bar_scale * 100)|round(2) }}%;">
+  <h2 class="tk-head tk-up">✅ What's helping you get replies</h2>
+  {% if wins %}
+    <div class="bar-chart">
+      {% for r in wins %}{{ bar(r, 'up', bar_scale) }}{% endfor %}
+    </div>
+  {% else %}<p class="example-empty">No clearly reliable winners yet.</p>{% endif %}
+
+  <h2 class="tk-head tk-down" style="margin-top: 20px;">⛔ What's hurting your replies</h2>
+  {% if losses %}
+    <div class="bar-chart">
+      {% for r in losses %}{{ bar(r, 'down', bar_scale) }}{% endfor %}
+    </div>
+  {% else %}<p class="example-empty">No clearly reliable losers yet.</p>{% endif %}
+
+  <p class="bar-avg-note">Bar length = share of those follow-ups that got a positive reply. The dashed line marks the <b>{{ avg_rate }}%</b> overall average, so bars past it beat average and bars short of it trail it. Only patterns with enough trustworthy data are shown here.</p>
 </div>
 
-<h2 class="section-head">Full breakdown</h2>
+<h2 class="section-head">Every writing choice, side by side</h2>
+<p class="lede">How each way of writing a follow-up compares on reply rate — open any row to see real examples.</p>
 {% for g in groups %}
 <div class="pattern-card">
   <div class="pat-head">
@@ -125,7 +125,7 @@ choices tend to go with more replies. Hover any label or badge for an explanatio
 </div>
 {% endfor %}
 
-<h2 class="section-head">Does the 1st, 2nd, 3rd… follow-up matter?</h2>
+<h2 class="section-head">Does it pay to keep following up?</h2>
 <div class="pattern-card">
   <div class="pat-head">
     <p><b>Earlier follow-ups show higher reply rates</b> — but mostly because once a lead replies positively,

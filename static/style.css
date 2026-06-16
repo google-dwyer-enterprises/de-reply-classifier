@@ -85,6 +85,22 @@ body {
 .tk-item:last-child { border-bottom: none; }
 .tk-label { font-weight: 600; flex: 1; min-width: 140px; }
 
+/* ------- analytics: reply-rate bar chart ------- */
+.bars { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px 20px; margin-bottom: 30px; }
+.bars .tk-head { margin-top: 0; }
+.bar-chart { margin: 10px 0 2px; }
+.bar-row { display: grid; grid-template-columns: 230px 1fr 46px; align-items: center; gap: 12px; margin: 8px 0; }
+.bar-label { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+.bar-track { position: relative; background: #eef1f5; border-radius: 5px; height: 24px; }
+.bar-fill { height: 100%; border-radius: 5px; min-width: 3px; }
+.bar-fill.up { background: var(--green); }
+.bar-fill.down { background: var(--red); }
+/* dashed vertical line at the overall-average rate (var --avg set on .bars, inherited) */
+.bar-track::after { content: ''; position: absolute; top: -5px; bottom: -5px; left: var(--avg, 50%); width: 0; border-left: 2px dashed #94a3b8; }
+.bar-val { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; text-align: right; }
+.bar-avg-note { color: var(--muted); font-size: 12px; margin: 14px 0 0; line-height: 1.5; }
+@media (max-width: 720px) { .bar-row { grid-template-columns: 120px 1fr 40px; gap: 8px; } }
+
 /* ------- analytics: pattern cards + table ------- */
 .section-head { font-size: 18px; margin: 30px 0 14px; }
 .pattern-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 18px; overflow: hidden; }
