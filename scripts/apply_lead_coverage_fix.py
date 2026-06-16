@@ -43,6 +43,23 @@ FROM_REPL = (
 SELECT_PAT = r"SELECT\s+lc_1\.lead_email,"
 SELECT_REPL = "SELECT ae.lead_email,"
 
+# (3) bundled: a dedicated customer-service flag column (Victor's "separate column" ask).
+COL_ANCHOR = "    lc.lead_email\n"
+CS_COL = "    (COALESCE(l.manual_status, l.auto_status) = 'customer_service'::text) AS \"Customer Service\",\n"
+WRAP_ANCHOR = "    lead_email\n"
+WRAP_CS = '    "Customer Service",\n'
+
+# (4) bundled: surface Instantly names (leads.first_name/last_name) when Apollo enrichment is absent,
+#     so the coverage-surfaced un-enriched leads aren't nameless. Apollo wins when present.
+NAME_SUBS = [
+    (r'lc\.full_name AS "Full Name",',
+     'COALESCE(lc.full_name, NULLIF(btrim(concat_ws(\' \'::text, l.first_name, l.last_name)), \'\'::text)) AS "Full Name",'),
+    (r'lc\.first_name AS "First Name",',
+     'COALESCE(lc.first_name, l.first_name) AS "First Name",'),
+    (r'lc\.last_name AS "Last Name",',
+     'COALESCE(lc.last_name, l.last_name) AS "Last Name",'),
+]
+
 
 def visible_booked(cur):
     cur.execute("select count(*) from lead_status where status='booked'")
@@ -68,6 +85,17 @@ def main():
     assert n1 == 1, f"FROM/LATERAL anchor: expected 1 match, got {n1}"
     new_mv, n2 = re.subn(SELECT_PAT, SELECT_REPL, new_mv, count=0)
     assert n2 == 1, f"CTE lead_email anchor: expected 1 match, got {n2}"
+    # bundled customer-service flag (idempotent guard)
+    if '"Customer Service"' not in new_mv:
+        assert new_mv.count(COL_ANCHOR) == 1, "MV lead_email anchor not unique"
+        assert wrap.count(WRAP_ANCHOR) == 1, "wrap lead_email anchor not unique"
+        new_mv = new_mv.replace(COL_ANCHOR, CS_COL + COL_ANCHOR)
+        wrap = wrap.replace(WRAP_ANCHOR, WRAP_CS + WRAP_ANCHOR)
+    # bundled name-coalesce (idempotent: only if not already wrapped in COALESCE)
+    if 'COALESCE(lc.first_name' not in new_mv:
+        for pat, repl in NAME_SUBS:
+            new_mv, nn = re.subn(pat, repl, new_mv, count=0)
+            assert nn == 1, f"name anchor {pat!r}: expected 1 match, got {nn}"
     new_mv = new_mv.rstrip().rstrip(";")
     new_wrap = wrap.rstrip().rstrip(";")
 
