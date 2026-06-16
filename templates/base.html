@@ -10,10 +10,18 @@
 <body>
 <div class="container">
   <nav class="top-nav">
-    <a href="{{ url_for('batches') }}" class="brand">Lead Reviewer</a>
+    <a href="{{ url_for('index') }}" class="brand">{% block brand %}Dwyer Console{% endblock %}</a>
     <div class="nav-spacer"></div>
-    <a href="{{ url_for('batches') }}">Batches</a>
-    <a href="{{ url_for('submit_form') }}">Submit</a>
+    {% if current_role == 'scraper' %}
+      <a href="{{ url_for('batches') }}">Batches</a>
+      <a href="{{ url_for('submit_form') }}">Submit</a>
+    {% elif current_role == 'analyst' %}
+      <a href="{{ url_for('analytics') }}">Follow-up Analytics</a>
+    {% endif %}
+    {% if current_user %}
+      <span class="nav-user">{{ current_user }}</span>
+      <a href="{{ url_for('logout') }}" class="nav-logout">Log out</a>
+    {% endif %}
   </nav>
   {% block content %}{% endblock %}
   <footer class="footer">

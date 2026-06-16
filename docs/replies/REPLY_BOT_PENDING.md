@@ -36,14 +36,19 @@ back to the outcome lead. **25 clean alias pairs; 5 tracked leads recovered (4 b
 pointed at the other Instantly workspace(s) — operational (needs those API keys), tracked as a follow-up.
 **Code:** `scripts/apply_followup_alias_bridge.py`, `lead_email_aliases` (new view), `followup_tracker_mv`.
 
-### 2. Repeat-booker / cross-client detection — HIGH (clearest unbuilt ask)
+### 2. Repeat-booker / cross-client detection — ✅ SHIPPED
 **Meeting:** Victor — *"one dude… we probably have 20 booked calls from that one dude… track that across everything."*
-**Current:** each lead's multi-client footprint is in `leads.clients` (semicolon-joined) and visible in
-NocoDB, but nothing surfaces "this contact booked across N clients."
-**What's left:** (a) a distinct-client-count / repeat-booker flag + a dedicated view or report;
-(b) **person-level identity unification** — `clients` keys on `lead_email` only, so the same human under
-different emails/companies (≈89 such names) isn't unified.
-**Code:** `excel_writer.fetch_per_lead_summary` (`clients_set`), `lead_status_mv`.
+**Reframe (from investigation):** the signal is NOT one human under many emails (zero named people have 2+
+booked emails) — it's one `lead_email` booked across many clients' campaigns. Person-level unification adds
+nothing, so it was skipped.
+**Shipped:** `scripts/apply_repeat_booker_columns.py` adds two columns to `lead_status_mv` + wrapper:
+`"# Clients Engaged"` (distinct, normalized — drops the `Epic`/`EPIC` casing split + the `other` junk token)
+and `"Repeat Booker"` (booked + ≥2 clients). Applied: **55 repeat-bookers** flagged (top: `nic@icebeanie.com`
+and `jedd@cactusscratcher.com` at 7 clients each), 0 row loss. **Requires a NocoDB meta-sync** to surface
+the columns. The flag refreshes with the MV (so it tracks the v4 booked status after `update-status`).
+**Known gap:** 30 more booked-multi-client leads have no `lead_contacts` row → invisible in the MV (same
+contact-coverage gap as #1's residual; would lift the count to 85).
+**Code:** `scripts/apply_repeat_booker_columns.py`, `lead_status_mv` + `lead_status`.
 
 ---
 

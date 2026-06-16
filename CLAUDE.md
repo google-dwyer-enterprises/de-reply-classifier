@@ -129,6 +129,11 @@ Old `prompt_version` rows are kept so you can diff regressions.
 - `ANTHROPIC_API_KEY`
 - `MILLIONVERIFIER_API_KEY` (optional — enables the email-verification gate in the worker; absent = gate disabled)
 
+The Flask app (`app.py`) additionally requires (set on Railway web service):
+- `SECRET_KEY` — signs session cookies. **Mandatory**: the app fails closed (no login possible → all protected pages redirect to `/login`) if unset.
+- `LEAD_REVIEWER_USERNAME` / `LEAD_REVIEWER_PASSWORD` — the **scraper** role (Jam): `/submit`, `/batches`. (Now used by the `/login` page, no longer HTTP Basic.)
+- `ANALYST_USERNAME` / `ANALYST_PASSWORD` — the **analyst** role: `/analytics` (follow-up effectiveness page). Strictly separate from scraper. `/batch/<token>` share links stay public (token-gated).
+
 Python 3.11+, virtualenv in `venv/`. `requirements.txt` is committed.
 
 ## Unit tests

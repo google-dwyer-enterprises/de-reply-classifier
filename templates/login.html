@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Dwyer Console{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="login-card">
+    <h1>Sign in</h1>
+    <p class="lede">Enter your credentials to continue.</p>
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <form method="post" action="{{ url_for('login') }}">
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="form-field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" autofocus required>
+      </div>
+      <div class="form-field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn-primary">Sign in</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
