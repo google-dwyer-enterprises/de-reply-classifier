@@ -294,6 +294,13 @@ def main() -> None:
     ll.add_argument("--dry-run", action="store_true",
                     help="Print cost estimate and exit; no API calls or DB writes")
 
+    lf = sub.add_parser("llm-followup-features",
+                        help="LLM-tag manual follow-ups (hook/tone/CTA/personalization); manual, gated, paid")
+    lf.add_argument("--limit", type=int, default=None, help="Cap rows (sample for validation)")
+    lf.add_argument("--dry-run", action="store_true", help="Print prompt + first batch; no API call")
+    lf.add_argument("--yes", action="store_true", help="Skip the cost confirmation prompt")
+    lf.add_argument("--retag", action="store_true", help="Re-tag all rows, not just untagged/stale")
+
     args = parser.parse_args()
 
     if args.command == "export":
@@ -377,6 +384,10 @@ def main() -> None:
     elif args.command == "llm-resolve-smartscout":
         llm_resolve_smartscout_main(min_score=args.min_score, max_score=args.max_score,
                                     limit=args.limit, yes=args.yes, dry_run=args.dry_run)
+    elif args.command == "llm-followup-features":
+        from followup_llm_features import main as llm_followup_features_main
+        llm_followup_features_main(limit=args.limit, dry_run=args.dry_run,
+                                   yes=args.yes, retag=args.retag)
 
 
 if __name__ == "__main__":

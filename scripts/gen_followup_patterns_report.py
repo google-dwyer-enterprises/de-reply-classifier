@@ -67,6 +67,10 @@ def main() -> None:
                    from followup_patterns_mv''')
     prows = cur.fetchall()
 
+    has_ai = any("(AI)" in (r[0] or "") for r in prows)   # LLM tags present?
+    cur.execute("select count(*), max(llm_model) from followup_message_features where llm_classified_at is not null")
+    ai_count, ai_model = cur.fetchone()
+
     # ---- timing ----
     cur.execute('select "Follow-up #","Sends","Positive Replies","Positive %" from followup_timing_mv')
     timing = cur.fetchall()
@@ -79,6 +83,14 @@ def main() -> None:
     conn.close()
 
     snap = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ai_caveat = (
+        f'<li><strong>AI-judged traits (the "… (AI)" rows):</strong> Hook Type, Tone, CTA Style and '
+        f'Personalization are labelled by an AI model ({ai_model}) reading each message — they are judgement '
+        f'calls on closed categories, not exact facts like length or links. {ai_count:,} follow-ups tagged. '
+        f'Read them as the same kind of association as everything else here.</li>'
+    ) if has_ai else ""
+    feat_note = (f"Deterministic (v1) features + AI hook/tone/CTA/personalization tags ({ai_model})."
+                 if has_ai else "Deterministic (v1) features only; LLM hook/tone/CTA features pending.")
 
     def bar(pct, color, mx):
         w = 0 if not mx else round(100 * pct / mx)
@@ -161,7 +173,7 @@ def main() -> None:
 <li><strong>Power is limited:</strong> {total:,} sends → {had:,} replies → {pos:,} positive → {booked:,} booked. A value is only shown as a finding with ≥{MIN_SUPPORT} sends AND ≥{MIN_POSITIVES} positives; everything else is greyed "insufficient data". Booked-only is shown as an overall rate, never sliced.</li>
 <li><strong>Client mix confound:</strong> positive-rate spans ~7× across clients and one client is ~half the volume. "Largest client" column flags cells dominated by one account — read those as that account's style, not a universal tactic.</li>
 <li><strong>Coverage is partial:</strong> only one Instantly workspace's outbound is synced; the per-lead backfill is manual; {booked_no_ffup} booked leads have zero synced manual follow-ups. This is a labelled snapshot.</li>
-</ol></div>
+{ai_caveat}</ol></div>
 
 <h2>Follow-up characteristics — positive-reply rate (with vs without)</h2>
 {sections}
@@ -170,7 +182,7 @@ def main() -> None:
 <p class="sub">Earlier follow-ups show higher positive rates <strong>because leads who reply positively early stop getting more follow-ups</strong> (the window closes) — this is survival of the unconverted, not proof that later follow-ups are weak.</p>
 <table><tr><th>Follow-up #</th><th>Sends</th><th>Positive replies</th><th>Positive %</th></tr>{timing_rows}</table>
 
-<footer>Generated from live Supabase views <code>followup_patterns_mv</code> / <code>followup_timing_mv</code> + <code>followup_message_features</code>. Deterministic (v1) features only; LLM hook/tone/CTA features pending. Descriptive associations — investigate, don't treat as rules.</footer>
+<footer>Generated from live Supabase views <code>followup_patterns_mv</code> / <code>followup_timing_mv</code> + <code>followup_message_features</code>. {feat_note} Descriptive associations — investigate, don't treat as rules.</footer>
 </body></html>"""
 
     OUT.write_text(doc, encoding="utf-8")

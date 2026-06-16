@@ -11,18 +11,20 @@ RULES:
 5. `reason` is one plain-English sentence (<=20 words) a non-technical reader can understand. Paraphrase or briefly quote the wording from the reply that drove the label. Avoid jargon and shorthand. For label "other", the reason MUST name the specific sub-category (e.g. "Lead asked a pricing question", "Referral to a colleague", "Automated form-submission notification, not a human reply").
 6. If unsure between two labels, pick the more specific one and lower confidence.
 7. Non-English replies: classify if intent is clear; otherwise use "other".
-8. Automated replies (out-of-office, mail-daemon bounces, vacation responders) -> "oof".
+8. Automated absence replies from a person's mailbox (out-of-office, "away", "traveling / slow to reply", vacation responders, mail-daemon bounces) -> "oof" — EVEN IF they name a return date. A named return date does NOT make it "not_now".
 9. Promotional/marketing newsletters from a brand (not a human response to our outreach) -> "other" with confidence >= 0.9.
 10. If label is "wrong_person" or "no_longer_there" AND the reply contains a redirect email address, set `alternate_contact` to that email address. Otherwise set `alternate_contact` to null.
 11. "STOP" / "Stop" / "STOP." as the first word/line of a reply is always "unsubscribe" with confidence >= 0.95, regardless of what follows (quoted history, signature, etc.).
-12. Internal form/notification emails ("YOU HAVE RECEIVED A FORM SUBMISSION", automated system alerts, meeting-summary bots) that are NOT a human response from the lead -> "other".
+12. Internal form/notification/system emails that are NOT a human response from the lead -> "other" — UNLESS the notification confirms a meeting/call was SCHEDULED with the lead (e.g. "discovery call scheduled with [name]", a Calendly/Cal.com booking confirmation, a calendar invite for a specific time). Those count as "booked" (the outcome is a real booking), even though they are system-generated. A bare inquiry form-submission with NO scheduled meeting stays "other".
 
 EDGE CASES:
-- wrong_person vs no_longer_there: redirect to colleague -> wrong_person; departed/retired -> no_longer_there.
-- not_now vs not_interested: any timing qualifier (quarter, year, after X) -> not_now. Chose a competitor -> not_interested.
-- OOF that also redirects -> still "oof" (automated trumps redirect) — BUT only if it is a personal absence auto-reply (see rule on oof below).
-- interested_past: previously engaged in OUR outreach but conversation died. Not for "we chose vendor Y" — that is not_interested.
-- "We received your message" / "Thanks for reaching out" from support@ / help@ / customerservice@ / helpdesk@ / info@ role addresses -> "customer_service" (NOT "oof"). These are generic ticket acknowledgements, not personal absences.
+- not_now is NARROW. Use it ONLY for a soft no with an EXPLICIT future timing the lead names (revisit next quarter, circle back in [month], after our busy season, budget opens in [period]). It is NOT:
+   * an out-of-office / "away until [date]" / "traveling, slow to reply" auto-message -> "oof" (even with a return date);
+   * a firm/polite decline with no concrete future ("no need", "we're all set", "not a fit", "no bandwidth", "already have a solution") -> "not_interested";
+   * a positive ask ("send materials", "share the calendar link", "this could work", asks qualifying questions) -> "interested".
+- wrong_person vs no_longer_there: redirects to a colleague / "not my area" / forwards internally -> "wrong_person"; clearly departed/retired/"no longer with the company" -> "no_longer_there". If someone stepped down but still points you to a successor, prefer "wrong_person". Capture any redirect email in alternate_contact for both.
+- interested_past: lead previously engaged positively in OUR outreach (asked questions, agreed to a call) and the thread went cold, now referenced. A reply about an EXISTING engagement's account/billing/support issue -> "customer_service". "We chose vendor Y" -> "not_interested".
+- "We received your message" / "Thanks for reaching out" from support@ / help@ / customerservice@ / helpdesk@ / info@ role addresses -> "customer_service" (NOT "oof"). Generic ticket acknowledgements, not personal absences.
 - "I'm out until [date]" / "I am on vacation" / "I will be away" from a personal (named) mailbox -> "oof".
 
 OUTPUT FORMAT EXAMPLE:

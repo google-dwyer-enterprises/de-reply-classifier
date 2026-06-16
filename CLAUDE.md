@@ -15,7 +15,7 @@ Instantly API
    ▼
 replies              ◄── one row per received email
    │
-   │  classify.py (run.py classify)        Haiku 4.5, batch 25, prompt v3
+   │  classify.py (run.py classify)        Haiku 4.5, batch 25, prompt v4
    ▼
 classifications      ◄── multiple rows per reply allowed (one per prompt_version)
    │
@@ -41,7 +41,7 @@ lead_status_mv       ◄── what NocoDB shows the client (joins leads + lead_
 - **Manual overrides untouched**: `leads.manual_status` and `leads.notes` are never written by automation. `coalesce(manual_status, auto_status)` is what the MV exposes as `status`.
 - **Instantly tag promotes the headline status** (Gap 2): `auto_status` = `status1` (the top classifier label) **promoted** by the human-applied Instantly per-lead tag in `status4`. `config.tag_to_label` maps a tag to `booked`/`interested` (case-insensitive substring; negatives → `None`); `excel_writer.fetch_per_lead_summary` then takes the higher-priority (lower `STATUS_RANK`) of `{status1, tag_label}`. It **only promotes, never demotes** — a tagged-`interested` lead the classifier already booked stays booked. `status1/2/3` and their reasons/replies remain the pure classifier view; only `auto_status` (and the headline `reason`, rewritten to cite the tag) reflect the promotion. This closes the booked undercount. No DDL — `auto_status`/`reason` are existing columns; just re-run `update-status`.
 - **Multiple `prompt_version`s coexist** in `classifications`. `excel_writer.fetch_per_lead_summary` orders by `classified_at` ascending and dict-merges so the newest row wins. Do NOT filter by a single `prompt_version` — that breaks reclassify history.
-- **Bump `PROMPT_VERSION` in `config.py` for any prompt change** so old/new are diff-able. Currently `v3`.
+- **Bump `PROMPT_VERSION` in `config.py` for any prompt change** so old/new are diff-able. Currently `v4` (accuracy-audit fixes: narrowed `not_now`, calendar-confirmations→`booked`, `wrong_person`/`no_longer_there`/`interested_past` disambiguation).
 - **Excluded senders** (config.py `is_excluded_sender`) — bots, internal addresses, do-not-reply prefixes — are dropped at writeback time, never classified out.
 
 ## Subsystems
@@ -66,6 +66,7 @@ lead_status_mv       ◄── what NocoDB shows the client (joins leads + lead_
 | `scripts/prospeo_category_pilot.py` | One-off pilot script that compares domain-mode vs category-mode Prospeo searches. Read-only (writes XLSX only, never touches DB). See `docs/scraping/FINDINGS.html` for the empirically-verified filter shape and accepted industry strings. |
 | `scripts/verify_claims.py`, `scripts/title_analysis.py`, `scripts/verify_prospeo_shape.py` | Read-only verification scripts. Used to validate every number in `docs/scraping/FINDINGS.html` against live data. |
 | `followup_features.py` | **Follow-up effectiveness (descriptive cross-lead analysis).** Per manual (`unibox_manual`) follow-up: `extract_new_text` strips the quoted thread (BOUNDARY_PATTERNS) → `deterministic_features` (v1, zero-LLM) → windowed last-touch outcome attribution (ATTRIB_SQL; latest classification, never a single `prompt_version`) → upsert into `followup_message_features`. `EXTRACTOR_VERSION='fx1'`. |
+| `followup_llm_features.py` | **Phase 2 — LLM tagging of follow-ups.** Tags each follow-up's NEW text with 4 closed enums (`hook_type`/`tone`/`cta_style`/`personalization`, in `config.FOLLOWUP_FEATURE_SPEC`) via Haiku, reusing `classify`'s batch idiom + `prompts/followup_feature.txt`. Writes the nullable V2 columns. Manual + gated + paid (cost print, y/N, `--dry-run`/`--limit`/`--retag`), idempotent on `FOLLOWUP_PROMPT_VERSION`. `coerce_features` clamps any model output to the enum. Feeds the `(AI)` dimensions in `followup_patterns_mv`. |
 | `scripts/apply_followup_patterns_view.py` | Builds `followup_patterns_mv` (positive-rate WITH vs WITHOUT each characteristic + lift, support floor, largest-client share) and `followup_timing_mv` (survival panel) as **plain views**. Descriptive only. |
 | `scripts/gen_followup_patterns_report.py` | Writes `docs/replies/FOLLOWUP_EFFECTIVENESS.html` (power funnel, Wilson CIs, caveats) from the live views + feature table. Read-only. |
 | `scripts/check_followup_effectiveness_readiness.py` | Phase-0 read-only readiness check; shares the attribution SQL with `followup_features.py`. |
@@ -83,6 +84,7 @@ python run.py update-status           # leads ← classifications, then refresh 
 python run.py refresh [--days N]      # one-shot: sync → refresh-status → classify → update-status
 python run.py extract-followup-features    # deterministic features (quoted-thread-stripped) over manual follow-ups → followup_message_features
 python run.py refresh-followup-patterns    # extract features → rebuild followup_patterns_mv/_timing_mv → regen FOLLOWUP_EFFECTIVENESS.html
+python run.py llm-followup-features [--limit N --dry-run --yes --retag]   # Phase 2: Haiku-tag follow-ups (hook/tone/CTA/personalization); manual, gated, ~$0.20/1k
 python run.py upload-leads <file>     # Apollo enrichment upsert
 python run.py resolve-companies       # LLM company-name resolution
 python run.py export ...              # legacy Excel export (writeback or fresh)
@@ -137,7 +139,7 @@ Stdlib `unittest` (no pytest dependency). Run from the repo root:
 python -m unittest discover -s tests
 ```
 
-Covers the pure, client-facing deterministic logic: `config.tag_to_label` (Gap 2 tag mapper), `excel_writer.promote_status` (rank-based promote-never-demote), and `followup_features` (`extract_new_text` quoted-thread stripping, `deterministic_features`, `length_bucket`). These are the high-regression-risk units — a wrong mapping or boundary silently corrupts the headline status or the follow-up feature vector. Keep them green before changing those functions. (The `debug/test_*.py` files are gitignored ad-hoc scripts, not part of this suite.)
+Covers the pure, client-facing deterministic logic: `config.tag_to_label` (Gap 2 tag mapper), `excel_writer.promote_status` (rank-based promote-never-demote), `followup_features` (`extract_new_text` quoted-thread stripping, `deterministic_features`, `length_bucket`), and `followup_llm_features.coerce_features` (clamps LLM output to the closed enums). These are the high-regression-risk units — a wrong mapping or boundary silently corrupts the headline status or the follow-up feature vector. Keep them green before changing those functions. (The `debug/test_*.py` files are gitignored ad-hoc scripts, not part of this suite.)
 
 ## Validation gate
 
@@ -165,7 +167,7 @@ Before any full reclassify, do a stratified hand-review on ~200–500 replies, w
 ## Planning documents
 
 **Shipped:**
-- `docs/replies/FOLLOWUP_EFFECTIVENESS_PLAN.md` — descriptive "which follow-ups are working" cross-lead analysis. **Phase 0/1 shipped** (deterministic features): `followup_features.py`, `followup_patterns_mv`/`followup_timing_mv`, `docs/replies/FOLLOWUP_EFFECTIVENESS.html`, and the `extract-followup-features`/`refresh-followup-patterns` commands. Phase 2 (LLM hook/tone/CTA features; model tier) is still pending — the `followup_message_features` v2 columns exist but are nullable/unused. The plan `.md` is a pre-implementation artifact; where it diverges from ship (e.g. it keeps warm-lead rows and surfaces "Lead Already Positive" as a characteristic rather than excluding them), the shipped code + report are authoritative.
+- `docs/replies/FOLLOWUP_EFFECTIVENESS_PLAN.md` — descriptive "which follow-ups are working" cross-lead analysis. **Phase 0/1 + Phase 2 shipped.** Phase 0/1 (deterministic): `followup_features.py`, `followup_patterns_mv`/`followup_timing_mv`, `docs/replies/FOLLOWUP_EFFECTIVENESS.html`, `extract-followup-features`/`refresh-followup-patterns`. Phase 2 (LLM): `followup_llm_features.py` tags hook/tone/CTA/personalization (Haiku, `FOLLOWUP_PROMPT_VERSION='ff1'`) into the V2 columns, surfaced as the `(AI)` dimensions in the patterns view; run via `llm-followup-features`. The plan `.md` is a pre-implementation artifact; where it diverges from ship (e.g. it keeps warm-lead rows and surfaces "Lead Already Positive" as a characteristic rather than excluding them), the shipped code + report are authoritative.
 - **Gap 2 (booked under-count):** the Instantly booked/interested tag now promotes the headline status (see Key invariants). This is part of the `LEAD_CLEANING_PLAN.md` booked-count fix.
 
 **Pending:**

@@ -35,13 +35,17 @@ create view followup_patterns_mv as
 with base as (
   select responded_positive, client, prior_positive_exists,
          length_bucket, has_question, opens_with_question,
-         has_url, has_calendar_link, mentions_pricing, has_ps, has_emoji
+         has_url, has_calendar_link, mentions_pricing, has_ps, has_emoji,
+         hook_type, tone, cta_style, personalization   -- V2 LLM tags (null until llm-followup-features runs)
   from followup_message_features
   where extractor_version = 'fx1'
     and boundary_detected
 ),
 totals as (select count(*) n_all, count(*) filter (where responded_positive) pos_all from base),
 exploded as (
+  -- One (dim, val) per characteristic per follow-up. Deterministic dims are never
+  -- null; the LLM dims are null until tagged, so `where v.val is not null` simply
+  -- omits the AI characteristics from the grid until llm-followup-features has run.
   select responded_positive, client, dim, val
   from base
   cross join lateral (values
@@ -53,8 +57,13 @@ exploded as (
     ('Has Link',              case when has_url then 'Yes' else 'No' end),
     ('Has P.S.',              case when has_ps then 'Yes' else 'No' end),
     ('Has Emoji',             case when has_emoji then 'Yes' else 'No' end),
-    ('Lead Already Positive', case when prior_positive_exists then 'Yes' else 'No' end)
+    ('Lead Already Positive', case when prior_positive_exists then 'Yes' else 'No' end),
+    ('Hook Type (AI)',        initcap(replace(hook_type, '_', ' '))),
+    ('Tone (AI)',             initcap(tone)),
+    ('CTA Style (AI)',        initcap(replace(cta_style, '_', ' '))),
+    ('Personalization (AI)',  initcap(personalization))
   ) as v(dim, val)
+  where v.val is not null
 ),
 percell as (
   select dim, val, client, count(*) c from exploded group by dim, val, client

@@ -1,7 +1,7 @@
 # Implementation Plan — Descriptive Cross-Lead "Which Follow-ups Are Working" Analysis
 
 **Deliverable:** a descriptive cross-lead analysis of manual follow-up effectiveness, surfaced as (a) a NocoDB plain view `followup_patterns_mv` and (b) a committed HTML report `docs/replies/FOLLOWUP_EFFECTIVENESS.html`.
-**Status:** ✅ **Phase 0/1 SHIPPED** (deterministic features). Phase 2 (LLM hook/tone/CTA) pending.
+**Status:** ✅ **Phase 0/1 + Phase 2 SHIPPED.** Deterministic features + LLM hook/tone/CTA/personalization tagging (Haiku 4.5, prompt `ff1`) via `followup_llm_features.py` / `llm-followup-features`.
 **Snapshot facts used below are verified against live data via a 57-agent code+DB pass and an adversarial methodology review; the review's fixes override the raw design where they conflict.**
 
 **⚠️ As-built divergences from this plan** — the shipped code + `FOLLOWUP_EFFECTIVENESS.html` are authoritative where they conflict with the design below:
@@ -169,7 +169,7 @@ All features computed over `followup_new_text` (§3.2), **never** the raw body.
 - `has_emoji`, `all_caps_word_count`
 - `send_dow`, `send_hour_utc` (timezone left UTC, noted in output)
 
-### 4.2 V2 — LLM-derived (`MODEL_TIER = TBD`, gated, additive)
+### 4.2 V2 — LLM-derived (`MODEL_TIER = Haiku 4.5`, gated, additive) — SHIPPED
 Closed enums (mirror the fixed-taxonomy discipline):
 - `hook_type`: `question | stat | compliment | pattern_interrupt | value_prop | reminder | other`
 - `tone`: `casual | formal | neutral`
