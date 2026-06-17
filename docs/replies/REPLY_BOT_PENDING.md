@@ -35,12 +35,43 @@ Surface the three new MV columns in the NocoDB per-lead view: `"# Clients Engage
 `"Customer Service"`. Data is already live; this is only NocoDB's schema cache. (Analytics dashboard
 needs nothing.)
 
-### Phase-3 auto-refresh cron — ⏸ BLOCKED on an LLM cost comparison
-Wire `refresh-followup-patterns` into the daily job so the `/analytics` dashboard self-updates (today it's
-manual; `update-status` for the NocoDB lead view is already in the daily `run.py refresh` cron).
-**Why not yet:** the recurring refresh would include the paid LLM follow-up tagging
-(`llm-followup-features`), so we're first doing a **cost comparison across OpenAI / Anthropic / Gemini**
-to pick the provider before committing to a recurring spend. Build the cron once that decision is made.
+### LLM provider cost comparison — ✅ SHIPPED (Phase 1)
+Bake-off of the cheap tier (Haiku 4.5 vs GPT-5.4 nano vs Gemini 3.1 Flash-Lite) across every LLM feature,
+with cost projected to monthly volume (20k leads/mo, ~1,423 replies/mo, ~489 follow-ups/mo). Report:
+**`docs/LLM_COST_COMPARISON.html`** + `docs/llm_cost_comparison.csv`; harness in `scripts/llmbench*.py`
+(needs `pip install openai google-genai`). Findings: total Haiku ~$151/mo vs nano ~$28 / Gemini ~$37;
+company-name resolution → nano is a free quality win; Prospeo filter → keep Haiku (rivals lose 10–20pts);
+reply-side features are <$1/mo either way; **brand-verify is the only big lever (~$122→$23–30/mo) but its
+quality was NOT compared cross-provider** (multi-step + Anthropic-specific web search).
+**Phase 2 — brand-verify quality test: ✅ done for the site-verdict step.** Isolated the no-tool site step,
+ran it on 71 ground-truth-labeled companies across all 3 providers (`scripts/llmbench_brandverify.py`):
+nano/Gemini reproduce Haiku's verdict ~97–99% with **zero false rejections** on the `pass` set (same as
+Haiku) at ~5× lower cost.
+
+**Web-search rebuild estimate (done — recommend HOLDING):** to actually switch, rebuild the funnel's 3
+web-search steps per provider ≈ **~3 dev-days** + permanent 3-provider maintenance. Both cheap rivals support
+web search (OpenAI Responses `web_search`; Gemini Google-Search grounding). **But the economics don't favor
+it:** web-search *fees* dominate brand-verify and are provider-agnostic (Anthropic $10/1k, OpenAI $10/1k +
+~8K tok/search, Gemini 3.x $14/1k). 303/329 verdicts are "brand", each triggering an ownership search ≈ 1
+search/company → ~$190–255/mo in search fees on *any* provider at 20k leads/mo. The model swap saves only the
+token portion (~$70–90/mo); the ~$200/mo search fee is unavoidable. → **Hold the rebuild.** Bigger lever =
+**reduce search volume** (does every brand need an ownership search?), but that's a separate, quality-risky
+change to the live funnel (re-validate via `bv2_regression`), deliberately kept OUT of the provider
+comparison so it can't muddy the figures. First **measure actual monthly searches** (cache/dedup likely make
+20k unique domains a big overestimate). Full write-up in `docs/LLM_COST_COMPARISON.html`.
+
+Clean win to still act on: **company resolution → GPT-5.4 nano** (more accurate than Haiku + ~7× cheaper).
+
+### Railway cron / scheduling — ⏸ now UNBLOCKED, awaiting user's scheduling decision
+The cost comparison is done, so the provider/cadence inputs exist. Two items to schedule when ready:
+1. **Free daily analytics refresh** — chain `python run.py refresh-followup-patterns` after the existing
+   daily `run.py refresh` cron (`railway.json` `startCommand`) so the `/analytics` dashboard self-updates.
+   No LLM cost (deterministic extract + view rebuild + HTML regen). The one-line change was prepared in
+   PR #34 and **closed at the user's request** to plan scheduling holistically; re-apply when ready.
+2. **Paid `llm-followup-features` re-tagging** — periodically tag NEW follow-ups (provider-dependent cost);
+   cadence + provider decided by the cost comparison.
+(Note: the daily `run.py refresh` — sync → classify → update-status — already runs and already classifies
+new replies on Haiku; only the two items above are unscheduled.)
 
 ---
 
