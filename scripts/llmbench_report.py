@@ -51,6 +51,9 @@ def analyse(f):
 an = {f["key"]: analyse(f) for f in R}
 tot = {k: round(sum(f["providers"][k]["proj_monthly"] for f in R if f["providers"].get(k, {}).get("proj_monthly") is not None), 2)
        for k in PROV_NAME}
+# hybrid = each task on its RECOMMENDED option (best cheap where quality holds, Anthropic otherwise)
+hybrid = round(sum(a["best"] for a in an.values()), 2)
+hybrid_save = round(tot["anthropic"] - hybrid, 2)
 
 rows = []
 for f in R:
@@ -94,6 +97,7 @@ ul{{margin:8px 0;padding-left:22px}} li{{margin:6px 0}}
 .totrow{{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}}
 .tile{{flex:1;min-width:200px;background:#fff;border:1px solid #e1e4e8;border-radius:10px;padding:14px 16px}}
 .tile .n{{font-size:22px;font-weight:800;color:#2563eb}} .tile .k{{color:#5e6470;font-size:13px;margin-top:2px}}
+.tile.rec-tile{{border:2px solid #16a34a;background:#f3fbf6}} .tile.rec-tile .n{{color:#16a34a}}
 .fine{{color:#9aa0aa;font-size:12.5px}}
 </style></head><body>
 <h1>Which AI provider should each task use — and what would it cost?</h1>
@@ -121,10 +125,14 @@ cheapest models could do the same jobs as well — and what each would cost per 
 <div class="tile"><div class="n">${tot['anthropic']}</div><div class="k">Anthropic — what we pay today</div></div>
 <div class="tile"><div class="n">${tot['openai']}</div><div class="k">If every task used OpenAI's cheapest</div></div>
 <div class="tile"><div class="n">${tot['gemini']}</div><div class="k">If every task used Gemini's cheapest</div></div>
+<div class="tile rec-tile"><div class="n">${hybrid}</div><div class="k"><b>If we make the recommended switches</b> (best provider per task, keep Anthropic where it's better) — saves ~${hybrid_save}/mo</div></div>
 </div>
-<p class="fine">⚠️ Don't read the gap as pure savings. Most of it is the <b>brand-checking</b> line, and brand-checking's
-<i>real</i> cost is dominated by a web-search fee (~$190–255/month) that is roughly the same on every provider.
-After that, the realistic saving from switching is modest — the genuine, safe win is the company-name task.</p>
+<p class="fine">⚠️ The "every task on one cheap provider" numbers look dramatic, but they're not realistic — they'd switch
+tasks where the cheaper models are worse, or where switching means a costly rebuild. The <b>recommended (hybrid)</b>
+figure is the honest one: it switches only where quality holds and is safe to do. It's close to today's ${tot['anthropic']}
+because the two biggest lines — <b>brand-checking</b> and the <b>lead filter</b> — stay on Anthropic (brand-checking's
+real cost is a web-search fee, ~$190–255/mo, that's the same on every provider; the lead filter loses accuracy on the
+cheaper models). The genuine, safe saving is small (~${hybrid_save}/mo), almost all from the company-name task.</p>
 
 {bv_html}
 
