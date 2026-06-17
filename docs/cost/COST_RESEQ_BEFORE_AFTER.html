@@ -75,6 +75,41 @@
   Every number from production runs and live A/B tests · June 11–12, 2026 · PR #18</div>
 </header>
 
+<h2>Bottom line — monthly cost at 20,000 accepted leads/month</h2>
+<p>Two honest framings. The <strong>measured A/B</strong> row scales the head-to-head result
+(11.6 → 3.65) to a full month — the magnitude of the fix on the worst-case (stale) segments where it
+was proven. The <strong>steady-state</strong> row is what to actually budget across a typical month,
+where most segments are healthier (old baseline 4.16, projected 2.5–3.0 after).</p>
+<table>
+  <tr><th>Basis</th><th class="num">cr / accepted<br>before → after</th><th class="num">Monthly credits<br>(× 20,000)</th><th class="num">Credits saved / mo</th></tr>
+  <tr><td><strong>Measured A/B</strong> (worst-case stale segments)</td><td class="num"><span class="bad">11.6</span> → <span class="good">3.65</span></td><td class="num"><span class="bad">232,000</span> → <span class="good">73,000</span></td><td class="num good">−159,000 (−69%)</td></tr>
+  <tr><td><strong>Steady-state</strong> (typical month, projected)</td><td class="num"><span class="bad">4.16</span> → <span class="good">~2.75</span></td><td class="num"><span class="bad">~83,000</span> → <span class="good">~55,000</span></td><td class="num good">−28,000 (−34%)</td></tr>
+</table>
+
+<h3>Monthly cost in dollars</h3>
+<p>BetterContact bills 1 credit per verified email. At this volume the account sits in BetterContact's
+Enterprise band, so the realistic working rate is the entry Enterprise rate (<strong>~$0.016/credit</strong>,
+$799 ÷ 50k). The published self-serve Pro rate (<strong>~$0.049/credit</strong>) is shown as a conservative
+ceiling.</p>
+<table>
+  <tr><th>Basis</th><th class="num">Rate</th><th class="num">Before / mo</th><th class="num">After / mo</th><th class="num">Saved / mo</th></tr>
+  <tr><td rowspan="2"><strong>Measured A/B</strong><br>(worst-case segments)</td><td class="num">~$0.016/cr <span class="pill blue">Enterprise</span></td><td class="num bad">$3,710</td><td class="num good">$1,170</td><td class="num good">$2,540</td></tr>
+  <tr><td class="num">~$0.049/cr <span class="pill amber">Pro ceiling</span></td><td class="num bad">$11,370</td><td class="num good">$3,580</td><td class="num good">$7,790</td></tr>
+  <tr><td rowspan="2"><strong>Steady-state</strong><br>(typical month)</td><td class="num">~$0.016/cr <span class="pill blue">Enterprise</span></td><td class="num bad">$1,330</td><td class="num good">$880</td><td class="num good">$450</td></tr>
+  <tr><td class="num">~$0.049/cr <span class="pill amber">Pro ceiling</span></td><td class="num bad">$4,080</td><td class="num good">$2,700</td><td class="num good">$1,380</td></tr>
+</table>
+<p style="font-size:0.9em; color:var(--muted);"><strong>Reading the two rows:</strong> the worst-case savings are larger only because the <em>before</em> baseline is larger (11.6 vs 4.16 cr/lead) — you save what you were wasting, and stale segments wasted more. The <strong>$2,540/mo</strong> is the magnitude of the fix on bad segments, not a typical month; the recurring saving to budget for is the steady-state <strong>~$450/mo</strong>.</p>
+<div class="callout caution">
+<strong>On the credit price:</strong> dollars use BetterContact's live published pricing (verified June 2026):
+Starter $15 / 200 cr = $0.075, Pro $49 / 1,000 cr = $0.049, Enterprise from $799 for 50k+ cr ≈ $0.016/cr
+(exact Enterprise pricing is custom/undisclosed; 15–30% agency discounts apply above 5,000 cr/mo). The credit
+<em>counts</em> are exact; only the $/credit carries this band. Two stale internal notes — a $0.20/cr comment
+in <code>worker.py</code> and a $0.02/cr one in <code>submit.html</code> — were 10× apart; the live Enterprise
+rate confirms ~$0.016, i.e. <code>submit.html</code> was right.
+</div>
+<p>Plus the silent riders: the AI-gate cache and 6-way parallel calls cut token spend and bring a 5k-lead
+weekly batch's verification from a projected 5–6 hours to ~1–1.5 hours.</p>
+
 <h2><span class="num">1</span>The headline</h2>
 <div class="kpis">
   <div class="kpi"><div class="v red">11.6 → <span style="color:var(--green)">3.65</span></div><div class="l">credits per accepted lead,<br>measured A/B on identical segments (3.2×)</div></div>
@@ -167,14 +202,6 @@ resequencing being live:</p>
 <p>Residual duplicates are by design: companies still under the 3-contact cap are deliberately <em>not</em>
 suppressed (we want their remaining contacts), so same-email repeats there still get deduped locally.</p>
 
-<h2><span class="num">5</span>What it means at 20,000 leads/month</h2>
-<table>
-  <tr><th>Scenario</th><th class="num">cr / accepted</th><th class="num">Monthly credits</th><th class="num">vs old baseline</th></tr>
-  <tr><td>Old pipeline (healthy segments, measured)</td><td class="num">4.16</td><td class="num">~84k</td><td class="num">—</td></tr>
-  <tr><td><strong>Resequenced (projected steady state)</strong></td><td class="num good">~2.5–3.0</td><td class="num good">~50–60k</td><td class="num good">−30–40%</td></tr>
-</table>
-<p>Plus the silent riders: the AI-gate cache and 6-way parallel calls cut token spend and bring a 5k-lead
-weekly batch's verification from a projected 5–6 hours to ~1–1.5 hours.</p>
 
 <div class="callout caution">
 <strong>Evaluated and deliberately NOT shipped:</strong> the Prospeo "search-then-enrich" hybrid. A $15 pilot
