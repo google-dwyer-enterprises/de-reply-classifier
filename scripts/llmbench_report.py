@@ -136,6 +136,23 @@ cheaper models). The genuine, safe saving is small (~${hybrid_save}/mo), almost 
 
 {bv_html}
 
+<h2>Would "caching" cut the cost? (we checked — no)</h2>
+<p>Providers offer <b>prompt caching</b>: if you send the exact same instructions over and over, you pay ~90% less
+for that repeated part after the first time. It sounds like an easy saving, so we tested whether it helps us.</p>
+<ul>
+<li><b>It's already switched on for two tasks — but it does nothing.</b> Reply-sorting and follow-up tagging have a
+cache marker in the code, but we measured it live: <b>zero cache hits</b>. Anthropic only caches instructions above
+~4,000 tokens; ours are ~1,600 or smaller, so they fall under the cutoff and silently don't cache.</li>
+<li><b>The other tasks have no caching</b> — and their instructions are even smaller, so turning it on would also do
+nothing.</li>
+<li><b>Even if it worked, it only discounts the AI "thinking" cost</b> — the small part. It can't touch the
+brand-checking <b>web-search fee</b>, which is where the real money is.</li>
+</ul>
+<p class="box" style="border-left-color:#b45309"><b>Bottom line: caching is a non-lever for us — realistic saving ≈ $0.</b>
+The existing markers are harmless, so we leave them. (The only case where caching would matter is moving a
+high-volume task to OpenAI, whose caching starts at a smaller size and would shave a little off the token cost —
+still minor, and not worth a switch on its own.)</p>
+
 <h2>How to read the numbers (plain version)</h2>
 <ul>
 <li><b>"Match it"</b> = how often a cheaper model gave the same answer our current setup gives. Our own model only repeats itself ~85–90% of the time (AI isn't perfectly consistent), so "matches" means "as close as our current model is to itself".</li>
