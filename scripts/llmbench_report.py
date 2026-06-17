@@ -1,9 +1,9 @@
 """Render the plain-English LLM cost-comparison report from the bake-off results.
 
 Reads debug/_llmbench_results.json (+ debug/_bv_quality.json if present) and writes
-ONE understandable file: docs/LLM_COST_COMPARISON.html, plus docs/llm_cost_comparison.csv (raw).
+ONE self-contained file: docs/LLM_COST_COMPARISON.html (plain-English findings +
+a raw-numbers appendix; no separate CSV).
 """
-import csv
 import json
 from pathlib import Path
 
@@ -85,6 +85,41 @@ We checked whether the cheaper models can do its core judgment as well as our cu
 <li><b>But switching barely saves money.</b> Most of brand-checking's cost is the <b>web-search fee</b> — about <b>$190–255/month</b> at 20,000 leads — and that fee is <b>almost the same on every provider</b> ($10–14 per 1,000 searches). Changing the AI model only trims the smaller "thinking" cost (~$70–90/month). So the headline saving you'd expect from switching mostly isn't there.</li>
 <li><b>Recommendation:</b> don't rebuild brand-checking on another provider just to save money — the saving is small and it's ~3 days of work to rebuild + maintain. If brand-checking cost matters, the real lever is doing <i>fewer</i> web searches, which is a separate change.</li>
 </ul>"""
+
+PROV_LABEL = {"anthropic": "Anthropic · Haiku 4.5", "openai": "OpenAI · GPT-5.4 nano",
+              "gemini": "Google · Gemini 3.1 Flash-Lite"}
+detail_rows = []
+for f in R:
+    nm = FEAT[f["key"]][0]
+    for i, k in enumerate(("anthropic", "openai", "gemini")):
+        d = f["providers"].get(k, {})
+        ag = "cost-only" if d.get("agreement") is None else pct(d.get("agreement"))
+        first = f"<td><b>{nm}</b></td>" if i == 0 else "<td></td>"
+        detail_rows.append(
+            f"<tr>{first}<td>{PROV_LABEL[k]}</td><td class='num'>{d.get('n','—')}</td>"
+            f"<td class='num'>{ag}</td><td class='num'>{d.get('avg_in','—')} / {d.get('avg_out','—')}</td>"
+            f"<td class='num'>${d.get('cost_per_1k_raw','—')}</td><td class='num'>${d.get('proj_monthly','—')}</td></tr>")
+bvq_rows = []
+if BV:
+    for k in ("anthropic", "openai", "gemini"):
+        s = BV["providers"][k]
+        bvq_rows.append(
+            f"<tr><td>{PROV_LABEL[k]}</td><td class='num'>{s.get('n')}</td>"
+            f"<td class='num'>{pct(s.get('agree_with_haiku'))}</td>"
+            f"<td class='num'>{s.get('false_rejections')}/{s.get('passes')}</td>"
+            f"<td class='num'>{s.get('fail_caught')}/{s.get('fails')}</td>"
+            f"<td class='num'>${s.get('cost_per_call')}</td></tr>")
+detail_html = f"""<h2>Appendix — the raw numbers behind every claim</h2>
+<p class="lede">Everything above comes from these measured figures. "Match rate" = how often each model gave the
+same answer our current setup gives (Anthropic's own row is self-consistency on a re-run — the realistic ceiling).
+"Cost / 1,000 calls" is the raw single-call cost; "$/month" is that projected at your volumes.</p>
+<table><thead><tr><th>Task</th><th>Provider · model</th><th>Records tested</th><th>Match rate</th>
+<th>Avg tokens (in / out)</th><th>Cost / 1,000 calls</th><th>$ / month</th></tr></thead>
+<tbody>{''.join(detail_rows)}</tbody></table>
+<h3 style="font-size:15px;margin-top:18px">Brand-checking — quality test detail (site-verdict step, vs human-graded companies)</h3>
+<table><thead><tr><th>Provider · model</th><th>Companies</th><th>Match w/ current</th>
+<th>Good wrongly rejected</th><th>Bad caught (site step)</th><th>$ / call</th></tr></thead>
+<tbody>{''.join(bvq_rows)}</tbody></table>"""
 
 doc = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>AI provider cost comparison — Dwyer</title><style>
@@ -171,7 +206,7 @@ still minor, and not worth a switch on its own.)</p>
 <li>📊 <b>Monthly totals</b> — your measured cost-per-item × your volumes. The reply and follow-up volumes are measured from the last 30 days; <b>20,000 leads/month is your stated target</b>. The per-item figure assumes the normal batch size we run in production.</li>
 <li>⚠️ <b>The one estimated piece</b> — brand-checking's <b>web-search fee</b>: how <i>many</i> searches per month is an assumption (not yet measured at 20k-lead scale), and only brand-checking's core judgment was quality-tested, not its web-search steps.</li>
 </ul>
-<p class="fine"><b>So: outside the brand-checking web-search line, treat these as real measured figures — not guesses.</b></p>
+<p class="fine"><b>So: outside the brand-checking web-search line, treat these as real measured figures — not guesses.</b> The full per-provider numbers are in the appendix at the bottom.</p>
 
 <h2>How to read the numbers (plain version)</h2>
 <ul>
@@ -179,21 +214,12 @@ still minor, and not worth a switch on its own.)</p>
 <li><b>"Cost / month"</b> = projected at 20,000 leads/month and our reply volume. It's the AI model fee only; web-search fees are called out separately for brand-checking.</li>
 <li>We tested the <b>cheapest model</b> of each provider (that's what these jobs use today): Anthropic Haiku, OpenAI's nano, Google's Flash-Lite. We checked ~50 real items per task (~70 for brand-checking) — enough to be directionally right, not precise to the last point.</li>
 </ul>
+
+{detail_html}
 </body></html>"""
 
 Path("docs").mkdir(exist_ok=True)
 Path("docs/LLM_COST_COMPARISON.html").write_text(doc, encoding="utf-8")
 
-with open("docs/llm_cost_comparison.csv", "w", newline="", encoding="utf-8") as fh:
-    w = csv.writer(fh)
-    w.writerow(["feature", "monthly_volume", "provider", "model", "n", "errors", "agreement",
-                "scored_n", "parse_fail", "avg_in_tok", "avg_out_tok", "cost_per_1k_raw", "proj_monthly_usd"])
-    for f in R:
-        for k in PROV_NAME:
-            d = f["providers"].get(k, {})
-            w.writerow([f["key"], f["monthly_volume"], k, d.get("model"), d.get("n"), d.get("err"),
-                        d.get("agreement"), d.get("scored_n"), d.get("parse_fail"),
-                        d.get("avg_in"), d.get("avg_out"), d.get("cost_per_1k_raw"), d.get("proj_monthly")])
-
-print("wrote docs/LLM_COST_COMPARISON.html + docs/llm_cost_comparison.csv")
+print("wrote docs/LLM_COST_COMPARISON.html (raw numbers folded into the appendix)")
 print(f"totals: Anthropic ${tot['anthropic']}  OpenAI ${tot['openai']}  Gemini ${tot['gemini']}")
