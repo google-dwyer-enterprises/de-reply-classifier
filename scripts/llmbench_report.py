@@ -9,6 +9,7 @@ from pathlib import Path
 
 R = json.load(open("debug/_llmbench_results.json"))
 BV = json.loads(Path("debug/_bv_quality.json").read_text()) if Path("debug/_bv_quality.json").exists() else None
+LAD = json.loads(Path("debug/_llmbench_ladder.json").read_text()) if Path("debug/_llmbench_ladder.json").exists() else None
 DATE = "2026-06-17"
 
 PROV_NAME = {"anthropic": "Anthropic (what we use now)", "openai": "OpenAI (cheapest model)",
@@ -25,6 +26,14 @@ FEAT = {
 
 def pct(x):
     return "—" if x is None else f"{round(x*100)}%"
+
+
+VOL_UNIT = {"classifier": "replies", "followup": "follow-ups", "prospeo": "leads",
+            "company": "leads", "brand_verify": "leads", "smartscout": "leads", "name": "leads"}
+
+
+def vol_label(f):
+    return f"{f['monthly_volume']:,} {VOL_UNIT.get(f['key'], 'items')}/mo"
 
 
 def analyse(f):
@@ -55,6 +64,43 @@ tot = {k: round(sum(f["providers"][k]["proj_monthly"] for f in R if f["providers
 hybrid = round(sum(a["best"] for a in an.values()), 2)
 hybrid_save = round(tot["anthropic"] - hybrid, 2)
 
+# Per-variant monthly totals (every task on one model) from the ladder run
+def _tile(val, label, cls=""):
+    return f'<div class="tile {cls}"><div class="n">${val}</div><div class="k">{label}</div></div>'
+
+if LAD:
+    lt = {lbl: round(sum(f["models"][lbl]["proj_monthly"] for f in LAD
+                         if f["models"][lbl].get("proj_monthly") is not None), 2)
+          for lbl in LAD[0]["models"]}
+    now_l = tot["anthropic"]  # headline "today" — consistent with the per-task table above
+    save = round(now_l - hybrid, 2)
+    tiles = [
+        _tile(now_l, "Anthropic Haiku 4.5 — what we pay today"),
+        _tile(hybrid, f"<b>Recommended switches (hybrid)</b> — best provider per task, keep Anthropic where it's better; saves ~${save}/mo", "rec-tile"),
+        _tile(lt.get("GPT-5.4 nano"), "Every task on GPT-5.4 nano (cheapest)"),
+        _tile(lt.get("Gemini 3.1 Flash-Lite"), "Every task on Gemini 3.1 Flash-Lite"),
+        _tile(lt.get("GPT-5.4 mini"), "Every task on GPT-5.4 mini"),
+        _tile(lt.get("GPT-5.4"), "Every task on GPT-5.4 — <b>over today's cost</b>", "over-tile"),
+    ]
+    tiles_html = '<div class="totrow">' + "".join(tiles) + "</div>"
+else:
+    tiles_html = ('<div class="totrow">'
+                  + _tile(tot["anthropic"], "Anthropic — what we pay today")
+                  + _tile(tot["openai"], "If every task used OpenAI's cheapest")
+                  + _tile(tot["gemini"], "If every task used Gemini's cheapest")
+                  + _tile(hybrid, f"<b>Recommended switches</b> — saves ~${hybrid_save}/mo", "rec-tile")
+                  + "</div>")
+
+# What the "$/month" figures assume — the monthly volume per task
+vol_basis_html = ('<div class="box"><h3>What "per month" assumes (your target volumes)</h3>'
+                  '<table class="lad"><thead><tr><th>Task</th><th>Volume / month</th></tr></thead><tbody>'
+                  + "".join(f"<tr><td>{FEAT[f['key']][0]}</td><td class='num'>{vol_label(f)}</td></tr>" for f in R)
+                  + "</tbody></table>"
+                  '<p class="fine">Lead-side tasks (filtering, company names, brand-checking) are projected at your '
+                  '<b>20,000 leads/month</b> target (5,000/week). Reply-side tasks use the last 30 days\' measured '
+                  'traffic (~1,423 replies, ~489 manual follow-ups). Every "$ / month" in this report = the measured '
+                  'per-item cost × the volume on this row.</p></div>')
+
 rows = []
 for f in R:
     a = an[f["key"]]; nm, desc = FEAT[f["key"]]
@@ -62,9 +108,9 @@ for f in R:
     tested = max((P[k].get("n") or 0) for k in PROV_NAME)
     if f["key"] == "brand_verify" and BV:
         tnote = (f" · cost measured on {tested} records; quality verified on "
-                 f"{BV['n_domains']} human-graded companies")
+                 f"{BV['n_domains']} human-graded companies · $/mo at {vol_label(f)}")
     else:
-        tnote = f" · tested on {tested} real records"
+        tnote = f" · tested on {tested} real records · $/mo at {vol_label(f)}"
     cost = (f"${a['now']}/mo" if a["now"] == a["best"]
             else f"${a['now']} → <b>${a['best']}</b>/mo")
     rows.append(f"""<tr class="t-{a['tone']}">
@@ -118,16 +164,32 @@ even the over-budget GPT-5.4 (78%) doesn't beat it. <b>So no higher tier is wort
 PROV_LABEL = {"anthropic": "Anthropic · Haiku 4.5", "openai": "OpenAI · GPT-5.4 nano",
               "gemini": "Google · Gemini 3.1 Flash-Lite"}
 detail_rows = []
-for f in R:
-    nm = FEAT[f["key"]][0]
-    for i, k in enumerate(("anthropic", "openai", "gemini")):
-        d = f["providers"].get(k, {})
-        ag = "cost-only" if d.get("agreement") is None else pct(d.get("agreement"))
-        first = f"<td><b>{nm}</b></td>" if i == 0 else "<td></td>"
-        detail_rows.append(
-            f"<tr>{first}<td>{PROV_LABEL[k]}</td><td class='num'>{d.get('n','—')}</td>"
-            f"<td class='num'>{ag}</td><td class='num'>{d.get('avg_in','—')} / {d.get('avg_out','—')}</td>"
-            f"<td class='num'>${d.get('cost_per_1k_raw','—')}</td><td class='num'>${d.get('proj_monthly','—')}</td></tr>")
+if LAD:
+    # Full ladder: every tested model of every provider, with complete stats.
+    lad_labels = list(LAD[0]["models"].keys())
+    for f in LAD:
+        nm = FEAT[f["key"]][0]
+        for i, lbl in enumerate(lad_labels):
+            d = f["models"].get(lbl, {})
+            ag = "cost-only" if d.get("agreement") is None else pct(d.get("agreement"))
+            first = f"<td><b>{nm}</b></td>" if i == 0 else "<td></td>"
+            over = d.get("proj_monthly") is not None and d["proj_monthly"] > f["models"].get("Haiku 4.5 (current)", {}).get("proj_monthly", 1e9)
+            mcls = " class='over'" if over else ""
+            detail_rows.append(
+                f"<tr><td{mcls if i==0 else ''}>{nm if i==0 else ''}</td><td class='num'>{vol_label(f) if i==0 else ''}</td><td{mcls}>{lbl}</td><td class='num'>{d.get('n','—')}</td>"
+                f"<td class='num'>{ag}</td><td class='num'>{d.get('avg_in','—')} / {d.get('avg_out','—')}</td>"
+                f"<td class='num'>${d.get('cost_per_1k_raw','—')}</td><td class='num{' over' if over else ''}'>${d.get('proj_monthly','—')}</td></tr>")
+else:
+    for f in R:
+        nm = FEAT[f["key"]][0]
+        for i, k in enumerate(("anthropic", "openai", "gemini")):
+            d = f["providers"].get(k, {})
+            ag = "cost-only" if d.get("agreement") is None else pct(d.get("agreement"))
+            first = f"<td><b>{nm}</b></td>" if i == 0 else "<td></td>"
+            detail_rows.append(
+                f"<tr>{first}<td class='num'>{vol_label(f) if i==0 else ''}</td><td>{PROV_LABEL[k]}</td><td class='num'>{d.get('n','—')}</td>"
+                f"<td class='num'>{ag}</td><td class='num'>{d.get('avg_in','—')} / {d.get('avg_out','—')}</td>"
+                f"<td class='num'>${d.get('cost_per_1k_raw','—')}</td><td class='num'>${d.get('proj_monthly','—')}</td></tr>")
 bvq_rows = []
 if BV:
     for k in ("anthropic", "openai", "gemini"):
@@ -139,10 +201,11 @@ if BV:
             f"<td class='num'>{s.get('fail_caught')}/{s.get('fails')}</td>"
             f"<td class='num'>${s.get('cost_per_call')}</td></tr>")
 detail_html = f"""<h2>Appendix — the raw numbers behind every claim</h2>
-<p class="lede">Everything above comes from these measured figures. "Match rate" = how often each model gave the
-same answer our current setup gives (Anthropic's own row is self-consistency on a re-run — the realistic ceiling).
-"Cost / 1,000 calls" is the raw single-call cost; "$/month" is that projected at your volumes.</p>
-<table><thead><tr><th>Task</th><th>Provider · model</th><th>Records tested</th><th>Match rate</th>
+<p class="lede">Everything above comes from these measured figures — <b>every model we tested, on every task</b> (the full
+tier ladder, 50 real records per task). "Match rate" = how often each model gave the same answer our current setup
+gives (Haiku's own row is self-consistency on a re-run — the realistic ceiling). "Cost / 1,000 calls" is the raw
+single-call cost; "$/month" is that projected at your volumes; <span class="over-key">amber</span> = costs more than today.</p>
+<table><thead><tr><th>Task</th><th>Volume / month</th><th>Provider · model</th><th>Records tested</th><th>Match rate</th>
 <th>Avg tokens (in / out)</th><th>Cost / 1,000 calls</th><th>$ / month</th></tr></thead>
 <tbody>{''.join(detail_rows)}</tbody></table>
 <h3 style="font-size:15px;margin-top:18px">Brand-checking — quality test detail (site-verdict step, vs human-graded companies)</h3>
@@ -170,10 +233,11 @@ ul{{margin:8px 0;padding-left:22px}} li{{margin:6px 0}}
 .tile{{flex:1;min-width:200px;background:#fff;border:1px solid #e1e4e8;border-radius:10px;padding:14px 16px}}
 .tile .n{{font-size:22px;font-weight:800;color:#2563eb}} .tile .k{{color:#5e6470;font-size:13px;margin-top:2px}}
 .tile.rec-tile{{border:2px solid #16a34a;background:#f3fbf6}} .tile.rec-tile .n{{color:#16a34a}}
+.tile.over-tile{{border:2px solid #b45309;background:#fef7ec}} .tile.over-tile .n{{color:#b45309}}
 .fine{{color:#9aa0aa;font-size:12.5px}}
 table.lad td,table.lad th{{text-align:center;font-size:12.5px;padding:8px 9px}}
 table.lad td:first-child,table.lad th:first-child{{text-align:left;font-weight:600}}
-table.lad td.over{{background:#fef7ec}}
+table.lad td.over,td.over{{background:#fef7ec}}
 table.lad .mo{{display:block;color:#9aa0aa;font-size:11px;font-variant-numeric:tabular-nums}}
 .over-key{{background:#fef7ec;padding:0 5px;border-radius:3px}}
 </style></head><body>
@@ -198,12 +262,9 @@ cheapest models could do the same jobs as well — and what each would cost per 
 <tbody>{''.join(rows)}</tbody></table>
 
 <h2>What it adds up to per month (AI model cost only)</h2>
-<div class="totrow">
-<div class="tile"><div class="n">${tot['anthropic']}</div><div class="k">Anthropic — what we pay today</div></div>
-<div class="tile"><div class="n">${tot['openai']}</div><div class="k">If every task used OpenAI's cheapest</div></div>
-<div class="tile"><div class="n">${tot['gemini']}</div><div class="k">If every task used Gemini's cheapest</div></div>
-<div class="tile rec-tile"><div class="n">${hybrid}</div><div class="k"><b>If we make the recommended switches</b> (best provider per task, keep Anthropic where it's better) — saves ~${hybrid_save}/mo</div></div>
-</div>
+{vol_basis_html}
+{tiles_html}
+<p class="fine">Each tile = the monthly total if <b>every</b> task ran on that one model (measured on the same real records, all five tested features summed). "Recommended (hybrid)" mixes providers — cheapest model that matches today's quality per task, Anthropic everywhere else.</p>
 <p class="fine">⚠️ The "every task on one cheap provider" numbers look dramatic, but they're not realistic — they'd switch
 tasks where the cheaper models are worse, or where switching means a costly rebuild. The <b>recommended (hybrid)</b>
 figure is the honest one: it switches only where quality holds and is safe to do. It's close to today's ${tot['anthropic']}
