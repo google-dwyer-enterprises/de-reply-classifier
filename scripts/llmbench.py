@@ -25,6 +25,7 @@ PRICING = {
     "gpt-5.5": (5.00, 30.00),
     "gemini-3.1-flash-lite": (0.25, 1.50),
     "gemini-2.5-flash-lite": (0.10, 0.40),
+    "gemini-3.5-flash": (1.50, 9.00),
     "gemini-3.1-pro-preview": (2.00, 12.00),
 }
 
@@ -33,6 +34,19 @@ CHEAP = {
     "openai": "gpt-5.4-nano",
     "gemini": "gemini-3.1-flash-lite",
 }
+
+# Tier ladder: walk UP from the cheapest until cost exceeds today's Haiku.
+# (label, provider, model). "under/over budget" is judged per-feature on measured cost.
+LADDER = [
+    ("Haiku 4.5 (current)", "anthropic", "claude-haiku-4-5"),
+    ("GPT-5.4 nano", "openai", "gpt-5.4-nano"),
+    ("GPT-5.4 mini", "openai", "gpt-5.4-mini"),
+    ("GPT-5.4", "openai", "gpt-5.4"),
+    ("Gemini 3.1 Flash-Lite", "gemini", "gemini-3.1-flash-lite"),
+    # Gemini's next tier up, 3.5 Flash ($1.50/$9), is already ABOVE current Haiku cost
+    # (so excluded by the "stop when it exceeds today" rule) — and Google was 503-throttling
+    # it during testing. Noted in the report rather than benchmarked.
+]
 
 _clients: dict = {}
 
@@ -63,10 +77,28 @@ def cost(model: str, in_tok: int, out_tok: int) -> float:
     return in_tok / 1e6 * pi + out_tok / 1e6 * po
 
 
+_TRANSIENT = ("503", "502", "500", "504", "429", "unavailable", "overloaded",
+              "timeout", "rate limit", "ratelimit", "high demand")
+
+
 def call_llm(provider: str, model: str, system: str, user: str, max_out: int = 1024) -> dict:
-    """Return {text, in_tok, out_tok, cost, ms, error}. Never raises — errors captured."""
+    """Return {text, in_tok, out_tok, cost, ms, error}. Never raises — errors captured.
+    Retries up to 4x with backoff on transient (5xx/429/overload) errors."""
     t0 = time.time()
-    try:
+    for attempt in range(4):
+        try:
+            return _call_once(provider, model, system, user, max_out, t0)
+        except Exception as e:
+            msg = str(e).lower()
+            if attempt < 3 and any(s in msg for s in _TRANSIENT):
+                time.sleep(2 ** attempt + 0.5)
+                continue
+            return {"text": None, "in_tok": 0, "out_tok": 0, "cost": 0.0,
+                    "ms": int((time.time() - t0) * 1000), "error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+
+def _call_once(provider, model, system, user, max_out, t0):
+    if True:
         if provider == "anthropic":
             r = _anthropic().messages.create(
                 model=model, max_tokens=max_out, system=system,
@@ -102,9 +134,6 @@ def call_llm(provider: str, model: str, system: str, user: str, max_out: int = 1
 
         return {"text": text, "in_tok": in_tok, "out_tok": out_tok,
                 "cost": cost(model, in_tok, out_tok), "ms": int((time.time() - t0) * 1000), "error": None}
-    except Exception as e:
-        return {"text": None, "in_tok": 0, "out_tok": 0, "cost": 0.0,
-                "ms": int((time.time() - t0) * 1000), "error": f"{type(e).__name__}: {str(e)[:160]}"}
 
 
 if __name__ == "__main__":

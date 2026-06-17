@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 load_dotenv(".env")
 
 import db
-from scripts.llmbench import call_llm, cost, CHEAP  # noqa
+from scripts.llmbench import call_llm, cost, CHEAP, LADDER, PRICING  # noqa
 
 import classify
 import followup_llm_features as ff
@@ -156,28 +156,28 @@ def feat_brand_verify():
 
 
 def run_feature(f):
-    providers = list(CHEAP.items())
     scored = f.get("scored", True)
-    agg = {p: {"in": [], "out": [], "cost": [], "score": [], "err": 0, "parsefail": 0} for p, _ in providers}
+    agg = {lbl: {"in": [], "out": [], "cost": [], "score": [], "err": 0, "parsefail": 0}
+           for lbl, _, _ in LADDER}
 
     def work(args):
-        prov, model, row = args
+        lbl, prov, model, row = args
         system, user = f["build"](row)
         r = call_llm(prov, model, system, user, max_out=f["max_out"])
         if r["error"]:
-            return prov, None, r, False
+            return lbl, None, r, False
         try:
             pred = f["parse"](r["text"])
             sc = f["score"](pred, row)
             parsed_ok = pred is not None
         except Exception:
-            sc, parsed_ok = None, False   # output couldn't be parsed -> a quality signal, cost still counts
-        return prov, sc, r, parsed_ok
+            sc, parsed_ok = None, False
+        return lbl, sc, r, parsed_ok
 
-    tasks = [(prov, model, row) for prov, model in providers for row in f["rows"]]
+    tasks = [(lbl, prov, model, row) for lbl, prov, model in LADDER for row in f["rows"]]
     with ThreadPoolExecutor(max_workers=8) as ex:
-        for prov, sc, r, parsed_ok in ex.map(work, tasks):
-            a = agg[prov]
+        for lbl, sc, r, parsed_ok in ex.map(work, tasks):
+            a = agg[lbl]
             if r["error"]:
                 a["err"] += 1; continue
             a["in"].append(r["in_tok"]); a["out"].append(r["out_tok"]); a["cost"].append(r["cost"])
@@ -185,35 +185,30 @@ def run_feature(f):
                 if sc is not None: a["score"].append(sc)
                 else: a["parsefail"] += 1
 
-    # estimate system-prompt tokens (chars/4) for batched projection
     sample_sys = f["build"](f["rows"][0])[0] if f["rows"] else ""
     S = len(sample_sys) // 4
     out = {}
-    for prov, model in providers:
-        a = agg[prov]
+    for lbl, prov, model in LADDER:
+        a = agg[lbl]
         n = len(a["in"])
         if n == 0:
-            out[prov] = {"model": model, "n": 0, "err": a["err"]}; continue
+            out[lbl] = {"provider": prov, "model": model, "n": 0, "err": a["err"]}; continue
         avg_in = sum(a["in"]) / n; avg_out = sum(a["out"]) / n
-        item_in = max(avg_in - S, 1)  # input attributable to the item, not the system
-        batch = f.get("batch", 1)
-        proj_in = S / batch + item_in            # production per-item input (system amortized over batch)
-        cpi = f.get("calls_per_item", 1.0)
-        from scripts.llmbench import PRICING
+        item_in = max(avg_in - S, 1)
+        proj_in = S / f.get("batch", 1) + item_in
         pin, pout = PRICING[model]
-        proj_item_cost = (proj_in * pin + avg_out * pout) / 1e6 * cpi
-        out[prov] = {
-            "model": model, "n": n, "err": a["err"],
+        proj_item_cost = (proj_in * pin + avg_out * pout) / 1e6 * f.get("calls_per_item", 1.0)
+        out[lbl] = {
+            "provider": prov, "model": model, "n": n, "err": a["err"],
             "avg_in": round(avg_in, 1), "avg_out": round(avg_out, 1),
             "agreement": round(sum(a["score"]) / len(a["score"]), 3) if a["score"] else None,
             "scored_n": len(a["score"]), "parse_fail": a["parsefail"],
             "cost_per_1k_raw": round(sum(a["cost"]) / n * 1000, 4),
-            "proj_cost_per_item": round(proj_item_cost, 6),
             "proj_monthly": round(proj_item_cost * VOL[f["key"]], 2),
         }
     return {"key": f["key"], "label": f["label"], "monthly_volume": VOL[f["key"]],
             "batch": f.get("batch", 1), "calls_per_item": f.get("calls_per_item", 1.0),
-            "note": f.get("note"), "providers": out}
+            "note": f.get("note"), "models": out}
 
 
 def main():
@@ -222,17 +217,19 @@ def main():
     for f in feats:
         print(f"\n=== {f['label']} (n={len(f['rows'])}) ===", flush=True)
         res = run_feature(f)
-        for prov, d in res["providers"].items():
+        now = res["models"].get("Haiku 4.5 (current)", {}).get("proj_monthly")
+        for lbl, d in res["models"].items():
             if d.get("n"):
-                print(f"  {prov:10} {d['model']:24} agree={d['agreement']} "
-                      f"in/out={d['avg_in']}/{d['avg_out']} ${d['cost_per_1k_raw']}/1k "
-                      f"-> ${d['proj_monthly']}/mo  (err {d['err']})", flush=True)
+                flag = "" if now is None or d["proj_monthly"] is None else (
+                    " [<= now]" if d["proj_monthly"] <= now else " [OVER now]")
+                print(f"  {lbl:24} agree={d['agreement']} ${d['cost_per_1k_raw']}/1k "
+                      f"-> ${d['proj_monthly']}/mo{flag}  (err {d['err']})", flush=True)
             else:
-                print(f"  {prov:10} {d['model']:24} NO DATA (err {d['err']})", flush=True)
+                print(f"  {lbl:24} NO DATA (err {d['err']})", flush=True)
         results.append(res)
     Path("debug").mkdir(exist_ok=True)
-    Path("debug/_llmbench_results.json").write_text(json.dumps(results, indent=2))
-    print("\nwrote debug/_llmbench_results.json", flush=True)
+    Path("debug/_llmbench_ladder.json").write_text(json.dumps(results, indent=2))
+    print("\nwrote debug/_llmbench_ladder.json", flush=True)
 
 
 if __name__ == "__main__":

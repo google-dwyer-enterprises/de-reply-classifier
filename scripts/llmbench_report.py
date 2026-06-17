@@ -86,6 +86,35 @@ We checked whether the cheaper models can do its core judgment as well as our cu
 <li><b>Recommendation:</b> don't rebuild brand-checking on another provider just to save money — the saving is small and it's ~3 days of work to rebuild + maintain. If brand-checking cost matters, the real lever is doing <i>fewer</i> web searches, which is a separate change.</li>
 </ul>"""
 
+# --- tier ladder ("does paying for a higher model help?") ---
+LAD = json.loads(Path("debug/_llmbench_ladder.json").read_text()) if Path("debug/_llmbench_ladder.json").exists() else None
+ladder_html = ""
+if LAD:
+    labels = list(LAD[0]["models"].keys())  # ladder order, cheapest→up
+    lhead = "".join(f"<th>{l}</th>" for l in labels)
+    lrows = []
+    for f in LAD:
+        now = f["models"].get("Haiku 4.5 (current)", {}).get("proj_monthly")
+        cells = []
+        for l in labels:
+            d = f["models"][l]
+            mo = d.get("proj_monthly")
+            over = (l != "Haiku 4.5 (current)" and mo is not None and now is not None and mo > now)
+            ag = "cost only" if d.get("agreement") is None else f"{round(d['agreement']*100)}%"
+            cells.append(f"<td class='{'over' if over else ''}'>{ag}<span class='mo'>${mo}/mo</span></td>")
+        lrows.append(f"<tr><td>{FEAT[f['key']][0]}</td>{''.join(cells)}</tr>")
+    ladder_html = f"""<h2>Does paying for a higher-tier model help? (we tested the ladder)</h2>
+<p>We also walked each provider <b>up the tiers</b> — from cheapest to the point where it costs more than we
+pay today — on the <b>same 50 records</b>. Cells show the match rate with our current results and the projected
+$/month; <span class="over-key">amber</span> = costs more than today.</p>
+<table class="lad"><thead><tr><th>Task</th>{lhead}</tr></thead><tbody>{''.join(lrows)}</tbody></table>
+<div class="box" style="border-left-color:#b45309"><b>Short answer: no — paying more doesn't buy better quality here.</b>
+On most tasks the cheapest models already match our current one, and stepping up makes <b>no difference or is
+slightly worse</b> (bigger reasoning models over-think these short, format-locked tasks — e.g. company-name accuracy
+<i>drops</i> from 88% to 78% as you go up). The only task where the cheap models trail — the <b>lead filter</b> —
+isn't rescued within budget either: the best in-budget option (Gemini Flash-Lite, 76%) still trails today's 80%, and
+even the over-budget GPT-5.4 (78%) doesn't beat it. <b>So no higher tier is worth paying for — the recommendation is unchanged.</b></div>"""
+
 PROV_LABEL = {"anthropic": "Anthropic · Haiku 4.5", "openai": "OpenAI · GPT-5.4 nano",
               "gemini": "Google · Gemini 3.1 Flash-Lite"}
 detail_rows = []
@@ -142,6 +171,11 @@ ul{{margin:8px 0;padding-left:22px}} li{{margin:6px 0}}
 .tile .n{{font-size:22px;font-weight:800;color:#2563eb}} .tile .k{{color:#5e6470;font-size:13px;margin-top:2px}}
 .tile.rec-tile{{border:2px solid #16a34a;background:#f3fbf6}} .tile.rec-tile .n{{color:#16a34a}}
 .fine{{color:#9aa0aa;font-size:12.5px}}
+table.lad td,table.lad th{{text-align:center;font-size:12.5px;padding:8px 9px}}
+table.lad td:first-child,table.lad th:first-child{{text-align:left;font-weight:600}}
+table.lad td.over{{background:#fef7ec}}
+table.lad .mo{{display:block;color:#9aa0aa;font-size:11px;font-variant-numeric:tabular-nums}}
+.over-key{{background:#fef7ec;padding:0 5px;border-radius:3px}}
 </style></head><body>
 <h1>Which AI provider should each task use — and what would it cost?</h1>
 <p class="lede">Our system uses AI for several jobs (sorting replies, checking brands, cleaning data, filtering leads).
@@ -176,6 +210,8 @@ figure is the honest one: it switches only where quality holds and is safe to do
 because the two biggest lines — <b>brand-checking</b> and the <b>lead filter</b> — stay on Anthropic (brand-checking's
 real cost is a web-search fee, ~$190–255/mo, that's the same on every provider; the lead filter loses accuracy on the
 cheaper models). The genuine, safe saving is small (~${hybrid_save}/mo), almost all from the company-name task.</p>
+
+{ladder_html}
 
 {bv_html}
 

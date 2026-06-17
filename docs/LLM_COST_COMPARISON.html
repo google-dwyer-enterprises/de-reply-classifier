@@ -19,6 +19,11 @@ ul{margin:8px 0;padding-left:22px} li{margin:6px 0}
 .tile .n{font-size:22px;font-weight:800;color:#2563eb} .tile .k{color:#5e6470;font-size:13px;margin-top:2px}
 .tile.rec-tile{border:2px solid #16a34a;background:#f3fbf6} .tile.rec-tile .n{color:#16a34a}
 .fine{color:#9aa0aa;font-size:12.5px}
+table.lad td,table.lad th{text-align:center;font-size:12.5px;padding:8px 9px}
+table.lad td:first-child,table.lad th:first-child{text-align:left;font-weight:600}
+table.lad td.over{background:#fef7ec}
+table.lad .mo{display:block;color:#9aa0aa;font-size:11px;font-variant-numeric:tabular-nums}
+.over-key{background:#fef7ec;padding:0 5px;border-radius:3px}
 </style></head><body>
 <h1>Which AI provider should each task use — and what would it cost?</h1>
 <p class="lede">Our system uses AI for several jobs (sorting replies, checking brands, cleaning data, filtering leads).
@@ -73,6 +78,18 @@ figure is the honest one: it switches only where quality holds and is safe to do
 because the two biggest lines — <b>brand-checking</b> and the <b>lead filter</b> — stay on Anthropic (brand-checking's
 real cost is a web-search fee, ~$190–255/mo, that's the same on every provider; the lead filter loses accuracy on the
 cheaper models). The genuine, safe saving is small (~$6.47/mo), almost all from the company-name task.</p>
+
+<h2>Does paying for a higher-tier model help? (we tested the ladder)</h2>
+<p>We also walked each provider <b>up the tiers</b> — from cheapest to the point where it costs more than we
+pay today — on the <b>same 50 records</b>. Cells show the match rate with our current results and the projected
+$/month; <span class="over-key">amber</span> = costs more than today.</p>
+<table class="lad"><thead><tr><th>Task</th><th>Haiku 4.5 (current)</th><th>GPT-5.4 nano</th><th>GPT-5.4 mini</th><th>GPT-5.4</th><th>Gemini 3.1 Flash-Lite</th></tr></thead><tbody><tr><td>Sorting incoming replies</td><td class=''>90%<span class='mo'>$0.9/mo</span></td><td class=''>84%<span class='mo'>$0.11/mo</span></td><td class=''>90%<span class='mo'>$0.43/mo</span></td><td class='over'>88%<span class='mo'>$1.48/mo</span></td><td class=''>88%<span class='mo'>$0.19/mo</span></td></tr><tr><td>Tagging follow-up style</td><td class=''>70%<span class='mo'>$0.22/mo</span></td><td class=''>60%<span class='mo'>$0.03/mo</span></td><td class=''>57%<span class='mo'>$0.09/mo</span></td><td class='over'>61%<span class='mo'>$0.3/mo</span></td><td class=''>70%<span class='mo'>$0.04/mo</span></td></tr><tr><td>Filtering scraped leads</td><td class=''>80%<span class='mo'>$22.02/mo</span></td><td class=''>60%<span class='mo'>$4.1/mo</span></td><td class=''>70%<span class='mo'>$15.0/mo</span></td><td class='over'>78%<span class='mo'>$49.97/mo</span></td><td class=''>76%<span class='mo'>$5.18/mo</span></td></tr><tr><td>Cleaning up company names</td><td class=''>92%<span class='mo'>$6.42/mo</span></td><td class=''>88%<span class='mo'>$0.93/mo</span></td><td class=''>82%<span class='mo'>$3.2/mo</span></td><td class='over'>78%<span class='mo'>$11.15/mo</span></td><td class=''>90%<span class='mo'>$1.25/mo</span></td></tr><tr><td>Checking if a company is a real brand</td><td class=''>cost only<span class='mo'>$121.34/mo</span></td><td class=''>cost only<span class='mo'>$22.56/mo</span></td><td class=''>cost only<span class='mo'>$77.55/mo</span></td><td class='over'>cost only<span class='mo'>$259.46/mo</span></td><td class=''>cost only<span class='mo'>$30.22/mo</span></td></tr></tbody></table>
+<div class="box" style="border-left-color:#b45309"><b>Short answer: no — paying more doesn't buy better quality here.</b>
+On most tasks the cheapest models already match our current one, and stepping up makes <b>no difference or is
+slightly worse</b> (bigger reasoning models over-think these short, format-locked tasks — e.g. company-name accuracy
+<i>drops</i> from 88% to 78% as you go up). The only task where the cheap models trail — the <b>lead filter</b> —
+isn't rescued within budget either: the best in-budget option (Gemini Flash-Lite, 76%) still trails today's 80%, and
+even the over-budget GPT-5.4 (78%) doesn't beat it. <b>So no higher tier is worth paying for — the recommendation is unchanged.</b></div>
 
 <h2>The big one — checking if a company is a real brand</h2>
 <p>This is where almost all the money is (~$121.61/mo of AI cost at 20,000 leads/month, plus search fees — below).
