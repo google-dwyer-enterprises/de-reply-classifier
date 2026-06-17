@@ -58,10 +58,17 @@ hybrid_save = round(tot["anthropic"] - hybrid, 2)
 rows = []
 for f in R:
     a = an[f["key"]]; nm, desc = FEAT[f["key"]]
+    P = f["providers"]
+    tested = max((P[k].get("n") or 0) for k in PROV_NAME)
+    if f["key"] == "brand_verify" and BV:
+        tnote = (f" · cost measured on {tested} records; quality verified on "
+                 f"{BV['n_domains']} human-graded companies")
+    else:
+        tnote = f" · tested on {tested} real records"
     cost = (f"${a['now']}/mo" if a["now"] == a["best"]
             else f"${a['now']} → <b>${a['best']}</b>/mo")
     rows.append(f"""<tr class="t-{a['tone']}">
-      <td><b>{nm}</b><span class="desc">{desc}</span></td>
+      <td><b>{nm}</b><span class="desc">{desc}<span class="tested">{tnote}</span></span></td>
       <td>{a['can_match']}</td>
       <td class="rec">{a['rec']}</td>
       <td class="num">{cost}</td></tr>""")
@@ -92,6 +99,7 @@ th{{background:#f9fafb;color:#5e6470;font-size:12px;text-transform:uppercase;let
 td.num{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}}
 td.rec{{font-weight:600}}
 .desc{{display:block;color:#9aa0aa;font-weight:400;font-size:12.5px;margin-top:3px}}
+.tested{{font-style:italic}}
 tr.t-switch td.rec{{color:#166534}} tr.t-keep td.rec{{color:#b45309}} tr.t-review td.rec{{color:#6b7280}}
 ul{{margin:8px 0;padding-left:22px}} li{{margin:6px 0}}
 .totrow{{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}}
@@ -152,6 +160,18 @@ brand-checking <b>web-search fee</b>, which is where the real money is.</li>
 The existing markers are harmless, so we leave them. (The only case where caching would matter is moving a
 high-volume task to OpenAI, whose caching starts at a smaller size and would shave a little off the token cost —
 still minor, and not worth a switch on its own.)</p>
+
+<h2>How solid are these numbers? (measured, not guessed)</h2>
+<p>Almost everything here comes from real test runs, not estimates:</p>
+<ul>
+<li>✅ <b>Cost per task</b> — measured from <b>actual API calls</b> (real token counts) on all three providers.</li>
+<li>✅ <b>Quality / "does it match"</b> — measured on <b>50 real records per task</b> (sorting replies, follow-ups, lead filter, company names), scored against our current results. Brand-checking quality was tested on <b>{BV['n_domains'] if BV else 71} companies a human had already graded</b> ({BV['providers']['anthropic']['passes'] if BV else 36} known-good, {BV['providers']['anthropic']['fails'] if BV else 15} known-bad). Directional, not precise to the last point — but real.</li>
+<li>✅ <b>Prices</b> — each provider's <b>current published rates</b> (June 2026).</li>
+<li>✅ <b>The caching check</b> — measured live (it produced zero savings).</li>
+<li>📊 <b>Monthly totals</b> — your measured cost-per-item × your volumes. The reply and follow-up volumes are measured from the last 30 days; <b>20,000 leads/month is your stated target</b>. The per-item figure assumes the normal batch size we run in production.</li>
+<li>⚠️ <b>The one estimated piece</b> — brand-checking's <b>web-search fee</b>: how <i>many</i> searches per month is an assumption (not yet measured at 20k-lead scale), and only brand-checking's core judgment was quality-tested, not its web-search steps.</li>
+</ul>
+<p class="fine"><b>So: outside the brand-checking web-search line, treat these as real measured figures — not guesses.</b></p>
 
 <h2>How to read the numbers (plain version)</h2>
 <ul>

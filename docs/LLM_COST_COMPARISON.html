@@ -11,6 +11,7 @@ th{background:#f9fafb;color:#5e6470;font-size:12px;text-transform:uppercase;lett
 td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 td.rec{font-weight:600}
 .desc{display:block;color:#9aa0aa;font-weight:400;font-size:12.5px;margin-top:3px}
+.tested{font-style:italic}
 tr.t-switch td.rec{color:#166534} tr.t-keep td.rec{color:#b45309} tr.t-review td.rec{color:#6b7280}
 ul{margin:8px 0;padding-left:22px} li{margin:6px 0}
 .totrow{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}
@@ -38,23 +39,23 @@ cheapest models could do the same jobs as well — and what each would cost per 
 <p class="lede">"Cost/month" is the AI model cost projected at our volumes. (Brand-checking also has a separate web-search fee — see its section.)</p>
 <table><thead><tr><th>Task</th><th>Can a cheaper provider match it?</th><th>Recommendation</th><th>Cost / month</th></tr></thead>
 <tbody><tr class="t-switch">
-      <td><b>Sorting incoming replies</b><span class="desc">Reads each reply and labels it — booked, interested, not interested, and so on.</span></td>
+      <td><b>Sorting incoming replies</b><span class="desc">Reads each reply and labels it — booked, interested, not interested, and so on.<span class="tested"> · tested on 50 real records</span></span></td>
       <td>Yes — OpenAI's cheapest model matches or beats it</td>
       <td class="rec">Switch to OpenAI</td>
       <td class="num">$0.9 → <b>$0.11</b>/mo</td></tr><tr class="t-switch">
-      <td><b>Tagging follow-up style</b><span class="desc">Labels how a follow-up email was written (its tone, opening, and the ask).</span></td>
+      <td><b>Tagging follow-up style</b><span class="desc">Labels how a follow-up email was written (its tone, opening, and the ask).<span class="tested"> · tested on 50 real records</span></span></td>
       <td>Yes — Google's cheapest model matches or beats it</td>
       <td class="rec">Switch to Google</td>
       <td class="num">$0.22 → <b>$0.04</b>/mo</td></tr><tr class="t-keep">
-      <td><b>Filtering scraped leads</b><span class="desc">Decides whether a scraped company is a real product brand vs. an agency / reseller / marketplace.</span></td>
+      <td><b>Filtering scraped leads</b><span class="desc">Decides whether a scraped company is a real product brand vs. an agency / reseller / marketplace.<span class="tested"> · tested on 50 real records</span></span></td>
       <td>No — the cheaper models make more mistakes here</td>
       <td class="rec">Keep current (Anthropic)</td>
       <td class="num">$22.11/mo</td></tr><tr class="t-switch">
-      <td><b>Cleaning up company names</b><span class="desc">Picks the correct company name when our data sources disagree.</span></td>
+      <td><b>Cleaning up company names</b><span class="desc">Picks the correct company name when our data sources disagree.<span class="tested"> · tested on 50 real records</span></span></td>
       <td>Yes — OpenAI's cheapest model matches or beats it</td>
       <td class="rec">Switch to OpenAI</td>
       <td class="num">$6.43 → <b>$0.93</b>/mo</td></tr><tr class="t-review">
-      <td><b>Checking if a company is a real brand</b><span class="desc">Reads a company's website to confirm it's a genuine product brand.</span></td>
+      <td><b>Checking if a company is a real brand</b><span class="desc">Reads a company's website to confirm it's a genuine product brand.<span class="tested"> · cost measured on 50 records; quality verified on 71 human-graded companies</span></span></td>
       <td>Yes on the core check (below) — but the cost is mostly search fees, not the AI model</td>
       <td class="rec">Keep current for now</td>
       <td class="num">$121.61/mo</td></tr></tbody></table>
@@ -98,6 +99,18 @@ brand-checking <b>web-search fee</b>, which is where the real money is.</li>
 The existing markers are harmless, so we leave them. (The only case where caching would matter is moving a
 high-volume task to OpenAI, whose caching starts at a smaller size and would shave a little off the token cost —
 still minor, and not worth a switch on its own.)</p>
+
+<h2>How solid are these numbers? (measured, not guessed)</h2>
+<p>Almost everything here comes from real test runs, not estimates:</p>
+<ul>
+<li>✅ <b>Cost per task</b> — measured from <b>actual API calls</b> (real token counts) on all three providers.</li>
+<li>✅ <b>Quality / "does it match"</b> — measured on <b>50 real records per task</b> (sorting replies, follow-ups, lead filter, company names), scored against our current results. Brand-checking quality was tested on <b>71 companies a human had already graded</b> (36 known-good, 15 known-bad). Directional, not precise to the last point — but real.</li>
+<li>✅ <b>Prices</b> — each provider's <b>current published rates</b> (June 2026).</li>
+<li>✅ <b>The caching check</b> — measured live (it produced zero savings).</li>
+<li>📊 <b>Monthly totals</b> — your measured cost-per-item × your volumes. The reply and follow-up volumes are measured from the last 30 days; <b>20,000 leads/month is your stated target</b>. The per-item figure assumes the normal batch size we run in production.</li>
+<li>⚠️ <b>The one estimated piece</b> — brand-checking's <b>web-search fee</b>: how <i>many</i> searches per month is an assumption (not yet measured at 20k-lead scale), and only brand-checking's core judgment was quality-tested, not its web-search steps.</li>
+</ul>
+<p class="fine"><b>So: outside the brand-checking web-search line, treat these as real measured figures — not guesses.</b></p>
 
 <h2>How to read the numbers (plain version)</h2>
 <ul>
