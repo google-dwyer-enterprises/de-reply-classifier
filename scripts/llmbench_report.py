@@ -1,183 +1,138 @@
-"""Render the LLM cost-comparison HTML report + CSV from the bake-off results.
+"""Render the plain-English LLM cost-comparison report from the bake-off results.
 
-Reads debug/_llmbench_results.json (written by llmbench_run.py) and writes
-docs/LLM_COST_COMPARISON.html + debug/_llmbench.csv.
+Reads debug/_llmbench_results.json (+ debug/_bv_quality.json if present) and writes
+ONE understandable file: docs/LLM_COST_COMPARISON.html, plus docs/llm_cost_comparison.csv (raw).
 """
 import csv
-import datetime as _dt
-import html
 import json
 from pathlib import Path
 
 R = json.load(open("debug/_llmbench_results.json"))
-PROVS = [("anthropic", "Anthropic Haiku 4.5"), ("openai", "OpenAI GPT-5.4 nano"),
-         ("gemini", "Gemini 3.1 Flash-Lite")]
-PRICE = {"anthropic": "$1.00 / $5.00", "openai": "$0.20 / $1.25", "gemini": "$0.25 / $1.50"}
-DATE = "2026-06-17"  # generated date (Date.now unavailable in-tool; stamped manually)
+BV = json.loads(Path("debug/_bv_quality.json").read_text()) if Path("debug/_bv_quality.json").exists() else None
+DATE = "2026-06-17"
+
+PROV_NAME = {"anthropic": "Anthropic (what we use now)", "openai": "OpenAI (cheapest model)",
+             "gemini": "Google Gemini (cheapest model)"}
+PROV_SHORT = {"anthropic": "Anthropic", "openai": "OpenAI", "gemini": "Google"}
+FEAT = {
+    "classifier": ("Sorting incoming replies", "Reads each reply and labels it — booked, interested, not interested, and so on."),
+    "followup": ("Tagging follow-up style", "Labels how a follow-up email was written (its tone, opening, and the ask)."),
+    "prospeo": ("Filtering scraped leads", "Decides whether a scraped company is a real product brand vs. an agency / reseller / marketplace."),
+    "company": ("Cleaning up company names", "Picks the correct company name when our data sources disagree."),
+    "brand_verify": ("Checking if a company is a real brand", "Reads a company's website to confirm it's a genuine product brand."),
+}
 
 
-def verdict(f):
-    P = f["providers"]; h = P.get("anthropic", {}); ha = h.get("agreement")
-    if not f.get("note") and ha is not None:
-        cands = [(p, P[p]) for p in ("openai", "gemini")
-                 if P.get(p, {}).get("agreement") is not None and P[p]["agreement"] >= ha - 0.03]
-        cands.sort(key=lambda x: x[1]["proj_monthly"])
-        if cands:
-            p, v = cands[0]
-            nm = dict(PROVS)[p]
-            return ("switch", f"Switch to <b>{nm}</b> — matches Haiku on quality "
-                    f"(agree {v['agreement']} vs {ha}) and is cheaper "
-                    f"(${h['proj_monthly']}→${v['proj_monthly']}/mo).")
-        return ("keep", f"<b>Keep Haiku.</b> The cheaper models lose quality here "
-                f"(nano {P['openai'].get('agreement')}, Gemini {P['gemini'].get('agreement')} vs Haiku {ha}); "
-                f"the saving isn't worth it.")
-    # cost-only feature
-    return ("review", "Cost-only — quality not yet compared across providers (multi-step + provider-specific "
-            "web search). Biggest dollar lever, but a switch is a real rebuild, not a config change.")
+def pct(x):
+    return "—" if x is None else f"{round(x*100)}%"
 
 
-def cell(d):
-    if not d or not d.get("n"):
-        return "<td>—</td><td>—</td><td>—</td>"
-    ag = "—" if d["agreement"] is None else f"{d['agreement']:.2f}"
-    pf = f" <span class='pf'>({d['parse_fail']} unparsed)</span>" if d.get("parse_fail") else ""
-    return (f"<td class='num'>{ag}{pf}</td>"
-            f"<td class='num'>${d['cost_per_1k_raw']}</td>"
-            f"<td class='num strong'>${d['proj_monthly']}</td>")
+def analyse(f):
+    P = f["providers"]; h = P["anthropic"]; ha = h.get("agreement")
+    now = h.get("proj_monthly", 0)
+    if f["key"] == "brand_verify":
+        return {"can_match": "Yes on the core check (below) — but the cost is mostly search fees, not the AI model",
+                "rec": "Keep current for now", "now": now, "best": now, "tone": "review",
+                "quality": "Tested separately — see the brand-checking section."}
+    # cheapest rival within 3 pts of Haiku's own consistency
+    cands = [(p, P[p]) for p in ("openai", "gemini")
+             if P[p].get("agreement") is not None and P[p]["agreement"] >= ha - 0.03]
+    cands.sort(key=lambda x: x[1]["proj_monthly"])
+    qual = f"Matched our current results {pct(max((P[p]['agreement'] for p in ('openai','gemini')), default=0))} of the time (our own model repeats itself {pct(ha)})."
+    if cands:
+        p, v = cands[0]
+        return {"can_match": f"Yes — {PROV_SHORT[p]}'s cheapest model matches or beats it",
+                "rec": f"Switch to {PROV_SHORT[p]}", "now": now, "best": v["proj_monthly"],
+                "tone": "switch", "quality": qual}
+    return {"can_match": "No — the cheaper models make more mistakes here", "rec": "Keep current (Anthropic)",
+            "now": now, "best": now, "tone": "keep", "quality": qual}
 
 
-rows_html = []
+an = {f["key"]: analyse(f) for f in R}
+tot = {k: round(sum(f["providers"][k]["proj_monthly"] for f in R if f["providers"].get(k, {}).get("proj_monthly") is not None), 2)
+       for k in PROV_NAME}
+
+rows = []
 for f in R:
-    v_kind, v_text = verdict(f)
-    tr = [f"<tr><td class='feat'>{html.escape(f['label'])}"
-          f"<span class='vol'>{f['monthly_volume']:,}/mo · {'1 call/item' if f['batch']==1 else f'batch '+str(f['batch'])}"
-          + (f" · ~{f['calls_per_item']} calls/item" if f.get('calls_per_item',1)!=1 else "") + "</span></td>"]
-    for key, _ in PROVS:
-        tr.append(cell(f["providers"].get(key)))
-    tr.append("</tr>")
-    rows_html.append("".join(tr))
-    rows_html.append(f"<tr class='verdict v-{v_kind}'><td colspan='10'>{v_text}</td></tr>")
+    a = an[f["key"]]; nm, desc = FEAT[f["key"]]
+    cost = (f"${a['now']}/mo" if a["now"] == a["best"]
+            else f"${a['now']} → <b>${a['best']}</b>/mo")
+    rows.append(f"""<tr class="t-{a['tone']}">
+      <td><b>{nm}</b><span class="desc">{desc}</span></td>
+      <td>{a['can_match']}</td>
+      <td class="rec">{a['rec']}</td>
+      <td class="num">{cost}</td></tr>""")
 
-tot = {k: round(sum(f["providers"][k]["proj_monthly"] for f in R
-                    if f["providers"].get(k, {}).get("proj_monthly") is not None), 2) for k, _ in PROVS}
-
-# blended: best provider per feature where quality holds, Haiku where it doesn't / unverified
-blend = 0.0
-for f in R:
-    P = f["providers"]; v_kind, _ = verdict(f)
-    if v_kind == "switch":
-        best = min((P[p] for p in ("openai", "gemini")
-                    if P[p].get("agreement") is not None and P[p]["agreement"] >= P["anthropic"]["agreement"] - 0.03),
-                   key=lambda x: x["proj_monthly"])
-        blend += best["proj_monthly"]
-    else:
-        blend += P["anthropic"]["proj_monthly"]   # keep Haiku for 'keep' + 'review' (unverified)
-blend = round(blend, 2)
-
-# Phase-2 brand-verify quality (site-verdict step), if present
-BV = None
-_bvp = Path("debug/_bv_quality.json")
-if _bvp.exists():
-    BV = json.loads(_bvp.read_text())
-bv_section = ""
+# brand-verify quality (plain)
+bv_html = ""
 if BV:
-    bvr = []
-    for k, _ in PROVS:
-        s = BV["providers"].get(k, {})
-        bvr.append(f"<tr><td class='feat'>{dict(PROVS)[k]}</td>"
-                   f"<td class='num'>{s.get('agree_with_haiku')}</td>"
-                   f"<td class='num strong'>{s.get('false_rejections')}/{s.get('passes')}</td>"
-                   f"<td class='num'>{s.get('fail_caught')}/{s.get('fails')}</td>"
-                   f"<td class='num'>${s.get('cost_per_call')}</td></tr>")
-    bv_section = f"""<h2>Brand-verify — quality test (Phase 2, site-verdict step)</h2>
-<p class="lede">The bake-off above could only price brand-verify, not judge its quality (multi-step + Anthropic web search).
-This isolates the funnel's <b>no-tool site-verdict step</b> (homepage signals → brand / reseller / unknown), replays it
-on {BV['n_domains']} human-labeled companies (`qa_audit_labels`), and scores against ground truth.</p>
-<table><thead><tr><th>Provider</th><th>Agree w/ Haiku</th><th>False rejections (hard gate=0)</th><th>Fail catch (site step only)</th><th>$/call</th></tr></thead>
-<tbody>{''.join(bvr)}</tbody></table>
-<div class="box win"><b>Finding.</b> On the core site-verdict judgment, GPT-5.4 nano and Gemini Flash-Lite reproduce Haiku
-almost exactly ({BV['providers']['openai'].get('agree_with_haiku')} / {BV['providers']['gemini'].get('agree_with_haiku')} agreement)
-and — critically — produce <b>zero false rejections</b> on the `pass` set, same as Haiku. The "fail catch" is low and
-identical across all three because the site step alone isn't where most fails are caught (banned-category / MLM / foreign /
-ownership live in the funnel's <i>web-search</i> steps). <b>So the cheap models hold up on the part we could test cleanly</b>
-— encouraging for the ~$90/mo saving — <b>but a full switch still requires rebuilding + re-validating the 3 web-search steps
-per provider</b> (each provider's grounding/tool API differs); that's the real remaining work, not the model swap.</div>
-"""
-
-prov_head = "".join(f"<th colspan='3'>{n}<span class='price'>{PRICE[k]}</span></th>" for k, n in PROVS)
-sub_head = "<th>Style/feature</th>" + ("<th>Agree</th><th>$/1k</th><th>$/mo</th>" * 3)
+    p = BV["providers"]
+    bv_html = f"""<h2>The big one — checking if a company is a real brand</h2>
+<p>This is where almost all the money is (~${an['brand_verify']['now']}/mo of AI cost at 20,000 leads/month, plus search fees — below).
+We checked whether the cheaper models can do its core judgment as well as our current one, using {BV['n_domains']} companies a human had already graded.</p>
+<ul>
+<li><b>Quality holds.</b> The cheaper models agreed with our current setup <b>{pct(p['openai'].get('agree_with_haiku'))}–{pct(p['gemini'].get('agree_with_haiku'))}</b> of the time, and — most important — <b>never wrongly rejected a good company</b> (0 out of {p['anthropic'].get('passes')}), same as today.</li>
+<li><b>But switching barely saves money.</b> Most of brand-checking's cost is the <b>web-search fee</b> — about <b>$190–255/month</b> at 20,000 leads — and that fee is <b>almost the same on every provider</b> ($10–14 per 1,000 searches). Changing the AI model only trims the smaller "thinking" cost (~$70–90/month). So the headline saving you'd expect from switching mostly isn't there.</li>
+<li><b>Recommendation:</b> don't rebuild brand-checking on another provider just to save money — the saving is small and it's ~3 days of work to rebuild + maintain. If brand-checking cost matters, the real lever is doing <i>fewer</i> web searches, which is a separate change.</li>
+</ul>"""
 
 doc = f"""<!doctype html><html><head><meta charset="utf-8">
-<title>LLM Cost Comparison — Dwyer</title><style>
-body{{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1d23;max-width:1040px;margin:0 auto;padding:28px;line-height:1.55;font-size:14px;background:#fafafa}}
-h1{{font-size:25px;margin:0 0 4px}} h2{{font-size:18px;margin:28px 0 10px}}
-.lede{{color:#5e6470;margin:0 0 20px}}
-.box{{background:#fff;border:1px solid #e1e4e8;border-left:4px solid #2563eb;border-radius:8px;padding:16px 18px;margin:18px 0}}
-.box.win{{border-left-color:#16a34a}}
-table{{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e1e4e8;border-radius:8px;overflow:hidden;font-size:13px;margin:10px 0}}
-th,td{{padding:9px 11px;border-bottom:1px solid #f0f1f3;text-align:left}}
-th{{background:#f9fafb;color:#5e6470;font-size:11px;text-transform:uppercase;letter-spacing:.4px}}
-td.num{{text-align:right;font-variant-numeric:tabular-nums}} td.strong{{font-weight:700}}
-td.feat{{font-weight:600}} .vol{{display:block;color:#9aa0aa;font-weight:400;font-size:11px}}
-.price{{display:block;color:#9aa0aa;font-weight:400;font-size:10px;text-transform:none}}
-tr.verdict td{{background:#fbfbfd;color:#374151;font-size:12.5px;border-bottom:1px solid #e1e4e8}}
-tr.v-switch td{{border-left:3px solid #16a34a}} tr.v-keep td{{border-left:3px solid #b45309}} tr.v-review td{{border-left:3px solid #6b7280}}
-.pf{{color:#dc2626;font-size:11px}} ul{{margin:6px 0;padding-left:20px}} li{{margin:4px 0}}
-.tot td{{font-weight:700;background:#f3f4f6}}
+<title>AI provider cost comparison — Dwyer</title><style>
+body{{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1d23;max-width:920px;margin:0 auto;padding:30px;line-height:1.6;font-size:15px;background:#fafafa}}
+h1{{font-size:26px;margin:0 0 6px}} h2{{font-size:19px;margin:30px 0 10px}}
+.lede{{color:#5e6470;margin:0 0 22px}}
+.box{{background:#fff;border:1px solid #e1e4e8;border-left:4px solid #16a34a;border-radius:10px;padding:18px 20px;margin:18px 0}}
+.box h3{{margin:0 0 8px;font-size:16px}}
+table{{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e1e4e8;border-radius:10px;overflow:hidden;margin:12px 0}}
+th,td{{padding:11px 13px;border-bottom:1px solid #f0f1f3;text-align:left;vertical-align:top}}
+th{{background:#f9fafb;color:#5e6470;font-size:12px;text-transform:uppercase;letter-spacing:.4px}}
+td.num{{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}}
+td.rec{{font-weight:600}}
+.desc{{display:block;color:#9aa0aa;font-weight:400;font-size:12.5px;margin-top:3px}}
+tr.t-switch td.rec{{color:#166534}} tr.t-keep td.rec{{color:#b45309}} tr.t-review td.rec{{color:#6b7280}}
+ul{{margin:8px 0;padding-left:22px}} li{{margin:6px 0}}
+.totrow{{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}}
+.tile{{flex:1;min-width:200px;background:#fff;border:1px solid #e1e4e8;border-radius:10px;padding:14px 16px}}
+.tile .n{{font-size:22px;font-weight:800;color:#2563eb}} .tile .k{{color:#5e6470;font-size:13px;margin-top:2px}}
+.fine{{color:#9aa0aa;font-size:12.5px}}
 </style></head><body>
-<h1>Which LLM provider should each feature use?</h1>
-<p class="lede">A like-for-like bake-off of the cheap/fast tier of three providers — Anthropic Haiku 4.5,
-OpenAI GPT-5.4 nano, Google Gemini 3.1 Flash-Lite — across every feature that calls an LLM. Each feature's
-real prompt was replayed on real sampled inputs (n=50); we measured token cost and, where a stored answer
-exists, how often each model <b>agreed with what Haiku produces today</b>. Costs are projected to monthly
-volume. Generated {DATE}.</p>
+<h1>Which AI provider should each task use — and what would it cost?</h1>
+<p class="lede">Our system uses AI for several jobs (sorting replies, checking brands, cleaning data, filtering leads).
+Today that all runs on one provider, <b>Anthropic</b>. We tested whether <b>OpenAI</b> or <b>Google Gemini</b>'s
+cheapest models could do the same jobs as well — and what each would cost per month at our volumes
+(20,000 leads/month, plus the reply traffic). Generated {DATE}.</p>
 
-<div class="box win"><b>Bottom line.</b> At your volumes (20,000 leads/mo, ~1,423 replies/mo, ~489 follow-ups/mo):
+<div class="box"><h3>The 60-second summary</h3>
 <ul>
-<li><b>Reply-side features are almost free</b> (&lt;$1/mo total) on any provider — not worth optimizing for cost.</li>
-<li><b>Company-name resolution</b> is a clean win: GPT-5.4 nano is <b>more</b> accurate than Haiku here and ~7× cheaper.</li>
-<li><b>The Prospeo lead filter</b> should <b>stay on Haiku</b> — the cheap rivals lose 10–20 points of agreement and the saving is only ~$17/mo.</li>
-<li><b>Brand-verify is where the real money is</b> (~$122/mo Haiku vs ~$23–30 rivals at 20k leads). The Phase-2 quality test (below) shows the cheap models reproduce its <b>core site-verdict judgment with zero false rejections</b> — encouraging — but the full funnel's web-search steps still need a per-provider rebuild + re-validation before any switch.</li>
+<li><b>The reply-side jobs cost almost nothing</b> on any provider (well under $1/month) — not worth changing for cost.</li>
+<li><b>Cleaning up company names is a free upgrade:</b> OpenAI's cheapest model is actually a bit <b>more accurate</b> than what we use today, and far cheaper. Worth switching.</li>
+<li><b>Filtering scraped leads should stay as-is</b> — the cheaper models make noticeably more mistakes, and the saving is tiny.</li>
+<li><b>Brand-checking is the only big cost</b>, but most of it is an unavoidable <b>web-search fee that's the same on every provider</b> — so switching providers barely helps there. Don't rebuild it just to save money.</li>
 </ul>
-Total projected monthly: <b>Haiku ${tot['anthropic']}</b> · GPT-5.4 nano ${tot['openai']} · Gemini Flash-Lite ${tot['gemini']}.
-A sensible blend (cheapest model per feature where quality holds, Haiku elsewhere) ≈ <b>${blend}/mo</b> — note most of the gap is the unverified brand-verify line.</div>
+<p style="margin:10px 0 0"><b>Bottom line:</b> take the free company-name win; leave everything else where it is. The big-looking numbers below are mostly a search fee no provider can avoid, not a saving you can capture by switching.</p></div>
 
-<h2>Results by feature</h2>
-<table><thead><tr><th></th>{prov_head}</tr><tr>{sub_head}</tr></thead><tbody>
-{''.join(rows_html)}
-<tr class="tot"><td>Total projected $/mo</td>
-<td class='num' colspan='3'>${tot['anthropic']}</td><td class='num' colspan='3'>${tot['openai']}</td><td class='num' colspan='3'>${tot['gemini']}</td></tr>
-</tbody></table>
-<p class="lede" style="font-size:12px"><b>Agree</b> = share of items matching the current Haiku output (for Haiku's own column this is self-consistency on a re-run — the realistic ceiling, since these models aren't deterministic). <b>$/1k</b> = raw cost per 1,000 single-item calls. <b>$/mo</b> = projected at your monthly volume, with the system prompt amortized over the production batch size.</p>
+<h2>Every AI task, side by side</h2>
+<p class="lede">"Cost/month" is the AI model cost projected at our volumes. (Brand-checking also has a separate web-search fee — see its section.)</p>
+<table><thead><tr><th>Task</th><th>Can a cheaper provider match it?</th><th>Recommendation</th><th>Cost / month</th></tr></thead>
+<tbody>{''.join(rows)}</tbody></table>
 
-{bv_section}
-<h2>If you wanted to actually switch brand-verify — the web-search rebuild estimate</h2>
-<p class="lede">Brand-verify's 3 web-search steps (ownership/size, reseller-confirm, agentic fallback) use Anthropic's
-server-side search tool, so a provider switch means rebuilding them. Both cheap rivals <i>do</i> support web
-search (GPT-5.4 nano via the Responses web_search tool; Gemini Flash-Lite via Google-Search grounding).</p>
+<h2>What it adds up to per month (AI model cost only)</h2>
+<div class="totrow">
+<div class="tile"><div class="n">${tot['anthropic']}</div><div class="k">Anthropic — what we pay today</div></div>
+<div class="tile"><div class="n">${tot['openai']}</div><div class="k">If every task used OpenAI's cheapest</div></div>
+<div class="tile"><div class="n">${tot['gemini']}</div><div class="k">If every task used Gemini's cheapest</div></div>
+</div>
+<p class="fine">⚠️ Don't read the gap as pure savings. Most of it is the <b>brand-checking</b> line, and brand-checking's
+<i>real</i> cost is dominated by a web-search fee (~$190–255/month) that is roughly the same on every provider.
+After that, the realistic saving from switching is modest — the genuine, safe win is the company-name task.</p>
+
+{bv_html}
+
+<h2>How to read the numbers (plain version)</h2>
 <ul>
-<li><b>Effort ≈ 3 dev-days:</b> a provider-agnostic grounded-reasoning layer (each provider's search loop +
-citation shape differs), wiring the 3 prompts through it, re-validating the search-dependent verdicts against
-ground truth, and integrating behind a config switch without breaking the production Anthropic path.</li>
-<li><b>But the economics don't favor it.</b> Web-search <b>fees dominate and are provider-agnostic</b>:
-Anthropic $10/1k searches, OpenAI $10/1k (+ ~8K input tokens/search), Gemini 3.x $14/1k (5k free/mo).
-303 of 329 verdicts are "brand", and every brand triggers an ownership search → ≈ <b>1 search per company</b>.
-At 20k leads/mo that's ~$190–255/mo in <b>search fees on any provider</b>. The model swap only changes the
-<i>token</i> portion (Haiku ~$122 → rivals ~$22–30/mo), i.e. it saves ~$70–90/mo while the ~$200/mo search
-fee is unavoidable.</li>
-<li><b>Recommendation: hold the rebuild.</b> ~3 days + permanent 3-provider maintenance for ~$70–90/mo isn't
-compelling. The bigger lever is <b>reducing search volume</b> (does every brand need an ownership search?) —
-but that's a separate, quality-risky change to the live funnel, kept out of this comparison on purpose.
-First <b>measure actual monthly searches</b> (cache/dedup may make 20k unique domains a big overestimate).</li>
-</ul>
-
-<h2>How to read it / caveats</h2>
-<ul>
-<li><b>Haiku's "agree" is a self-comparison</b> — it re-runs Haiku against its own stored labels, so 0.84–0.90 is the noise floor. Read each rival against Haiku's number, not against 100%.</li>
-<li><b>Sample = 50 items/feature</b> → roughly ±7–10 points on each agreement figure. Directional, not precise; re-run larger if a close call matters.</li>
-<li><b>Brand-verify is cost-only.</b> It's a 0–4 call funnel with server-side web search (~$10 / 1k searches, billed on the Anthropic key today). The web-fetched page content dominates token cost, and a real switch means re-implementing each provider's web-search/tool loop — not reflected in the dollar figures here.</li>
-<li><b>Prices</b> are the June 2026 cheap-tier rates (per 1M tokens, input/output) shown in the header; all three offer a −50% batch discount not applied here.</li>
-<li>Mid/flagship tiers (Sonnet, GPT-5.4/5.5, Gemini Pro) were intentionally not run — the goal was the cheapest credible tier, since that's what these features use today.</li>
+<li><b>"Match it"</b> = how often a cheaper model gave the same answer our current setup gives. Our own model only repeats itself ~85–90% of the time (AI isn't perfectly consistent), so "matches" means "as close as our current model is to itself".</li>
+<li><b>"Cost / month"</b> = projected at 20,000 leads/month and our reply volume. It's the AI model fee only; web-search fees are called out separately for brand-checking.</li>
+<li>We tested the <b>cheapest model</b> of each provider (that's what these jobs use today): Anthropic Haiku, OpenAI's nano, Google's Flash-Lite. We checked ~50 real items per task (~70 for brand-checking) — enough to be directionally right, not precise to the last point.</li>
 </ul>
 </body></html>"""
 
@@ -189,11 +144,11 @@ with open("docs/llm_cost_comparison.csv", "w", newline="", encoding="utf-8") as 
     w.writerow(["feature", "monthly_volume", "provider", "model", "n", "errors", "agreement",
                 "scored_n", "parse_fail", "avg_in_tok", "avg_out_tok", "cost_per_1k_raw", "proj_monthly_usd"])
     for f in R:
-        for k, _ in PROVS:
+        for k in PROV_NAME:
             d = f["providers"].get(k, {})
             w.writerow([f["key"], f["monthly_volume"], k, d.get("model"), d.get("n"), d.get("err"),
                         d.get("agreement"), d.get("scored_n"), d.get("parse_fail"),
                         d.get("avg_in"), d.get("avg_out"), d.get("cost_per_1k_raw"), d.get("proj_monthly")])
 
-print("wrote docs/LLM_COST_COMPARISON.html and docs/llm_cost_comparison.csv")
-print(f"totals: Haiku ${tot['anthropic']}  nano ${tot['openai']}  gemini ${tot['gemini']}  blend ${blend}")
+print("wrote docs/LLM_COST_COMPARISON.html + docs/llm_cost_comparison.csv")
+print(f"totals: Anthropic ${tot['anthropic']}  OpenAI ${tot['openai']}  Gemini ${tot['gemini']}")

@@ -1,86 +1,86 @@
 <!doctype html><html><head><meta charset="utf-8">
-<title>LLM Cost Comparison — Dwyer</title><style>
-body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1d23;max-width:1040px;margin:0 auto;padding:28px;line-height:1.55;font-size:14px;background:#fafafa}
-h1{font-size:25px;margin:0 0 4px} h2{font-size:18px;margin:28px 0 10px}
-.lede{color:#5e6470;margin:0 0 20px}
-.box{background:#fff;border:1px solid #e1e4e8;border-left:4px solid #2563eb;border-radius:8px;padding:16px 18px;margin:18px 0}
-.box.win{border-left-color:#16a34a}
-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e1e4e8;border-radius:8px;overflow:hidden;font-size:13px;margin:10px 0}
-th,td{padding:9px 11px;border-bottom:1px solid #f0f1f3;text-align:left}
-th{background:#f9fafb;color:#5e6470;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
-td.num{text-align:right;font-variant-numeric:tabular-nums} td.strong{font-weight:700}
-td.feat{font-weight:600} .vol{display:block;color:#9aa0aa;font-weight:400;font-size:11px}
-.price{display:block;color:#9aa0aa;font-weight:400;font-size:10px;text-transform:none}
-tr.verdict td{background:#fbfbfd;color:#374151;font-size:12.5px;border-bottom:1px solid #e1e4e8}
-tr.v-switch td{border-left:3px solid #16a34a} tr.v-keep td{border-left:3px solid #b45309} tr.v-review td{border-left:3px solid #6b7280}
-.pf{color:#dc2626;font-size:11px} ul{margin:6px 0;padding-left:20px} li{margin:4px 0}
-.tot td{font-weight:700;background:#f3f4f6}
+<title>AI provider cost comparison — Dwyer</title><style>
+body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1d23;max-width:920px;margin:0 auto;padding:30px;line-height:1.6;font-size:15px;background:#fafafa}
+h1{font-size:26px;margin:0 0 6px} h2{font-size:19px;margin:30px 0 10px}
+.lede{color:#5e6470;margin:0 0 22px}
+.box{background:#fff;border:1px solid #e1e4e8;border-left:4px solid #16a34a;border-radius:10px;padding:18px 20px;margin:18px 0}
+.box h3{margin:0 0 8px;font-size:16px}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e1e4e8;border-radius:10px;overflow:hidden;margin:12px 0}
+th,td{padding:11px 13px;border-bottom:1px solid #f0f1f3;text-align:left;vertical-align:top}
+th{background:#f9fafb;color:#5e6470;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.rec{font-weight:600}
+.desc{display:block;color:#9aa0aa;font-weight:400;font-size:12.5px;margin-top:3px}
+tr.t-switch td.rec{color:#166534} tr.t-keep td.rec{color:#b45309} tr.t-review td.rec{color:#6b7280}
+ul{margin:8px 0;padding-left:22px} li{margin:6px 0}
+.totrow{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}
+.tile{flex:1;min-width:200px;background:#fff;border:1px solid #e1e4e8;border-radius:10px;padding:14px 16px}
+.tile .n{font-size:22px;font-weight:800;color:#2563eb} .tile .k{color:#5e6470;font-size:13px;margin-top:2px}
+.fine{color:#9aa0aa;font-size:12.5px}
 </style></head><body>
-<h1>Which LLM provider should each feature use?</h1>
-<p class="lede">A like-for-like bake-off of the cheap/fast tier of three providers — Anthropic Haiku 4.5,
-OpenAI GPT-5.4 nano, Google Gemini 3.1 Flash-Lite — across every feature that calls an LLM. Each feature's
-real prompt was replayed on real sampled inputs (n=50); we measured token cost and, where a stored answer
-exists, how often each model <b>agreed with what Haiku produces today</b>. Costs are projected to monthly
-volume. Generated 2026-06-17.</p>
+<h1>Which AI provider should each task use — and what would it cost?</h1>
+<p class="lede">Our system uses AI for several jobs (sorting replies, checking brands, cleaning data, filtering leads).
+Today that all runs on one provider, <b>Anthropic</b>. We tested whether <b>OpenAI</b> or <b>Google Gemini</b>'s
+cheapest models could do the same jobs as well — and what each would cost per month at our volumes
+(20,000 leads/month, plus the reply traffic). Generated 2026-06-17.</p>
 
-<div class="box win"><b>Bottom line.</b> At your volumes (20,000 leads/mo, ~1,423 replies/mo, ~489 follow-ups/mo):
+<div class="box"><h3>The 60-second summary</h3>
 <ul>
-<li><b>Reply-side features are almost free</b> (&lt;$1/mo total) on any provider — not worth optimizing for cost.</li>
-<li><b>Company-name resolution</b> is a clean win: GPT-5.4 nano is <b>more</b> accurate than Haiku here and ~7× cheaper.</li>
-<li><b>The Prospeo lead filter</b> should <b>stay on Haiku</b> — the cheap rivals lose 10–20 points of agreement and the saving is only ~$17/mo.</li>
-<li><b>Brand-verify is where the real money is</b> (~$122/mo Haiku vs ~$23–30 rivals at 20k leads). The Phase-2 quality test (below) shows the cheap models reproduce its <b>core site-verdict judgment with zero false rejections</b> — encouraging — but the full funnel's web-search steps still need a per-provider rebuild + re-validation before any switch.</li>
+<li><b>The reply-side jobs cost almost nothing</b> on any provider (well under $1/month) — not worth changing for cost.</li>
+<li><b>Cleaning up company names is a free upgrade:</b> OpenAI's cheapest model is actually a bit <b>more accurate</b> than what we use today, and far cheaper. Worth switching.</li>
+<li><b>Filtering scraped leads should stay as-is</b> — the cheaper models make noticeably more mistakes, and the saving is tiny.</li>
+<li><b>Brand-checking is the only big cost</b>, but most of it is an unavoidable <b>web-search fee that's the same on every provider</b> — so switching providers barely helps there. Don't rebuild it just to save money.</li>
 </ul>
-Total projected monthly: <b>Haiku $151.27</b> · GPT-5.4 nano $27.73 · Gemini Flash-Lite $36.91.
-A sensible blend (cheapest model per feature where quality holds, Haiku elsewhere) ≈ <b>$144.8/mo</b> — note most of the gap is the unverified brand-verify line.</div>
+<p style="margin:10px 0 0"><b>Bottom line:</b> take the free company-name win; leave everything else where it is. The big-looking numbers below are mostly a search fee no provider can avoid, not a saving you can capture by switching.</p></div>
 
-<h2>Results by feature</h2>
-<table><thead><tr><th></th><th colspan='3'>Anthropic Haiku 4.5<span class='price'>$1.00 / $5.00</span></th><th colspan='3'>OpenAI GPT-5.4 nano<span class='price'>$0.20 / $1.25</span></th><th colspan='3'>Gemini 3.1 Flash-Lite<span class='price'>$0.25 / $1.50</span></th></tr><tr><th>Style/feature</th><th>Agree</th><th>$/1k</th><th>$/mo</th><th>Agree</th><th>$/1k</th><th>$/mo</th><th>Agree</th><th>$/1k</th><th>$/mo</th></tr></thead><tbody>
-<tr><td class='feat'>Reply classifier<span class='vol'>1,423/mo · batch 25</span></td><td class='num'>0.90</td><td class='num'>$2.1031</td><td class='num strong'>$0.9</td><td class='num'>0.88</td><td class='num'>$0.374</td><td class='num strong'>$0.11</td><td class='num'>0.90</td><td class='num'>$0.5016</td><td class='num strong'>$0.19</td></tr><tr class='verdict v-switch'><td colspan='10'>Switch to <b>OpenAI GPT-5.4 nano</b> — matches Haiku on quality (agree 0.88 vs 0.9) and is cheaper ($0.9→$0.11/mo).</td></tr><tr><td class='feat'>Follow-up tagging (4 dims)<span class='vol'>489/mo · batch 25</span></td><td class='num'>0.69</td><td class='num'>$1.0374</td><td class='num strong'>$0.22</td><td class='num'>0.57</td><td class='num'>$0.1776</td><td class='num strong'>$0.03</td><td class='num'>0.68</td><td class='num'>$0.2313</td><td class='num strong'>$0.04</td></tr><tr class='verdict v-switch'><td colspan='10'>Switch to <b>Gemini 3.1 Flash-Lite</b> — matches Haiku on quality (agree 0.675 vs 0.695) and is cheaper ($0.22→$0.04/mo).</td></tr><tr><td class='feat'>Prospeo lead filter<span class='vol'>20,000/mo · 1 call/item</span></td><td class='num'>0.84</td><td class='num'>$1.1055</td><td class='num strong'>$22.11</td><td class='num'>0.64</td><td class='num'>$0.2052</td><td class='num strong'>$4.1</td><td class='num'>0.74</td><td class='num'>$0.2591</td><td class='num strong'>$5.18</td></tr><tr class='verdict v-keep'><td colspan='10'><b>Keep Haiku.</b> The cheaper models lose quality here (nano 0.64, Gemini 0.74 vs Haiku 0.84); the saving isn't worth it.</td></tr><tr><td class='feat'>Company-name resolution<span class='vol'>20,000/mo · batch 25</span></td><td class='num'>0.88</td><td class='num'>$0.6421</td><td class='num strong'>$6.43</td><td class='num'>0.92</td><td class='num'>$0.1106</td><td class='num strong'>$0.93</td><td class='num'>0.90</td><td class='num'>$0.143</td><td class='num strong'>$1.26</td></tr><tr class='verdict v-switch'><td colspan='10'>Switch to <b>OpenAI GPT-5.4 nano</b> — matches Haiku on quality (agree 0.92 vs 0.88) and is cheaper ($6.43→$0.93/mo).</td></tr><tr><td class='feat'>Brand verify (site step; cost-only)<span class='vol'>20,000/mo · 1 call/item · ~2.0 calls/item</span></td><td class='num'>—</td><td class='num'>$3.0402</td><td class='num strong'>$121.61</td><td class='num'>—</td><td class='num'>$0.5641</td><td class='num strong'>$22.56</td><td class='num'>—</td><td class='num'>$0.7559</td><td class='num strong'>$30.24</td></tr><tr class='verdict v-review'><td colspan='10'>Cost-only — quality not yet compared across providers (multi-step + provider-specific web search). Biggest dollar lever, but a switch is a real rebuild, not a config change.</td></tr>
-<tr class="tot"><td>Total projected $/mo</td>
-<td class='num' colspan='3'>$151.27</td><td class='num' colspan='3'>$27.73</td><td class='num' colspan='3'>$36.91</td></tr>
-</tbody></table>
-<p class="lede" style="font-size:12px"><b>Agree</b> = share of items matching the current Haiku output (for Haiku's own column this is self-consistency on a re-run — the realistic ceiling, since these models aren't deterministic). <b>$/1k</b> = raw cost per 1,000 single-item calls. <b>$/mo</b> = projected at your monthly volume, with the system prompt amortized over the production batch size.</p>
+<h2>Every AI task, side by side</h2>
+<p class="lede">"Cost/month" is the AI model cost projected at our volumes. (Brand-checking also has a separate web-search fee — see its section.)</p>
+<table><thead><tr><th>Task</th><th>Can a cheaper provider match it?</th><th>Recommendation</th><th>Cost / month</th></tr></thead>
+<tbody><tr class="t-switch">
+      <td><b>Sorting incoming replies</b><span class="desc">Reads each reply and labels it — booked, interested, not interested, and so on.</span></td>
+      <td>Yes — OpenAI's cheapest model matches or beats it</td>
+      <td class="rec">Switch to OpenAI</td>
+      <td class="num">$0.9 → <b>$0.11</b>/mo</td></tr><tr class="t-switch">
+      <td><b>Tagging follow-up style</b><span class="desc">Labels how a follow-up email was written (its tone, opening, and the ask).</span></td>
+      <td>Yes — Google's cheapest model matches or beats it</td>
+      <td class="rec">Switch to Google</td>
+      <td class="num">$0.22 → <b>$0.04</b>/mo</td></tr><tr class="t-keep">
+      <td><b>Filtering scraped leads</b><span class="desc">Decides whether a scraped company is a real product brand vs. an agency / reseller / marketplace.</span></td>
+      <td>No — the cheaper models make more mistakes here</td>
+      <td class="rec">Keep current (Anthropic)</td>
+      <td class="num">$22.11/mo</td></tr><tr class="t-switch">
+      <td><b>Cleaning up company names</b><span class="desc">Picks the correct company name when our data sources disagree.</span></td>
+      <td>Yes — OpenAI's cheapest model matches or beats it</td>
+      <td class="rec">Switch to OpenAI</td>
+      <td class="num">$6.43 → <b>$0.93</b>/mo</td></tr><tr class="t-review">
+      <td><b>Checking if a company is a real brand</b><span class="desc">Reads a company's website to confirm it's a genuine product brand.</span></td>
+      <td>Yes on the core check (below) — but the cost is mostly search fees, not the AI model</td>
+      <td class="rec">Keep current for now</td>
+      <td class="num">$121.61/mo</td></tr></tbody></table>
 
-<h2>Brand-verify — quality test (Phase 2, site-verdict step)</h2>
-<p class="lede">The bake-off above could only price brand-verify, not judge its quality (multi-step + Anthropic web search).
-This isolates the funnel's <b>no-tool site-verdict step</b> (homepage signals → brand / reseller / unknown), replays it
-on 71 human-labeled companies (`qa_audit_labels`), and scores against ground truth.</p>
-<table><thead><tr><th>Provider</th><th>Agree w/ Haiku</th><th>False rejections (hard gate=0)</th><th>Fail catch (site step only)</th><th>$/call</th></tr></thead>
-<tbody><tr><td class='feat'>Anthropic Haiku 4.5</td><td class='num'>1.0</td><td class='num strong'>0/36</td><td class='num'>1/15</td><td class='num'>$0.00396</td></tr><tr><td class='feat'>OpenAI GPT-5.4 nano</td><td class='num'>0.972</td><td class='num strong'>0/36</td><td class='num'>1/15</td><td class='num'>$0.00067</td></tr><tr><td class='feat'>Gemini 3.1 Flash-Lite</td><td class='num'>0.986</td><td class='num strong'>0/36</td><td class='num'>1/15</td><td class='num'>$0.000889</td></tr></tbody></table>
-<div class="box win"><b>Finding.</b> On the core site-verdict judgment, GPT-5.4 nano and Gemini Flash-Lite reproduce Haiku
-almost exactly (0.972 / 0.986 agreement)
-and — critically — produce <b>zero false rejections</b> on the `pass` set, same as Haiku. The "fail catch" is low and
-identical across all three because the site step alone isn't where most fails are caught (banned-category / MLM / foreign /
-ownership live in the funnel's <i>web-search</i> steps). <b>So the cheap models hold up on the part we could test cleanly</b>
-— encouraging for the ~$90/mo saving — <b>but a full switch still requires rebuilding + re-validating the 3 web-search steps
-per provider</b> (each provider's grounding/tool API differs); that's the real remaining work, not the model swap.</div>
+<h2>What it adds up to per month (AI model cost only)</h2>
+<div class="totrow">
+<div class="tile"><div class="n">$151.27</div><div class="k">Anthropic — what we pay today</div></div>
+<div class="tile"><div class="n">$27.73</div><div class="k">If every task used OpenAI's cheapest</div></div>
+<div class="tile"><div class="n">$36.91</div><div class="k">If every task used Gemini's cheapest</div></div>
+</div>
+<p class="fine">⚠️ Don't read the gap as pure savings. Most of it is the <b>brand-checking</b> line, and brand-checking's
+<i>real</i> cost is dominated by a web-search fee (~$190–255/month) that is roughly the same on every provider.
+After that, the realistic saving from switching is modest — the genuine, safe win is the company-name task.</p>
 
-<h2>If you wanted to actually switch brand-verify — the web-search rebuild estimate</h2>
-<p class="lede">Brand-verify's 3 web-search steps (ownership/size, reseller-confirm, agentic fallback) use Anthropic's
-server-side search tool, so a provider switch means rebuilding them. Both cheap rivals <i>do</i> support web
-search (GPT-5.4 nano via the Responses web_search tool; Gemini Flash-Lite via Google-Search grounding).</p>
+<h2>The big one — checking if a company is a real brand</h2>
+<p>This is where almost all the money is (~$121.61/mo of AI cost at 20,000 leads/month, plus search fees — below).
+We checked whether the cheaper models can do its core judgment as well as our current one, using 71 companies a human had already graded.</p>
 <ul>
-<li><b>Effort ≈ 3 dev-days:</b> a provider-agnostic grounded-reasoning layer (each provider's search loop +
-citation shape differs), wiring the 3 prompts through it, re-validating the search-dependent verdicts against
-ground truth, and integrating behind a config switch without breaking the production Anthropic path.</li>
-<li><b>But the economics don't favor it.</b> Web-search <b>fees dominate and are provider-agnostic</b>:
-Anthropic $10/1k searches, OpenAI $10/1k (+ ~8K input tokens/search), Gemini 3.x $14/1k (5k free/mo).
-303 of 329 verdicts are "brand", and every brand triggers an ownership search → ≈ <b>1 search per company</b>.
-At 20k leads/mo that's ~$190–255/mo in <b>search fees on any provider</b>. The model swap only changes the
-<i>token</i> portion (Haiku ~$122 → rivals ~$22–30/mo), i.e. it saves ~$70–90/mo while the ~$200/mo search
-fee is unavoidable.</li>
-<li><b>Recommendation: hold the rebuild.</b> ~3 days + permanent 3-provider maintenance for ~$70–90/mo isn't
-compelling. The bigger lever is <b>reducing search volume</b> (does every brand need an ownership search?) —
-but that's a separate, quality-risky change to the live funnel, kept out of this comparison on purpose.
-First <b>measure actual monthly searches</b> (cache/dedup may make 20k unique domains a big overestimate).</li>
+<li><b>Quality holds.</b> The cheaper models agreed with our current setup <b>97%–99%</b> of the time, and — most important — <b>never wrongly rejected a good company</b> (0 out of 36), same as today.</li>
+<li><b>But switching barely saves money.</b> Most of brand-checking's cost is the <b>web-search fee</b> — about <b>$190–255/month</b> at 20,000 leads — and that fee is <b>almost the same on every provider</b> ($10–14 per 1,000 searches). Changing the AI model only trims the smaller "thinking" cost (~$70–90/month). So the headline saving you'd expect from switching mostly isn't there.</li>
+<li><b>Recommendation:</b> don't rebuild brand-checking on another provider just to save money — the saving is small and it's ~3 days of work to rebuild + maintain. If brand-checking cost matters, the real lever is doing <i>fewer</i> web searches, which is a separate change.</li>
 </ul>
 
-<h2>How to read it / caveats</h2>
+<h2>How to read the numbers (plain version)</h2>
 <ul>
-<li><b>Haiku's "agree" is a self-comparison</b> — it re-runs Haiku against its own stored labels, so 0.84–0.90 is the noise floor. Read each rival against Haiku's number, not against 100%.</li>
-<li><b>Sample = 50 items/feature</b> → roughly ±7–10 points on each agreement figure. Directional, not precise; re-run larger if a close call matters.</li>
-<li><b>Brand-verify is cost-only.</b> It's a 0–4 call funnel with server-side web search (~$10 / 1k searches, billed on the Anthropic key today). The web-fetched page content dominates token cost, and a real switch means re-implementing each provider's web-search/tool loop — not reflected in the dollar figures here.</li>
-<li><b>Prices</b> are the June 2026 cheap-tier rates (per 1M tokens, input/output) shown in the header; all three offer a −50% batch discount not applied here.</li>
-<li>Mid/flagship tiers (Sonnet, GPT-5.4/5.5, Gemini Pro) were intentionally not run — the goal was the cheapest credible tier, since that's what these features use today.</li>
+<li><b>"Match it"</b> = how often a cheaper model gave the same answer our current setup gives. Our own model only repeats itself ~85–90% of the time (AI isn't perfectly consistent), so "matches" means "as close as our current model is to itself".</li>
+<li><b>"Cost / month"</b> = projected at 20,000 leads/month and our reply volume. It's the AI model fee only; web-search fees are called out separately for brand-checking.</li>
+<li>We tested the <b>cheapest model</b> of each provider (that's what these jobs use today): Anthropic Haiku, OpenAI's nano, Google's Flash-Lite. We checked ~50 real items per task (~70 for brand-checking) — enough to be directionally right, not precise to the last point.</li>
 </ul>
 </body></html>
