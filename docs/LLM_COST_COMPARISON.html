@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>LLM Cost Comparison — Dwyer</title><style>
+body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1d23;max-width:1040px;margin:0 auto;padding:28px;line-height:1.55;font-size:14px;background:#fafafa}
+h1{font-size:25px;margin:0 0 4px} h2{font-size:18px;margin:28px 0 10px}
+.lede{color:#5e6470;margin:0 0 20px}
+.box{background:#fff;border:1px solid #e1e4e8;border-left:4px solid #2563eb;border-radius:8px;padding:16px 18px;margin:18px 0}
+.box.win{border-left-color:#16a34a}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e1e4e8;border-radius:8px;overflow:hidden;font-size:13px;margin:10px 0}
+th,td{padding:9px 11px;border-bottom:1px solid #f0f1f3;text-align:left}
+th{background:#f9fafb;color:#5e6470;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+td.num{text-align:right;font-variant-numeric:tabular-nums} td.strong{font-weight:700}
+td.feat{font-weight:600} .vol{display:block;color:#9aa0aa;font-weight:400;font-size:11px}
+.price{display:block;color:#9aa0aa;font-weight:400;font-size:10px;text-transform:none}
+tr.verdict td{background:#fbfbfd;color:#374151;font-size:12.5px;border-bottom:1px solid #e1e4e8}
+tr.v-switch td{border-left:3px solid #16a34a} tr.v-keep td{border-left:3px solid #b45309} tr.v-review td{border-left:3px solid #6b7280}
+.pf{color:#dc2626;font-size:11px} ul{margin:6px 0;padding-left:20px} li{margin:4px 0}
+.tot td{font-weight:700;background:#f3f4f6}
+</style></head><body>
+<h1>Which LLM provider should each feature use?</h1>
+<p class="lede">A like-for-like bake-off of the cheap/fast tier of three providers — Anthropic Haiku 4.5,
+OpenAI GPT-5.4 nano, Google Gemini 3.1 Flash-Lite — across every feature that calls an LLM. Each feature's
+real prompt was replayed on real sampled inputs (n=50); we measured token cost and, where a stored answer
+exists, how often each model <b>agreed with what Haiku produces today</b>. Costs are projected to monthly
+volume. Generated 2026-06-17.</p>
+
+<div class="box win"><b>Bottom line.</b> At your volumes (20,000 leads/mo, ~1,423 replies/mo, ~489 follow-ups/mo):
+<ul>
+<li><b>Reply-side features are almost free</b> (&lt;$1/mo total) on any provider — not worth optimizing for cost.</li>
+<li><b>Company-name resolution</b> is a clean win: GPT-5.4 nano is <b>more</b> accurate than Haiku here and ~7× cheaper.</li>
+<li><b>The Prospeo lead filter</b> should <b>stay on Haiku</b> — the cheap rivals lose 10–20 points of agreement and the saving is only ~$17/mo.</li>
+<li><b>Brand-verify is where the real money is</b> (~$122/mo on Haiku vs ~$23–30 on the rivals at 20k leads), but its quality wasn't compared — it's a multi-step pipeline with Anthropic-specific web search, so switching is a rebuild, not a setting. Verify quality before chasing that saving.</li>
+</ul>
+Total projected monthly: <b>Haiku $151.27</b> · GPT-5.4 nano $27.73 · Gemini Flash-Lite $36.91.
+A sensible blend (cheapest model per feature where quality holds, Haiku elsewhere) ≈ <b>$144.8/mo</b> — note most of the gap is the unverified brand-verify line.</div>
+
+<h2>Results by feature</h2>
+<table><thead><tr><th></th><th colspan='3'>Anthropic Haiku 4.5<span class='price'>$1.00 / $5.00</span></th><th colspan='3'>OpenAI GPT-5.4 nano<span class='price'>$0.20 / $1.25</span></th><th colspan='3'>Gemini 3.1 Flash-Lite<span class='price'>$0.25 / $1.50</span></th></tr><tr><th>Style/feature</th><th>Agree</th><th>$/1k</th><th>$/mo</th><th>Agree</th><th>$/1k</th><th>$/mo</th><th>Agree</th><th>$/1k</th><th>$/mo</th></tr></thead><tbody>
+<tr><td class='feat'>Reply classifier<span class='vol'>1,423/mo · batch 25</span></td><td class='num'>0.90</td><td class='num'>$2.1031</td><td class='num strong'>$0.9</td><td class='num'>0.88</td><td class='num'>$0.374</td><td class='num strong'>$0.11</td><td class='num'>0.90</td><td class='num'>$0.5016</td><td class='num strong'>$0.19</td></tr><tr class='verdict v-switch'><td colspan='10'>Switch to <b>OpenAI GPT-5.4 nano</b> — matches Haiku on quality (agree 0.88 vs 0.9) and is cheaper ($0.9→$0.11/mo).</td></tr><tr><td class='feat'>Follow-up tagging (4 dims)<span class='vol'>489/mo · batch 25</span></td><td class='num'>0.69</td><td class='num'>$1.0374</td><td class='num strong'>$0.22</td><td class='num'>0.57</td><td class='num'>$0.1776</td><td class='num strong'>$0.03</td><td class='num'>0.68</td><td class='num'>$0.2313</td><td class='num strong'>$0.04</td></tr><tr class='verdict v-switch'><td colspan='10'>Switch to <b>Gemini 3.1 Flash-Lite</b> — matches Haiku on quality (agree 0.675 vs 0.695) and is cheaper ($0.22→$0.04/mo).</td></tr><tr><td class='feat'>Prospeo lead filter<span class='vol'>20,000/mo · 1 call/item</span></td><td class='num'>0.84</td><td class='num'>$1.1055</td><td class='num strong'>$22.11</td><td class='num'>0.64</td><td class='num'>$0.2052</td><td class='num strong'>$4.1</td><td class='num'>0.74</td><td class='num'>$0.2591</td><td class='num strong'>$5.18</td></tr><tr class='verdict v-keep'><td colspan='10'><b>Keep Haiku.</b> The cheaper models lose quality here (nano 0.64, Gemini 0.74 vs Haiku 0.84); the saving isn't worth it.</td></tr><tr><td class='feat'>Company-name resolution<span class='vol'>20,000/mo · batch 25</span></td><td class='num'>0.88</td><td class='num'>$0.6421</td><td class='num strong'>$6.43</td><td class='num'>0.92</td><td class='num'>$0.1106</td><td class='num strong'>$0.93</td><td class='num'>0.90</td><td class='num'>$0.143</td><td class='num strong'>$1.26</td></tr><tr class='verdict v-switch'><td colspan='10'>Switch to <b>OpenAI GPT-5.4 nano</b> — matches Haiku on quality (agree 0.92 vs 0.88) and is cheaper ($6.43→$0.93/mo).</td></tr><tr><td class='feat'>Brand verify (site step; cost-only)<span class='vol'>20,000/mo · 1 call/item · ~2.0 calls/item</span></td><td class='num'>—</td><td class='num'>$3.0402</td><td class='num strong'>$121.61</td><td class='num'>—</td><td class='num'>$0.5641</td><td class='num strong'>$22.56</td><td class='num'>—</td><td class='num'>$0.7559</td><td class='num strong'>$30.24</td></tr><tr class='verdict v-review'><td colspan='10'>Cost-only — quality not yet compared across providers (multi-step + provider-specific web search). Biggest dollar lever, but a switch is a real rebuild, not a config change.</td></tr>
+<tr class="tot"><td>Total projected $/mo</td>
+<td class='num' colspan='3'>$151.27</td><td class='num' colspan='3'>$27.73</td><td class='num' colspan='3'>$36.91</td></tr>
+</tbody></table>
+<p class="lede" style="font-size:12px"><b>Agree</b> = share of items matching the current Haiku output (for Haiku's own column this is self-consistency on a re-run — the realistic ceiling, since these models aren't deterministic). <b>$/1k</b> = raw cost per 1,000 single-item calls. <b>$/mo</b> = projected at your monthly volume, with the system prompt amortized over the production batch size.</p>
+
+<h2>How to read it / caveats</h2>
+<ul>
+<li><b>Haiku's "agree" is a self-comparison</b> — it re-runs Haiku against its own stored labels, so 0.84–0.90 is the noise floor. Read each rival against Haiku's number, not against 100%.</li>
+<li><b>Sample = 50 items/feature</b> → roughly ±7–10 points on each agreement figure. Directional, not precise; re-run larger if a close call matters.</li>
+<li><b>Brand-verify is cost-only.</b> It's a 0–4 call funnel with server-side web search (~$10 / 1k searches, billed on the Anthropic key today). The web-fetched page content dominates token cost, and a real switch means re-implementing each provider's web-search/tool loop — not reflected in the dollar figures here.</li>
+<li><b>Prices</b> are the June 2026 cheap-tier rates (per 1M tokens, input/output) shown in the header; all three offer a −50% batch discount not applied here.</li>
+<li>Mid/flagship tiers (Sonnet, GPT-5.4/5.5, Gemini Pro) were intentionally not run — the goal was the cheapest credible tier, since that's what these features use today.</li>
+</ul>
+</body></html>

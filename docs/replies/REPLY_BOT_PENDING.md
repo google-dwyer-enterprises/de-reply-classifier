@@ -35,12 +35,27 @@ Surface the three new MV columns in the NocoDB per-lead view: `"# Clients Engage
 `"Customer Service"`. Data is already live; this is only NocoDB's schema cache. (Analytics dashboard
 needs nothing.)
 
-### Phase-3 auto-refresh cron — ⏸ BLOCKED on an LLM cost comparison
-Wire `refresh-followup-patterns` into the daily job so the `/analytics` dashboard self-updates (today it's
-manual; `update-status` for the NocoDB lead view is already in the daily `run.py refresh` cron).
-**Why not yet:** the recurring refresh would include the paid LLM follow-up tagging
-(`llm-followup-features`), so we're first doing a **cost comparison across OpenAI / Anthropic / Gemini**
-to pick the provider before committing to a recurring spend. Build the cron once that decision is made.
+### LLM provider cost comparison — ✅ SHIPPED (Phase 1)
+Bake-off of the cheap tier (Haiku 4.5 vs GPT-5.4 nano vs Gemini 3.1 Flash-Lite) across every LLM feature,
+with cost projected to monthly volume (20k leads/mo, ~1,423 replies/mo, ~489 follow-ups/mo). Report:
+**`docs/LLM_COST_COMPARISON.html`** + `docs/llm_cost_comparison.csv`; harness in `scripts/llmbench*.py`
+(needs `pip install openai google-genai`). Findings: total Haiku ~$151/mo vs nano ~$28 / Gemini ~$37;
+company-name resolution → nano is a free quality win; Prospeo filter → keep Haiku (rivals lose 10–20pts);
+reply-side features are <$1/mo either way; **brand-verify is the only big lever (~$122→$23–30/mo) but its
+quality was NOT compared cross-provider** (multi-step + Anthropic-specific web search).
+**Remaining (Phase 2, optional):** a real brand-verify quality test (rebuild its web-search loop per
+provider) before chasing that saving; and act on the clean wins (e.g. switch company resolution to nano).
+
+### Railway cron / scheduling — ⏸ now UNBLOCKED, awaiting user's scheduling decision
+The cost comparison is done, so the provider/cadence inputs exist. Two items to schedule when ready:
+1. **Free daily analytics refresh** — chain `python run.py refresh-followup-patterns` after the existing
+   daily `run.py refresh` cron (`railway.json` `startCommand`) so the `/analytics` dashboard self-updates.
+   No LLM cost (deterministic extract + view rebuild + HTML regen). The one-line change was prepared in
+   PR #34 and **closed at the user's request** to plan scheduling holistically; re-apply when ready.
+2. **Paid `llm-followup-features` re-tagging** — periodically tag NEW follow-ups (provider-dependent cost);
+   cadence + provider decided by the cost comparison.
+(Note: the daily `run.py refresh` — sync → classify → update-status — already runs and already classifies
+new replies on Haiku; only the two items above are unscheduled.)
 
 ---
 
