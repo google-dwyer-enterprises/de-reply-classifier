@@ -46,9 +46,21 @@ quality was NOT compared cross-provider** (multi-step + Anthropic-specific web s
 **Phase 2 — brand-verify quality test: ✅ done for the site-verdict step.** Isolated the no-tool site step,
 ran it on 71 ground-truth-labeled companies across all 3 providers (`scripts/llmbench_brandverify.py`):
 nano/Gemini reproduce Haiku's verdict ~97–99% with **zero false rejections** on the `pass` set (same as
-Haiku) at ~5× lower cost. **Remaining to actually switch:** rebuild + re-validate the funnel's 3 web-search
-steps (ownership/size, reseller-confirm, agentic fallback) per provider — each provider's grounding/tool API
-differs; that's the real work, not the model swap. Also act on the clean win (company resolution → nano).
+Haiku) at ~5× lower cost.
+
+**Web-search rebuild estimate (done — recommend HOLDING):** to actually switch, rebuild the funnel's 3
+web-search steps per provider ≈ **~3 dev-days** + permanent 3-provider maintenance. Both cheap rivals support
+web search (OpenAI Responses `web_search`; Gemini Google-Search grounding). **But the economics don't favor
+it:** web-search *fees* dominate brand-verify and are provider-agnostic (Anthropic $10/1k, OpenAI $10/1k +
+~8K tok/search, Gemini 3.x $14/1k). 303/329 verdicts are "brand", each triggering an ownership search ≈ 1
+search/company → ~$190–255/mo in search fees on *any* provider at 20k leads/mo. The model swap saves only the
+token portion (~$70–90/mo); the ~$200/mo search fee is unavoidable. → **Hold the rebuild.** Bigger lever =
+**reduce search volume** (does every brand need an ownership search?), but that's a separate, quality-risky
+change to the live funnel (re-validate via `bv2_regression`), deliberately kept OUT of the provider
+comparison so it can't muddy the figures. First **measure actual monthly searches** (cache/dedup likely make
+20k unique domains a big overestimate). Full write-up in `docs/LLM_COST_COMPARISON.html`.
+
+Clean win to still act on: **company resolution → GPT-5.4 nano** (more accurate than Haiku + ~7× cheaper).
 
 ### Railway cron / scheduling — ⏸ now UNBLOCKED, awaiting user's scheduling decision
 The cost comparison is done, so the provider/cadence inputs exist. Two items to schedule when ready:

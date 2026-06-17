@@ -151,6 +151,26 @@ A sensible blend (cheapest model per feature where quality holds, Haiku elsewher
 <p class="lede" style="font-size:12px"><b>Agree</b> = share of items matching the current Haiku output (for Haiku's own column this is self-consistency on a re-run — the realistic ceiling, since these models aren't deterministic). <b>$/1k</b> = raw cost per 1,000 single-item calls. <b>$/mo</b> = projected at your monthly volume, with the system prompt amortized over the production batch size.</p>
 
 {bv_section}
+<h2>If you wanted to actually switch brand-verify — the web-search rebuild estimate</h2>
+<p class="lede">Brand-verify's 3 web-search steps (ownership/size, reseller-confirm, agentic fallback) use Anthropic's
+server-side search tool, so a provider switch means rebuilding them. Both cheap rivals <i>do</i> support web
+search (GPT-5.4 nano via the Responses web_search tool; Gemini Flash-Lite via Google-Search grounding).</p>
+<ul>
+<li><b>Effort ≈ 3 dev-days:</b> a provider-agnostic grounded-reasoning layer (each provider's search loop +
+citation shape differs), wiring the 3 prompts through it, re-validating the search-dependent verdicts against
+ground truth, and integrating behind a config switch without breaking the production Anthropic path.</li>
+<li><b>But the economics don't favor it.</b> Web-search <b>fees dominate and are provider-agnostic</b>:
+Anthropic $10/1k searches, OpenAI $10/1k (+ ~8K input tokens/search), Gemini 3.x $14/1k (5k free/mo).
+303 of 329 verdicts are "brand", and every brand triggers an ownership search → ≈ <b>1 search per company</b>.
+At 20k leads/mo that's ~$190–255/mo in <b>search fees on any provider</b>. The model swap only changes the
+<i>token</i> portion (Haiku ~$122 → rivals ~$22–30/mo), i.e. it saves ~$70–90/mo while the ~$200/mo search
+fee is unavoidable.</li>
+<li><b>Recommendation: hold the rebuild.</b> ~3 days + permanent 3-provider maintenance for ~$70–90/mo isn't
+compelling. The bigger lever is <b>reducing search volume</b> (does every brand need an ownership search?) —
+but that's a separate, quality-risky change to the live funnel, kept out of this comparison on purpose.
+First <b>measure actual monthly searches</b> (cache/dedup may make 20k unique domains a big overestimate).</li>
+</ul>
+
 <h2>How to read it / caveats</h2>
 <ul>
 <li><b>Haiku's "agree" is a self-comparison</b> — it re-runs Haiku against its own stored labels, so 0.84–0.90 is the noise floor. Read each rival against Haiku's number, not against 100%.</li>
