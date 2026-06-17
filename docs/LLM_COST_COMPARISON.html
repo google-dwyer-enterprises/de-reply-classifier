@@ -28,7 +28,7 @@ volume. Generated 2026-06-17.</p>
 <li><b>Reply-side features are almost free</b> (&lt;$1/mo total) on any provider — not worth optimizing for cost.</li>
 <li><b>Company-name resolution</b> is a clean win: GPT-5.4 nano is <b>more</b> accurate than Haiku here and ~7× cheaper.</li>
 <li><b>The Prospeo lead filter</b> should <b>stay on Haiku</b> — the cheap rivals lose 10–20 points of agreement and the saving is only ~$17/mo.</li>
-<li><b>Brand-verify is where the real money is</b> (~$122/mo on Haiku vs ~$23–30 on the rivals at 20k leads), but its quality wasn't compared — it's a multi-step pipeline with Anthropic-specific web search, so switching is a rebuild, not a setting. Verify quality before chasing that saving.</li>
+<li><b>Brand-verify is where the real money is</b> (~$122/mo Haiku vs ~$23–30 rivals at 20k leads). The Phase-2 quality test (below) shows the cheap models reproduce its <b>core site-verdict judgment with zero false rejections</b> — encouraging — but the full funnel's web-search steps still need a per-provider rebuild + re-validation before any switch.</li>
 </ul>
 Total projected monthly: <b>Haiku $151.27</b> · GPT-5.4 nano $27.73 · Gemini Flash-Lite $36.91.
 A sensible blend (cheapest model per feature where quality holds, Haiku elsewhere) ≈ <b>$144.8/mo</b> — note most of the gap is the unverified brand-verify line.</div>
@@ -40,6 +40,20 @@ A sensible blend (cheapest model per feature where quality holds, Haiku elsewher
 <td class='num' colspan='3'>$151.27</td><td class='num' colspan='3'>$27.73</td><td class='num' colspan='3'>$36.91</td></tr>
 </tbody></table>
 <p class="lede" style="font-size:12px"><b>Agree</b> = share of items matching the current Haiku output (for Haiku's own column this is self-consistency on a re-run — the realistic ceiling, since these models aren't deterministic). <b>$/1k</b> = raw cost per 1,000 single-item calls. <b>$/mo</b> = projected at your monthly volume, with the system prompt amortized over the production batch size.</p>
+
+<h2>Brand-verify — quality test (Phase 2, site-verdict step)</h2>
+<p class="lede">The bake-off above could only price brand-verify, not judge its quality (multi-step + Anthropic web search).
+This isolates the funnel's <b>no-tool site-verdict step</b> (homepage signals → brand / reseller / unknown), replays it
+on 71 human-labeled companies (`qa_audit_labels`), and scores against ground truth.</p>
+<table><thead><tr><th>Provider</th><th>Agree w/ Haiku</th><th>False rejections (hard gate=0)</th><th>Fail catch (site step only)</th><th>$/call</th></tr></thead>
+<tbody><tr><td class='feat'>Anthropic Haiku 4.5</td><td class='num'>1.0</td><td class='num strong'>0/36</td><td class='num'>1/15</td><td class='num'>$0.00396</td></tr><tr><td class='feat'>OpenAI GPT-5.4 nano</td><td class='num'>0.972</td><td class='num strong'>0/36</td><td class='num'>1/15</td><td class='num'>$0.00067</td></tr><tr><td class='feat'>Gemini 3.1 Flash-Lite</td><td class='num'>0.986</td><td class='num strong'>0/36</td><td class='num'>1/15</td><td class='num'>$0.000889</td></tr></tbody></table>
+<div class="box win"><b>Finding.</b> On the core site-verdict judgment, GPT-5.4 nano and Gemini Flash-Lite reproduce Haiku
+almost exactly (0.972 / 0.986 agreement)
+and — critically — produce <b>zero false rejections</b> on the `pass` set, same as Haiku. The "fail catch" is low and
+identical across all three because the site step alone isn't where most fails are caught (banned-category / MLM / foreign /
+ownership live in the funnel's <i>web-search</i> steps). <b>So the cheap models hold up on the part we could test cleanly</b>
+— encouraging for the ~$90/mo saving — <b>but a full switch still requires rebuilding + re-validating the 3 web-search steps
+per provider</b> (each provider's grounding/tool API differs); that's the real remaining work, not the model swap.</div>
 
 <h2>How to read it / caveats</h2>
 <ul>

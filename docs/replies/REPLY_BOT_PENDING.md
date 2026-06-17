@@ -43,8 +43,12 @@ with cost projected to monthly volume (20k leads/mo, ~1,423 replies/mo, ~489 fol
 company-name resolution → nano is a free quality win; Prospeo filter → keep Haiku (rivals lose 10–20pts);
 reply-side features are <$1/mo either way; **brand-verify is the only big lever (~$122→$23–30/mo) but its
 quality was NOT compared cross-provider** (multi-step + Anthropic-specific web search).
-**Remaining (Phase 2, optional):** a real brand-verify quality test (rebuild its web-search loop per
-provider) before chasing that saving; and act on the clean wins (e.g. switch company resolution to nano).
+**Phase 2 — brand-verify quality test: ✅ done for the site-verdict step.** Isolated the no-tool site step,
+ran it on 71 ground-truth-labeled companies across all 3 providers (`scripts/llmbench_brandverify.py`):
+nano/Gemini reproduce Haiku's verdict ~97–99% with **zero false rejections** on the `pass` set (same as
+Haiku) at ~5× lower cost. **Remaining to actually switch:** rebuild + re-validate the funnel's 3 web-search
+steps (ownership/size, reseller-confirm, agentic fallback) per provider — each provider's grounding/tool API
+differs; that's the real work, not the model swap. Also act on the clean win (company resolution → nano).
 
 ### Railway cron / scheduling — ⏸ now UNBLOCKED, awaiting user's scheduling decision
 The cost comparison is done, so the provider/cadence inputs exist. Two items to schedule when ready:

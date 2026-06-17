@@ -74,6 +74,36 @@ for f in R:
         blend += P["anthropic"]["proj_monthly"]   # keep Haiku for 'keep' + 'review' (unverified)
 blend = round(blend, 2)
 
+# Phase-2 brand-verify quality (site-verdict step), if present
+BV = None
+_bvp = Path("debug/_bv_quality.json")
+if _bvp.exists():
+    BV = json.loads(_bvp.read_text())
+bv_section = ""
+if BV:
+    bvr = []
+    for k, _ in PROVS:
+        s = BV["providers"].get(k, {})
+        bvr.append(f"<tr><td class='feat'>{dict(PROVS)[k]}</td>"
+                   f"<td class='num'>{s.get('agree_with_haiku')}</td>"
+                   f"<td class='num strong'>{s.get('false_rejections')}/{s.get('passes')}</td>"
+                   f"<td class='num'>{s.get('fail_caught')}/{s.get('fails')}</td>"
+                   f"<td class='num'>${s.get('cost_per_call')}</td></tr>")
+    bv_section = f"""<h2>Brand-verify — quality test (Phase 2, site-verdict step)</h2>
+<p class="lede">The bake-off above could only price brand-verify, not judge its quality (multi-step + Anthropic web search).
+This isolates the funnel's <b>no-tool site-verdict step</b> (homepage signals → brand / reseller / unknown), replays it
+on {BV['n_domains']} human-labeled companies (`qa_audit_labels`), and scores against ground truth.</p>
+<table><thead><tr><th>Provider</th><th>Agree w/ Haiku</th><th>False rejections (hard gate=0)</th><th>Fail catch (site step only)</th><th>$/call</th></tr></thead>
+<tbody>{''.join(bvr)}</tbody></table>
+<div class="box win"><b>Finding.</b> On the core site-verdict judgment, GPT-5.4 nano and Gemini Flash-Lite reproduce Haiku
+almost exactly ({BV['providers']['openai'].get('agree_with_haiku')} / {BV['providers']['gemini'].get('agree_with_haiku')} agreement)
+and — critically — produce <b>zero false rejections</b> on the `pass` set, same as Haiku. The "fail catch" is low and
+identical across all three because the site step alone isn't where most fails are caught (banned-category / MLM / foreign /
+ownership live in the funnel's <i>web-search</i> steps). <b>So the cheap models hold up on the part we could test cleanly</b>
+— encouraging for the ~$90/mo saving — <b>but a full switch still requires rebuilding + re-validating the 3 web-search steps
+per provider</b> (each provider's grounding/tool API differs); that's the real remaining work, not the model swap.</div>
+"""
+
 prov_head = "".join(f"<th colspan='3'>{n}<span class='price'>{PRICE[k]}</span></th>" for k, n in PROVS)
 sub_head = "<th>Style/feature</th>" + ("<th>Agree</th><th>$/1k</th><th>$/mo</th>" * 3)
 
@@ -107,7 +137,7 @@ volume. Generated {DATE}.</p>
 <li><b>Reply-side features are almost free</b> (&lt;$1/mo total) on any provider — not worth optimizing for cost.</li>
 <li><b>Company-name resolution</b> is a clean win: GPT-5.4 nano is <b>more</b> accurate than Haiku here and ~7× cheaper.</li>
 <li><b>The Prospeo lead filter</b> should <b>stay on Haiku</b> — the cheap rivals lose 10–20 points of agreement and the saving is only ~$17/mo.</li>
-<li><b>Brand-verify is where the real money is</b> (~$122/mo on Haiku vs ~$23–30 on the rivals at 20k leads), but its quality wasn't compared — it's a multi-step pipeline with Anthropic-specific web search, so switching is a rebuild, not a setting. Verify quality before chasing that saving.</li>
+<li><b>Brand-verify is where the real money is</b> (~$122/mo Haiku vs ~$23–30 rivals at 20k leads). The Phase-2 quality test (below) shows the cheap models reproduce its <b>core site-verdict judgment with zero false rejections</b> — encouraging — but the full funnel's web-search steps still need a per-provider rebuild + re-validation before any switch.</li>
 </ul>
 Total projected monthly: <b>Haiku ${tot['anthropic']}</b> · GPT-5.4 nano ${tot['openai']} · Gemini Flash-Lite ${tot['gemini']}.
 A sensible blend (cheapest model per feature where quality holds, Haiku elsewhere) ≈ <b>${blend}/mo</b> — note most of the gap is the unverified brand-verify line.</div>
@@ -120,6 +150,7 @@ A sensible blend (cheapest model per feature where quality holds, Haiku elsewher
 </tbody></table>
 <p class="lede" style="font-size:12px"><b>Agree</b> = share of items matching the current Haiku output (for Haiku's own column this is self-consistency on a re-run — the realistic ceiling, since these models aren't deterministic). <b>$/1k</b> = raw cost per 1,000 single-item calls. <b>$/mo</b> = projected at your monthly volume, with the system prompt amortized over the production batch size.</p>
 
+{bv_section}
 <h2>How to read it / caveats</h2>
 <ul>
 <li><b>Haiku's "agree" is a self-comparison</b> — it re-runs Haiku against its own stored labels, so 0.84–0.90 is the noise floor. Read each rival against Haiku's number, not against 100%.</li>
