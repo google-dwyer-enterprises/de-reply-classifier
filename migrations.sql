@@ -628,3 +628,52 @@ create table if not exists followup_message_features (
 create index if not exists fmf_lead_idx     on followup_message_features (lead_email);
 create index if not exists fmf_positive_idx on followup_message_features (responded_positive);
 create index if not exists fmf_client_idx   on followup_message_features (client);
+
+-- ============================================================================
+-- Interest follow-up A/B (INTEREST_FOLLOWUP_AB_PLAN.md)
+-- ============================================================================
+
+-- Curated "best replies" template library (Arm A of the A/B + the
+-- "best replies, use this" page). Jam/Victor approve entries; nothing
+-- auto-promotes. scenario_key buckets templates by the situation they fit.
+create table if not exists followup_templates (
+  id            bigserial primary key,
+  scenario_key  text not null,                       -- e.g. 'interested_general','pricing_ask','booked_nudge'
+  title         text,                                -- short label shown to Jam
+  body          text not null,                       -- supports {first_name} / {company} tokens
+  subject       text,
+  is_active     boolean not null default true,
+  approved_by   text,
+  source_note   text,                                -- provenance, e.g. "from sent_message 123, 31% positive"
+  version       int not null default 1,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+create index if not exists followup_templates_active_idx
+  on followup_templates (is_active, scenario_key);
+
+-- A/B assignments + outcomes. One experiment per interest reply.
+create table if not exists followup_experiments (
+  id                   bigserial primary key,
+  source_reply_id      bigint references replies(id),
+  lead_email           text not null,
+  client               text,
+  arm                  text not null check (arm in ('static','ai')),
+  variations           jsonb not null,               -- [{idx,text,template_id?}] shown to Jam
+  chosen_variation_idx int,
+  chosen_text          text,
+  status               text not null default 'assigned'
+                       check (status in ('assigned','sent','attributed','skipped')),
+  assigned_at          timestamptz not null default now(),
+  sent_marked_at       timestamptz,
+  sent_message_id      text,                          -- linked sent_messages row (confirms a real send)
+  had_reply            boolean,
+  responded_positive   boolean,
+  responded_booked     boolean,
+  outcome_reply_id     bigint,
+  attributed_at        timestamptz,
+  unique (source_reply_id)
+);
+create index if not exists fexp_status_idx on followup_experiments (status);
+create index if not exists fexp_lead_idx   on followup_experiments (lead_email);
+create index if not exists fexp_client_idx on followup_experiments (client);
