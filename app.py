@@ -51,7 +51,7 @@ from db import connect
 # Reuse the worker's industry list as the canonical set of options on the form.
 # Avoids drift between what the form offers and what BC supports.
 try:
-    from bettercontact_sync import BC_INDUSTRIES
+    from bettercontact_sync import BC_INDUSTRIES, min_credits_for
 except Exception:
     BC_INDUSTRIES = [
         "Retail Apparel and Fashion", "Apparel Manufacturing", "Cosmetics",
@@ -61,6 +61,13 @@ except Exception:
         "Retail Groceries", "Alternative Medicine",
         "Retail Health and Personal Care Products",
     ]
+
+    def min_credits_for(requested_leads, enrichment="email"):
+        # Fallback mirror of bettercontact_sync.min_credits_for, used only if
+        # that module can't be imported in this process. Keep the math in sync.
+        page_limit = 5 if enrichment in ("both", "phone") else max(10, min(50, requested_leads * 5))
+        factor_tenths = 111 if enrichment in ("both", "phone") else 11
+        return (page_limit * factor_tenths + 9) // 10
 
 COUNTRIES = ["United States", "Canada"]
 
@@ -426,6 +433,24 @@ def submit_post():
     enrichment = request.form.get("enrichment") or "email"
     if enrichment not in ("email", "both"):
         enrichment = "email"
+
+    # Reject a budget too low to cover even one page — otherwise the run aborts
+    # before scraping anything and the worker just emails "no leads". (Empty
+    # max_credits = auto-budget, always sufficient, so only check explicit caps.)
+    if max_credits is not None:
+        need = min_credits_for(requested_leads, enrichment)
+        if max_credits < need:
+            kind = "email + phone" if enrichment == "both" else "email"
+            return render_template(
+                "submit.html",
+                industries=BC_INDUSTRIES,
+                countries=COUNTRIES,
+                error=f"Max credits {max_credits} is too low — {requested_leads} "
+                      f"lead(s) with {kind} enrichment needs at least {need} credits "
+                      f"(one page). Set it to {need} or more, or leave it empty to "
+                      f"auto-budget.",
+                form=request.form,
+            ), 400
 
     row = insert_scrape_request(
         requested_leads, industries, skip_industries, countries, notes,
