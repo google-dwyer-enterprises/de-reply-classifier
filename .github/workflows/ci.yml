@@ -1,0 +1,36 @@
+name: CI
+
+# Runs the unit test suite on every push to main and every PR targeting main.
+# Pair this with Railway's "Wait for CI" toggle so a merge only deploys when
+# these tests pass — automated AND gated, no manual approval.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    env:
+      # The tested modules don't call out, but some import a client that reads
+      # this key at construction time. A dummy keeps imports from KeyError-ing;
+      # no real secret is needed because the tests are pure-logic (no network).
+      ANTHROPIC_API_KEY: dummy-ci-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests
