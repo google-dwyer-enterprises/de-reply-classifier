@@ -57,7 +57,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Iterable
 
@@ -888,7 +888,6 @@ def _run_category(conn, api_key: str, *,
             continue
         parked = s.get("parked_at")
         if parked is not None:
-            from datetime import datetime, timezone, timedelta
             if datetime.now(timezone.utc) - parked < timedelta(days=30):
                 print(f"  [skip] {ind!r} parked since {parked:%Y-%m-%d} "
                       f"(2+ zero-yield calls; auto-retries after 30d)")
