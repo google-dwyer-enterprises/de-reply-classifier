@@ -305,6 +305,7 @@ def bc_domain_ok(domain: str | None) -> bool:
     return d.rsplit(".", 1)[1] in BC_ALLOWED_TLDS
 
 BC_PAGE_LIMIT = 200            # API max per submit
+WORKER_PAGE_LIMIT = 50         # worker's per-cycle page-size cap (see effective_page_limit)
 BC_REQUEST_TIMEOUT_S = 30      # HTTP timeout for submit + poll calls
 BC_POLL_INTERVAL_S = 5         # how often to poll for terminate status
 BC_POLL_TIMEOUT_S = 600        # give up on a request after this long. Bumped
@@ -317,6 +318,32 @@ BC_POLL_MAX_RETRIES = 5        # network-level retries on each poll GET
 
 class InsufficientCreditsError(Exception):
     """Raised when BetterContact rejects with a no-credit error."""
+
+
+# ---------------------------------------------------------------------------
+# Budget math — shared by the worker's page-sizing and the submit-form
+# validation so the two can never drift. A run aborts before scraping anything
+# if max_credits can't cover even one page's worst-case reservation.
+# ---------------------------------------------------------------------------
+
+def effective_page_limit(requested_leads: int) -> int:
+    """Page size the worker will use for a given target (mirrors run_scrape)."""
+    return max(10, min(WORKER_PAGE_LIMIT, requested_leads * 5))
+
+
+def reserve_for_page(page_limit: int, enrichment: str = "email") -> int:
+    """Worst-case credit reservation for one page. Phones bill ~10 cr each on
+    top of 1/email, so 'both' reserves ~11.1x vs ~1.1x for email."""
+    factor_tenths = 111 if enrichment in ("both", "phone") else 11
+    return (page_limit * factor_tenths + 9) // 10
+
+
+def min_credits_for(requested_leads: int, enrichment: str = "email") -> int:
+    """Smallest max_credits that won't abort before scraping anything.
+    For 'both' the worker shrinks the page down to a floor of 5 to fit a small
+    budget, so its floor is reserve(5); email runs the full target-scaled page."""
+    page_limit = 5 if enrichment in ("both", "phone") else effective_page_limit(requested_leads)
+    return reserve_for_page(page_limit, enrichment)
 
 
 # ---------------------------------------------------------------------------
@@ -925,10 +952,9 @@ def _run_category(conn, api_key: str, *,
     # still open, so reserve for the worse model — over-reserving aborts
     # earlier, under-reserving could settle past the cap.
     enrich_phones = enrichment in ("both", "phone")
-    # ceil(page * 11.1) / ceil(page * 1.1) in exact integer arithmetic
-    # (floats put ceil(50 * 1.1) at 56).
-    factor_tenths = 111 if enrich_phones else 11
-    reserve_per_page = (page_limit * factor_tenths + 9) // 10
+    # ceil(page * 11.1) / ceil(page * 1.1) — shared with the submit-form
+    # validation via reserve_for_page() so the two never drift.
+    reserve_per_page = reserve_for_page(page_limit, enrichment)
     if enrich_phones:
         print(f"  phone enrichment ON — 10 cr/phone; per-page reservation {reserve_per_page}")
 

@@ -70,9 +70,8 @@ CREDITS_PER_LEAD_BUDGET = 3
 # target on purpose — the target is the primary stop, this is just the
 # runaway guard. Override per-batch by setting max_credits explicitly.
 DEFAULT_MAX_CREDITS_WHEN_BLANK = 1000
-# Default page size for the BC scraper. 50 balances diversity (cycle covers
-# all industries) against round-trip overhead.
-DEFAULT_PAGE_LIMIT = 50
+# Page size policy now lives in bettercontact_sync.effective_page_limit
+# (WORKER_PAGE_LIMIT = 50), shared with the submit-form credit validation.
 
 
 # ---------------------------------------------------------------------------
@@ -234,10 +233,12 @@ def run_scrape(req: dict) -> dict:
     """
     skip = compute_skip_industries(req["industries"], req["skip_industries"])
     # Scale page size to the request: a target=3 ask shouldn't burn 50 credits
-    # to satisfy it. 10 is the practical floor; DEFAULT_PAGE_LIMIT (50) the
+    # to satisfy it. 10 is the practical floor; WORKER_PAGE_LIMIT (50) the
     # ceiling. Anything in between scales ~5 raw leads per requested lead so
     # the post-filter survival rate has slack.
-    page_limit = max(10, min(DEFAULT_PAGE_LIMIT, req["requested_leads"] * 5))
+    # Shared with the submit-form validation via bettercontact_sync so the
+    # form's minimum-credit check matches the page size we actually use.
+    page_limit = bettercontact_sync.effective_page_limit(req["requested_leads"])
     # Budget cap is a runaway guard, not the primary stop.
     # 1. If the submitter set an explicit max_credits, honor it verbatim.
     # 2. Otherwise: flat DEFAULT_MAX_CREDITS_WHEN_BLANK (currently 1000).
