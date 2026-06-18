@@ -393,6 +393,17 @@ def process_one_pending_request(conn) -> bool:
     log(f"req #{rid}: scrape done, accepted={stats['accepted']}, "
         f"rejected={stats['rejected']}, "
         f"credits_spent={run_summary.get('credits_spent', 0):.1f}")
+
+    # No leads produced AND the run aborted (budget too low, credits out, or
+    # all industries exhausted): don't send a misleading "batch ready" email
+    # with zero leads. Mark the request and tell Jam the plain-English reason.
+    aborted = run_summary.get("aborted_reason")
+    if stats["accepted"] == 0 and aborted:
+        mark_failed(conn, rid, f"No leads scraped — {aborted}")
+        notifier.send_no_leads_email(rid, aborted)
+        log(f"req #{rid}: no leads — {aborted}")
+        return True
+
     mark_ready(
         conn, rid,
         scraped_count=stats["accepted"],
