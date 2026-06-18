@@ -74,14 +74,20 @@ if LAD:
           for lbl in LAD[0]["models"]}
     now_l = tot["anthropic"]  # headline "today" — consistent with the per-task table above
     save = round(now_l - hybrid, 2)
+    # today + recommended hybrid, then EVERY single model (ladder order), over-budget flagged
     tiles = [
         _tile(now_l, "Anthropic Haiku 4.5 — what we pay today"),
-        _tile(hybrid, f"<b>Recommended switches (hybrid)</b> — best provider per task, keep Anthropic where it's better; saves ~${save}/mo", "rec-tile"),
-        _tile(lt.get("GPT-5.4 nano"), "Every task on GPT-5.4 nano (cheapest)"),
-        _tile(lt.get("Gemini 3.1 Flash-Lite"), "Every task on Gemini 3.1 Flash-Lite"),
-        _tile(lt.get("GPT-5.4 mini"), "Every task on GPT-5.4 mini"),
-        _tile(lt.get("GPT-5.4"), "Every task on GPT-5.4 — <b>over today's cost</b>", "over-tile"),
+        _tile(hybrid, f"<b>Recommended switches (hybrid)</b> — cheapest model that matches today's quality per task, Anthropic elsewhere; saves ~${save}/mo", "rec-tile"),
     ]
+    SMALL_SAMPLE = {"Gemini 3.5 Flash"}  # Google 503'd most calls — total rests on a tiny sample
+    for lbl in LAD[0]["models"]:
+        if lbl == "Haiku 4.5 (current)":
+            continue
+        val = lt.get(lbl)
+        over = val is not None and val > now_l
+        note = " *" if lbl in SMALL_SAMPLE else ""
+        suffix = " — <b>over today's cost</b>" if over else ""
+        tiles.append(_tile(val, f"Every task on {lbl}{note}{suffix}", "over-tile" if over else ""))
     tiles_html = '<div class="totrow">' + "".join(tiles) + "</div>"
 else:
     tiles_html = ('<div class="totrow">'
@@ -119,18 +125,25 @@ for f in R:
       <td class="rec">{a['rec']}</td>
       <td class="num">{cost}</td></tr>""")
 
-# brand-verify quality (plain)
+# brand-verify quality (plain) — computed from the label-keyed quality run (all tiers)
 bv_html = ""
-if BV:
-    p = BV["providers"]
+if BV and BV.get("models"):
+    M = BV["models"]
+    haiku_s = M.get("Haiku 4.5 (current)", {})
+    others = {k: v for k, v in M.items() if k != "Haiku 4.5 (current)" and v.get("n")}
+    agrees = [v["agree_with_haiku"] for v in others.values() if v.get("agree_with_haiku") is not None]
+    lo, hi = (min(agrees), max(agrees)) if agrees else (None, None)
+    total_false_rej = sum((v.get("false_rejections") or 0) for v in M.values())
+    passes_h = haiku_s.get("passes")
     bv_html = f"""<h2>The big one — checking if a company is a real brand</h2>
 <p>This is where almost all the money is (~${an['brand_verify']['now']}/mo of AI cost at 20,000 leads/month, plus search fees — below).
-We checked whether the cheaper models can do its core judgment as well as our current one, using {BV['n_domains']} companies a human had already graded.</p>
+We checked whether <b>every other model — cheap and premium</b> — can do its core judgment as well as our current one, using {BV['n_domains']} companies a human had already graded.</p>
 <ul>
-<li><b>Quality holds.</b> The cheaper models agreed with our current setup <b>{pct(p['openai'].get('agree_with_haiku'))}–{pct(p['gemini'].get('agree_with_haiku'))}</b> of the time, and — most important — <b>never wrongly rejected a good company</b> (0 out of {p['anthropic'].get('passes')}), same as today.</li>
-<li><b>But switching barely saves money.</b> Most of brand-checking's cost is the <b>web-search fee</b> — about <b>$190–255/month</b> at 20,000 leads — and that fee is <b>almost the same on every provider</b> ($10–14 per 1,000 searches). Changing the AI model only trims the smaller "thinking" cost (~$70–90/month). So the headline saving you'd expect from switching mostly isn't there.</li>
-<li><b>Recommendation:</b> don't rebuild brand-checking on another provider just to save money — the saving is small and it's ~3 days of work to rebuild + maintain. If brand-checking cost matters, the real lever is doing <i>fewer</i> web searches, which is a separate change.</li>
-</ul>"""
+<li><b>Quality holds across the board.</b> Every model we tested agreed with our current verdicts <b>{pct(lo)}–{pct(hi)}</b> of the time and — most important — <b>none wrongly rejected a good company</b> ({total_false_rej} false rejections in total, same clean record as today out of {passes_h} good companies).</li>
+<li><b>But switching barely saves money — and going <i>premium</i> costs far more.</b> Most of brand-checking's cost is the <b>web-search fee</b> — about <b>$190–255/month</b> at 20,000 leads — and that fee is <b>almost the same on every provider</b> ($10–14 per 1,000 searches). Changing the AI model only trims the smaller "thinking" cost; the cheap models trim it (~$70–90/mo of model cost), but the <b>higher tiers multiply it</b> ($260–660/mo on the model alone vs ~$121 today).</li>
+<li><b>Recommendation:</b> don't rebuild brand-checking on another provider just to save money — the saving is small and it's ~3 days of work to rebuild + maintain, and no premium model is worth its cost here. If brand-checking cost matters, the real lever is doing <i>fewer</i> web searches, which is a separate change.</li>
+</ul>
+<p class="fine">Quality was measured on the no-tool site-verdict step (the portable core of the funnel); the web-search steps are provider-specific and were not re-implemented. <b>Gemini 3.1 Pro is excluded from this quality test</b> — its forced "thinking" on full website payloads runs many minutes per call, prohibitive for a 20k-lead/month step (and its brand-verify cost alone, ~$663/mo, already rules it out). <b>Gemini 3.5 Flash</b> was rate-limited by Google (503s), leaving a small sample. Both are shown by their company counts in the table.</p>"""
 
 # --- tier ladder ("does paying for a higher model help?") ---
 LAD = json.loads(Path("debug/_llmbench_ladder.json").read_text()) if Path("debug/_llmbench_ladder.json").exists() else None
@@ -149,17 +162,30 @@ if LAD:
             ag = "cost only" if d.get("agreement") is None else f"{round(d['agreement']*100)}%"
             cells.append(f"<td class='{'over' if over else ''}'>{ag}<span class='mo'>${mo}/mo</span></td>")
         lrows.append(f"<tr><td>{FEAT[f['key']][0]}</td>{''.join(cells)}</tr>")
-    ladder_html = f"""<h2>Does paying for a higher-tier model help? (we tested the ladder)</h2>
-<p>We also walked each provider <b>up the tiers</b> — from cheapest to the point where it costs more than we
-pay today — on the <b>same 50 records</b>. Cells show the match rate with our current results and the projected
-$/month; <span class="over-key">amber</span> = costs more than today.</p>
+    ladder_html = f"""<h2>Does paying for a higher-tier model help? (we tested the full ladder)</h2>
+<p>We walked <b>both</b> providers all the way up their tiers — OpenAI: nano → mini → GPT-5.4 → <b>GPT-5.5</b>;
+Gemini: Flash-Lite → <b>3.5 Flash</b> → <b>3.1 Pro</b> — on the <b>same records</b> as the cheap-tier test. Each
+cell shows the match rate with our current results and the projected $/month; <span class="over-key">amber</span>
+= costs more than today. (Two measurement caveats: <b>Gemini 3.1 Pro</b> forces "thinking mode" — ~100s per call —
+so it was capped to a 12-record sample; <b>Gemini 3.5 Flash</b> was heavily rate-limited by Google (most calls
+returned 503), so its numbers rest on a small surviving sample. Both are flagged in the appendix by their record count.)</p>
 <table class="lad"><thead><tr><th>Task</th>{lhead}</tr></thead><tbody>{''.join(lrows)}</tbody></table>
-<div class="box" style="border-left-color:#b45309"><b>Short answer: no — paying more doesn't buy better quality here.</b>
-On most tasks the cheapest models already match our current one, and stepping up makes <b>no difference or is
-slightly worse</b> (bigger reasoning models over-think these short, format-locked tasks — e.g. company-name accuracy
-<i>drops</i> from 88% to 78% as you go up). The only task where the cheap models trail — the <b>lead filter</b> —
-isn't rescued within budget either: the best in-budget option (Gemini Flash-Lite, 76%) still trails today's 80%, and
-even the over-budget GPT-5.4 (78%) doesn't beat it. <b>So no higher tier is worth paying for — the recommendation is unchanged.</b></div>"""
+<div class="box" style="border-left-color:#b45309"><b>Short answer: mostly no — with one real exception.</b>
+<ul>
+<li><b>On 4 of the 5 tasks, paying more buys nothing.</b> For sorting replies, tagging follow-ups, and cleaning
+company names, the higher tiers match or do <i>slightly worse</i> than today while costing several times more —
+bigger "reasoning" models over-think these short, format-locked jobs. On company names the <i>cheapest</i> models
+(GPT-5.4 nano 92%, Gemini Flash-Lite 90%) already <b>beat</b> today's Haiku (88%), so there's no reason to climb.</li>
+<li><b>The one exception is the lead filter.</b> This is the task where cheap models trail (Haiku 82%; nano 64%,
+Flash-Lite 74%). Here the high tiers <i>do</i> help: <b>GPT-5.5 reaches 84%</b> and <b>Gemini 3.1 Pro reaches 92%</b>
+(+10 points over today). But it's expensive — on this task alone Pro runs <b>~$128/mo vs $22 today (~6×, +$106/mo)</b>
+and GPT-5.5 ~$100/mo (+$78/mo) — for a +2 to +10 point accuracy gain.</li>
+<li><b>Brand-checking only gets pricier.</b> Higher tiers cost <b>$260–660/mo on the model alone</b> (vs ~$121
+today) — never worth it.</li>
+</ul>
+<b>Bottom line:</b> no higher tier is worth a blanket switch. The only place paying more is even arguable is the
+<b>lead filter</b> — and only if its accuracy matters enough to justify ~$80–106/mo extra. Everything else stays put;
+the cheap-tier recommendation (nano for company names) is unchanged.</div>"""
 
 PROV_LABEL = {"anthropic": "Anthropic · Haiku 4.5", "openai": "OpenAI · GPT-5.4 nano",
               "gemini": "Google · Gemini 3.1 Flash-Lite"}
@@ -191,11 +217,14 @@ else:
                 f"<td class='num'>{ag}</td><td class='num'>{d.get('avg_in','—')} / {d.get('avg_out','—')}</td>"
                 f"<td class='num'>${d.get('cost_per_1k_raw','—')}</td><td class='num'>${d.get('proj_monthly','—')}</td></tr>")
 bvq_rows = []
-if BV:
-    for k in ("anthropic", "openai", "gemini"):
-        s = BV["providers"][k]
+if BV and BV.get("models"):
+    for lbl, s in BV["models"].items():
+        if not s.get("n"):
+            bvq_rows.append(f"<tr><td>{lbl}</td><td class='num'>0</td>"
+                            f"<td class='num' colspan='4'>not measured (see note above)</td></tr>")
+            continue
         bvq_rows.append(
-            f"<tr><td>{PROV_LABEL[k]}</td><td class='num'>{s.get('n')}</td>"
+            f"<tr><td>{lbl}</td><td class='num'>{s.get('n')}</td>"
             f"<td class='num'>{pct(s.get('agree_with_haiku'))}</td>"
             f"<td class='num'>{s.get('false_rejections')}/{s.get('passes')}</td>"
             f"<td class='num'>{s.get('fail_caught')}/{s.get('fails')}</td>"
@@ -209,7 +238,7 @@ single-call cost; "$/month" is that projected at your volumes; <span class="over
 <th>Avg tokens (in / out)</th><th>Cost / 1,000 calls</th><th>$ / month</th></tr></thead>
 <tbody>{''.join(detail_rows)}</tbody></table>
 <h3 style="font-size:15px;margin-top:18px">Brand-checking — quality test detail (site-verdict step, vs human-graded companies)</h3>
-<table><thead><tr><th>Provider · model</th><th>Companies</th><th>Match w/ current</th>
+<table><thead><tr><th>Model</th><th>Companies</th><th>Match w/ current</th>
 <th>Good wrongly rejected</th><th>Bad caught (site step)</th><th>$ / call</th></tr></thead>
 <tbody>{''.join(bvq_rows)}</tbody></table>"""
 
@@ -243,9 +272,10 @@ table.lad .mo{{display:block;color:#9aa0aa;font-size:11px;font-variant-numeric:t
 </style></head><body>
 <h1>Which AI provider should each task use — and what would it cost?</h1>
 <p class="lede">Our system uses AI for several jobs (sorting replies, checking brands, cleaning data, filtering leads).
-Today that all runs on one provider, <b>Anthropic</b>. We tested whether <b>OpenAI</b> or <b>Google Gemini</b>'s
-cheapest models could do the same jobs as well — and what each would cost per month at our volumes
-(20,000 leads/month, plus the reply traffic). Generated {DATE}.</p>
+Today that all runs on one provider, <b>Anthropic</b>. We tested whether <b>OpenAI</b> or <b>Google Gemini</b> could
+do the same jobs as well — and what each would cost per month at our volumes (20,000 leads/month, plus the reply
+traffic). We tested <b>every tier of each</b>: from the cheapest models right up to OpenAI's GPT-5.5 and Gemini's
+3.1 Pro, to see both whether we can save money <i>and</i> whether paying more buys better quality. Generated {DATE}.</p>
 
 <div class="box"><h3>The 60-second summary</h3>
 <ul>
@@ -253,8 +283,9 @@ cheapest models could do the same jobs as well — and what each would cost per 
 <li><b>Cleaning up company names is a free upgrade:</b> OpenAI's cheapest model is actually a bit <b>more accurate</b> than what we use today, and far cheaper. Worth switching.</li>
 <li><b>Filtering scraped leads should stay as-is</b> — the cheaper models make noticeably more mistakes, and the saving is tiny.</li>
 <li><b>Brand-checking is the only big cost</b>, but most of it is an unavoidable <b>web-search fee that's the same on every provider</b> — so switching providers barely helps there. Don't rebuild it just to save money.</li>
+<li><b>Paying for higher-tier models doesn't help — with one exception.</b> The pricier OpenAI/Gemini models (up to GPT-5.5 and Gemini 3.1 Pro) cost several times more and are <b>no more accurate</b> on most tasks. The lone exception is the <b>lead filter</b>, where Gemini 3.1 Pro is clearly better (92% vs 82%) — but ~6× the cost.</li>
 </ul>
-<p style="margin:10px 0 0"><b>Bottom line:</b> take the free company-name win; leave everything else where it is. The big-looking numbers below are mostly a search fee no provider can avoid, not a saving you can capture by switching.</p></div>
+<p style="margin:10px 0 0"><b>Bottom line:</b> take the free company-name win; leave everything else where it is. Going to a fancier model doesn't pay off (except, optionally, the lead filter). The big-looking numbers below are mostly a search fee no provider can avoid, not a saving you can capture by switching.</p></div>
 
 <h2>Every AI task, side by side</h2>
 <p class="lede">"Cost/month" is the AI model cost projected at our volumes. (Brand-checking also has a separate web-search fee — see its section.)</p>
@@ -264,7 +295,7 @@ cheapest models could do the same jobs as well — and what each would cost per 
 <h2>What it adds up to per month (AI model cost only)</h2>
 {vol_basis_html}
 {tiles_html}
-<p class="fine">Each tile = the monthly total if <b>every</b> task ran on that one model (measured on the same real records, all five tested features summed). "Recommended (hybrid)" mixes providers — cheapest model that matches today's quality per task, Anthropic everywhere else.</p>
+<p class="fine">Each tile = the monthly total if <b>every</b> task ran on that one model (same real records, all five tested features summed); amber = costs more than today. "Recommended (hybrid)" mixes providers — cheapest model that matches today's quality per task, Anthropic everywhere else. <b>*</b> Gemini 3.5 Flash's total rests on a small sample — Google rate-limited most of its calls (see the ladder caveats).</p>
 <p class="fine">⚠️ The "every task on one cheap provider" numbers look dramatic, but they're not realistic — they'd switch
 tasks where the cheaper models are worse, or where switching means a costly rebuild. The <b>recommended (hybrid)</b>
 figure is the honest one: it switches only where quality holds and is safe to do. It's close to today's ${tot['anthropic']}
@@ -297,7 +328,7 @@ still minor, and not worth a switch on its own.)</p>
 <p>Almost everything here comes from real test runs, not estimates:</p>
 <ul>
 <li>✅ <b>Cost per task</b> — measured from <b>actual API calls</b> (real token counts) on all three providers.</li>
-<li>✅ <b>Quality / "does it match"</b> — measured on <b>50 real records per task</b> (sorting replies, follow-ups, lead filter, company names), scored against our current results. Brand-checking quality was tested on <b>{BV['n_domains'] if BV else 71} companies a human had already graded</b> ({BV['providers']['anthropic']['passes'] if BV else 36} known-good, {BV['providers']['anthropic']['fails'] if BV else 15} known-bad). Directional, not precise to the last point — but real.</li>
+<li>✅ <b>Quality / "does it match"</b> — measured on up to <b>50 real records per task</b> (sorting replies, follow-ups, lead filter, company names), scored against our current results, for <b>every tier</b> of each provider. Brand-checking quality was tested on <b>{BV['n_domains'] if BV else 56} companies a human had already graded</b> ({(BV['models']['Haiku 4.5 (current)']['passes']) if BV and BV.get('models') else 30} known-good, {(BV['models']['Haiku 4.5 (current)']['fails']) if BV and BV.get('models') else 10} known-bad). Directional, not precise to the last point — but real.</li>
 <li>✅ <b>Prices</b> — each provider's <b>current published rates</b> (June 2026).</li>
 <li>✅ <b>The caching check</b> — measured live (it produced zero savings).</li>
 <li>📊 <b>Monthly totals</b> — your measured cost-per-item × your volumes. The reply and follow-up volumes are measured from the last 30 days; <b>20,000 leads/month is your stated target</b>. The per-item figure assumes the normal batch size we run in production.</li>

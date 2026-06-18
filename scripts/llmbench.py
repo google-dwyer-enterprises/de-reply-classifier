@@ -42,10 +42,10 @@ LADDER = [
     ("GPT-5.4 nano", "openai", "gpt-5.4-nano"),
     ("GPT-5.4 mini", "openai", "gpt-5.4-mini"),
     ("GPT-5.4", "openai", "gpt-5.4"),
+    ("GPT-5.5", "openai", "gpt-5.5"),
     ("Gemini 3.1 Flash-Lite", "gemini", "gemini-3.1-flash-lite"),
-    # Gemini's next tier up, 3.5 Flash ($1.50/$9), is already ABOVE current Haiku cost
-    # (so excluded by the "stop when it exceeds today" rule) — and Google was 503-throttling
-    # it during testing. Noted in the report rather than benchmarked.
+    ("Gemini 3.5 Flash", "gemini", "gemini-3.5-flash"),
+    ("Gemini 3.1 Pro", "gemini", "gemini-3.1-pro-preview"),
 ]
 
 _clients: dict = {}
@@ -118,12 +118,17 @@ def _call_once(provider, model, system, user, max_out, t0):
 
         elif provider == "gemini":
             from google.genai import types
+            cfg = dict(system_instruction=system, max_output_tokens=max_out)
+            if "pro" in model:
+                # Pro REQUIRES thinking mode (thinking_budget=0 is rejected). Give output
+                # headroom so the answer isn't truncated by thinking tokens; the measured
+                # cost then reflects the (billed) thinking tokens — the real cost of Pro here.
+                cfg["max_output_tokens"] = max(max_out, 4096)
+            else:
+                cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
             r = _gemini().models.generate_content(
                 model=model, contents=user,
-                config=types.GenerateContentConfig(
-                    system_instruction=system, max_output_tokens=max_out,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
-                ),
+                config=types.GenerateContentConfig(**cfg),
             )
             text = r.text or ""
             um = r.usage_metadata
