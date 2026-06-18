@@ -192,6 +192,47 @@ def send_batch_ready_email(req: dict[str, Any]) -> bool:
     return False
 
 
+def send_no_leads_email(req_id: int, reason: str) -> bool:
+    """Tell Jam a batch finished but returned no leads, with the plain-English
+    reason (e.g. budget too low). Not a crash — no 'engineer notified' wording."""
+    api_key = (os.environ.get("RESEND_API_KEY") or "").strip()
+    to = (os.environ.get("NOTIFY_EMAIL") or "").strip()
+    sender = os.environ.get("NOTIFY_FROM", DEFAULT_FROM).strip()
+    if not (api_key and to):
+        return False
+
+    subject = f"Lead batch #{req_id} — no leads scraped"
+    link = _build_link(req_id)
+    link_block = (
+        f'<p>You can view the row in NocoDB: '
+        f'<a href="{link}">Open request #{req_id}</a></p>'
+        if link else
+        f'<p>Find request #{req_id} in your NocoDB scrape_requests grid.</p>'
+    )
+    html = f"""\
+<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:580px;
+            margin:0 auto;padding:24px;line-height:1.6;">
+  <p>Hi Jam,</p>
+  <p>Batch <strong>#{req_id}</strong> finished but didn't return any leads.</p>
+  <p style="background:#fffbeb;border:1px solid #fde68a;padding:12px;
+            border-radius:6px;font-size:14px;">{reason[:600]}</p>
+  <p>If this was a budget limit, raise the credit budget on the request and resubmit.</p>
+  {link_block}
+</div>
+"""
+    try:
+        r = requests.post(
+            RESEND_ENDPOINT,
+            json={"from": sender, "to": [to], "subject": subject, "html": html},
+            headers={"Authorization": f"Bearer {api_key}",
+                     "Content-Type": "application/json"},
+            timeout=30,
+        )
+        return 200 <= r.status_code < 300
+    except Exception:
+        return False
+
+
 def send_failure_email(req_id: int, error: str) -> bool:
     """Optional: tell Jam a job failed. Used by worker on terminal errors."""
     api_key = (os.environ.get("RESEND_API_KEY") or "").strip()

@@ -986,11 +986,21 @@ def _run_category(conn, api_key: str, *,
                 break
             if (max_credits is not None
                     and credits_spent + in_flight_credits + reserve_per_page > max_credits):
-                aborted_reason = (
-                    f"budget cap hit (spent={credits_spent:.1f} + "
-                    f"in_flight={in_flight_credits:.1f} + next_reserve={reserve_per_page} "
-                    f"> {max_credits})"
-                )
+                if credits_spent == 0 and in_flight_credits == 0:
+                    # Couldn't even start: the credit budget is below one page's cost.
+                    aborted_reason = (
+                        f"Budget too low to start. One page of {page_limit} leads needs "
+                        f"~{reserve_per_page} credits, but the credit budget was set to "
+                        f"{max_credits}. Raise the credit budget to at least {reserve_per_page} "
+                        f"and resubmit."
+                    )
+                else:
+                    aborted_reason = (
+                        f"Budget cap reached. Spent {credits_spent:.0f} credits "
+                        f"(+{in_flight_credits:.0f} in flight); the next page would need "
+                        f"~{reserve_per_page} more, which exceeds the {max_credits} budget. "
+                        f"Stopping with the leads gathered so far."
+                    )
                 break
             s = state.get(ind, {})
             offset = s.get("last_offset_consumed", 0)
