@@ -537,6 +537,63 @@ def batch_mass_reject(token):
 
 
 # ---------------------------------------------------------------------------
+# Interest follow-up A/B — Phase 1: best-replies page + template curation
+# (scraper role = Jam). See docs/replies/INTEREST_FOLLOWUP_AB_PLAN.md.
+# ---------------------------------------------------------------------------
+
+@app.route("/followups/best")
+@require_role("scraper")
+def followups_best():
+    import followup_templates_data as ft
+    return render_template(
+        "followups_best.html",
+        grouped=ft.fetch_active_templates(),
+        scenario_label=ft.SCENARIO_LABEL,
+    )
+
+
+@app.route("/followups/templates", methods=["GET"])
+@require_role("scraper")
+def followups_templates():
+    import followup_templates_data as ft
+    return render_template(
+        "followups_templates.html",
+        templates=ft.fetch_all_templates(),
+        candidates=ft.fetch_candidates(),
+        scenarios=ft.SCENARIOS,
+        scenario_label=ft.SCENARIO_LABEL,
+    )
+
+
+@app.route("/followups/templates", methods=["POST"])
+@require_role("scraper")
+def followups_templates_save():
+    import followup_templates_data as ft
+    body = (request.form.get("body") or "").strip()
+    if not body:
+        return redirect(url_for("followups_templates"))
+    tid = _parse_int_or_none(request.form.get("template_id"))
+    ft.upsert_template(
+        template_id=tid,
+        scenario_key=(request.form.get("scenario_key") or "other").strip(),
+        title=(request.form.get("title") or "").strip() or None,
+        body=body,
+        subject=(request.form.get("subject") or "").strip() or None,
+        approved_by=session.get("user"),
+        is_active=request.form.get("is_active") != "off",
+    )
+    return redirect(url_for("followups_templates"))
+
+
+@app.route("/followups/templates/<int:template_id>/toggle", methods=["POST"])
+@require_role("scraper")
+def followups_templates_toggle(template_id):
+    import followup_templates_data as ft
+    ft.set_active(template_id, request.form.get("active") == "1")
+    return redirect(url_for("followups_templates"))
+
+
+# ---------------------------------------------------------------------------
 # Filters used in templates
 # ---------------------------------------------------------------------------
 
