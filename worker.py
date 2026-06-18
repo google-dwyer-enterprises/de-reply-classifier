@@ -544,9 +544,12 @@ def move_approved_leads_for_request(conn, request_id: int) -> int:
                 (request_id, emails),
             )
             known = dict(cur.fetchall())
+            n_total = len(emails)
             todo = [e for e in emails if not known.get(e)
                     or known[e] == "error"]
             if todo:
+                log(f"req #{request_id}: MillionVerifier ON — verifying {len(todo)} "
+                    f"approved email(s) ({n_total - len(todo)} already verified)")
                 results = millionverifier.verify_emails(todo, on_log=log)
                 for email, res in results.items():
                     if res["result"] == "error":
@@ -574,10 +577,18 @@ def move_approved_leads_for_request(conn, request_id: int) -> int:
                 log(f"req #{request_id}: {len(bad)} approved lead(s) failed "
                     f"MillionVerifier -> rejected: "
                     f"{', '.join(bad[:5])}{'...' if len(bad) > 5 else ''}")
-            emails = [e for e in emails
-                      if known.get(e) in millionverifier.MOVABLE_RESULTS]
+            movable = [e for e in emails
+                       if known.get(e) in millionverifier.MOVABLE_RESULTS]
+            n_retry = n_total - len(movable) - len(bad)
+            log(f"req #{request_id}: MillionVerifier results — {len(movable)} ok "
+                f"(moving), {len(bad)} bad (rejected), {n_retry} unresolved "
+                f"(retry next poll)")
+            emails = movable
             if not emails:
                 return 0
+        else:
+            log(f"req #{request_id}: MillionVerifier DISABLED (no API key) — moving "
+                f"{len(emails)} approved lead(s) WITHOUT email verification")
 
         cur.execute(
             """
