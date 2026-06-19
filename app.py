@@ -112,15 +112,16 @@ def _authenticate(username: str, password: str) -> str | None:
 
 
 def require_role(*roles):
-    """Gate a route to one or more roles. Missing session -> /login; wrong role -> 403."""
+    """Require a logged-in user. Access is unified — any authenticated account
+    (Jam or analyst) may reach any page (product decision: all pages accessible
+    to everyone logged in). The *roles args are kept at call sites for
+    readability but no longer restrict access. Missing session -> /login.
+    """
     def deco(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            role = session.get("role")
-            if not role or not app.secret_key:
+            if not session.get("role") or not app.secret_key:
                 return redirect(url_for("login", next=request.path))
-            if role not in roles:
-                abort(403)
             return fn(*args, **kwargs)
         return wrapper
     return deco

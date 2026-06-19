@@ -19,6 +19,16 @@
   --red: #dc2626;
   --red-soft: #fee2e2;
   --pill-bg: #f0f4f9;
+  /* brand (from the Dwyer logo gradient) + dark sidebar */
+  --brand: #d9542a;
+  --brand-soft: #fdece4;
+  --side-bg: #1c2433;
+  --side-bg-2: #161d29;
+  --side-fg: #ccd4e3;
+  --side-fg-dim: #8a93a6;
+  --side-hover: rgba(255,255,255,0.06);
+  --side-active: rgba(255,255,255,0.10);
+  --sidebar-w: 240px;
 }
 
 * { box-sizing: border-box; }
@@ -35,6 +45,63 @@ body {
   max-width: 1180px;
   margin: 0 auto;
   padding: 0 24px 80px;
+}
+
+/* ===================== app shell (sidebar dashboard) ===================== */
+.app { display: flex; min-height: 100vh; }
+.nav-toggle { position: absolute; opacity: 0; pointer-events: none; }
+
+.sidebar {
+  width: var(--sidebar-w); flex: 0 0 var(--sidebar-w);
+  background: var(--side-bg); color: var(--side-fg);
+  display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+.side-top { display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 18px 14px; }
+.side-logo { display: block; }
+.side-logo img { width: 168px; height: auto; display: block; }
+.nav-close { display: none; }
+
+.side-nav { flex: 1; padding: 6px 12px; }
+.nav-group { margin-bottom: 18px; }
+.nav-group-label { color: var(--side-fg-dim); font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.8px; text-transform: uppercase; padding: 6px 12px; }
+.side-link {
+  display: flex; align-items: center; gap: 11px;
+  color: var(--side-fg); text-decoration: none;
+  padding: 9px 12px; border-radius: 8px; font-size: 14px;
+  border-left: 3px solid transparent; margin: 1px 0;
+}
+.side-link svg { width: 18px; height: 18px; flex: 0 0 18px; opacity: 0.8; }
+.side-link:hover { background: var(--side-hover); color: #fff; }
+.side-link.active { background: var(--side-active); color: #fff; border-left-color: var(--brand); font-weight: 600; }
+.side-link.active svg { opacity: 1; color: var(--brand); }
+
+.side-foot { border-top: 1px solid rgba(255,255,255,0.08); padding: 14px 18px;
+  display: flex; align-items: center; gap: 10px; background: var(--side-bg-2); }
+.side-user { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;
+  color: #fff; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-user svg { width: 18px; height: 18px; flex: 0 0 18px; opacity: 0.7; }
+.side-logout { color: var(--side-fg-dim); text-decoration: none; font-size: 12.5px; }
+.side-logout:hover { color: #fff; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column;
+  padding: 30px 40px 0; }
+.main-inner { flex: 1; max-width: 1160px; width: 100%; }
+.nav-open { display: none; }
+
+/* mobile: sidebar slides in over the content */
+@media (max-width: 860px) {
+  .sidebar { position: fixed; left: 0; top: 0; z-index: 60; transform: translateX(-100%);
+    transition: transform 0.22s ease; box-shadow: 0 0 30px rgba(0,0,0,0.3); }
+  .nav-toggle:checked ~ .sidebar { transform: translateX(0); }
+  .nav-close { display: block; color: var(--side-fg-dim); font-size: 26px; line-height: 1;
+    text-decoration: none; cursor: pointer; }
+  .main { padding: 16px 18px 0; }
+  .nav-open { display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+    color: var(--muted); font-weight: 600; font-size: 14px; margin-bottom: 14px; }
+  .nav-open svg { width: 22px; height: 22px; }
 }
 
 /* ------- nav ------- */
@@ -55,9 +122,15 @@ body {
 .top-nav .nav-logout { color: var(--muted); }
 
 /* ------- login ------- */
-.login-wrap { display: flex; justify-content: center; padding: 48px 0; }
-.login-card { width: 100%; max-width: 380px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 32px 30px; box-shadow: 0 2px 12px rgba(0,0,0,0.05); }
-.login-card h1 { margin-top: 0; }
+.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(1100px 460px at 50% -8%, #eaeef6, var(--bg)); padding: 24px; }
+.login-card { width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; overflow: hidden; box-shadow: 0 12px 44px rgba(20,28,46,0.13); }
+.login-brand { background: var(--side-bg); padding: 24px 30px; text-align: center; }
+.login-brand img { width: 178px; height: auto; }
+.login-body { padding: 26px 30px 30px; }
+.login-body h1 { margin-top: 0; font-size: 20px; }
+.login-card .lede { margin-bottom: 18px; }
 .login-card .form-actions button { width: 100%; }
 
 /* ------- analytics: stat tiles ------- */

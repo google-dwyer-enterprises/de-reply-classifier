@@ -3,35 +3,83 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Lead Reviewer{% endblock %}</title>
+<title>{% block title %}Dwyer Console{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 {% block head %}{% endblock %}
 </head>
 <body>
-<div class="container">
-  <nav class="top-nav">
-    <a href="{{ url_for('index') }}" class="brand">{% block brand %}Dwyer Console{% endblock %}</a>
-    <div class="nav-spacer"></div>
-    {% if current_role == 'scraper' %}
-      <a href="{{ url_for('batches') }}">Batches</a>
-      <a href="{{ url_for('submit_form') }}">Submit</a>
-      <a href="{{ url_for('followups_tool') }}">Follow-ups</a>
-      <a href="{{ url_for('followups_best') }}">Best replies</a>
-      <a href="{{ url_for('followups_templates') }}">Templates</a>
-    {% elif current_role == 'analyst' %}
-      <a href="{{ url_for('analytics') }}">Follow-up Analytics</a>
-      <a href="{{ url_for('followups_results') }}">A/B Results</a>
-    {% endif %}
-    {% if current_user %}
-      <span class="nav-user">{{ current_user }}</span>
-      <a href="{{ url_for('logout') }}" class="nav-logout">Log out</a>
-    {% endif %}
-  </nav>
-  {% block content %}{% endblock %}
-  <footer class="footer">
-    <span>Lead Scrape Automation · Dwyer Enterprises</span>
-  </footer>
+{% if current_user %}
+<div class="app">
+  <input type="checkbox" id="nav-toggle" class="nav-toggle" hidden>
+  <aside class="sidebar">
+    <div class="side-top">
+      <a href="{{ url_for('index') }}" class="side-logo">
+        <img src="{{ url_for('static', filename='dwyer-logo.png') }}" alt="Dwyer Enterprises">
+      </a>
+      <label for="nav-toggle" class="nav-close" aria-label="Close menu">&times;</label>
+    </div>
+    <nav class="side-nav">
+      <div class="nav-group">
+        <div class="nav-group-label">Scraping</div>
+        <a href="{{ url_for('batches') }}" class="side-link {{ 'active' if request.endpoint == 'batches' }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>
+          <span>Batches</span>
+        </a>
+        <a href="{{ url_for('submit_form') }}" class="side-link {{ 'active' if request.endpoint in ('submit_form','submit_post') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Submit batch</span>
+        </a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-label">Follow-ups</div>
+        <a href="{{ url_for('followups_tool') }}" class="side-link {{ 'active' if request.endpoint == 'followups_tool' }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H5.2L4 17.2V4z"/><path d="M8 9h8"/><path d="M8 12h5"/></svg>
+          <span>Follow-ups</span>
+        </a>
+        <a href="{{ url_for('followups_best') }}" class="side-link {{ 'active' if request.endpoint == 'followups_best' }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.5 5.3 5.5.8-4 4 1 5.6-5-2.8-5 2.8 1-5.6-4-4 5.5-.8L12 3z"/></svg>
+          <span>Best replies</span>
+        </a>
+        <a href="{{ url_for('followups_templates') }}" class="side-link {{ 'active' if request.endpoint in ('followups_templates','followups_templates_save','followups_templates_toggle') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+          <span>Templates</span>
+        </a>
+        <a href="{{ url_for('followups_results') }}" class="side-link {{ 'active' if request.endpoint == 'followups_results' }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="9"/></svg>
+          <span>A/B Results</span>
+        </a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-label">Analytics</div>
+        <a href="{{ url_for('analytics') }}" class="side-link {{ 'active' if request.endpoint == 'analytics' }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M17 7h4v4"/></svg>
+          <span>Follow-up Analytics</span>
+        </a>
+      </div>
+    </nav>
+    <div class="side-foot">
+      <span class="side-user">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        {{ current_user }}
+      </span>
+      <a href="{{ url_for('logout') }}" class="side-logout">Log out</a>
+    </div>
+  </aside>
+  <main class="main">
+    <label for="nav-toggle" class="nav-open" aria-label="Open menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      <span>Menu</span>
+    </label>
+    <div class="main-inner">
+      {% block content %}{% endblock %}
+    </div>
+    <footer class="footer">Lead Scrape Automation · Dwyer Enterprises</footer>
+  </main>
 </div>
+{% else %}
+{# unauthenticated (login) — no sidebar, just the content block #}
+{{ self.content() }}
+{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>
