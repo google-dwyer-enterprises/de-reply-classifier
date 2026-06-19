@@ -23,7 +23,7 @@
   <thead>
     <tr>
       <th>#</th><th>Status</th><th>Approval</th>
-      <th>Scraped</th><th>Moved</th><th>Credits</th>
+      <th>Accepted / Target</th><th>Moved</th><th>Credits</th>
       <th>Created</th><th>Notes</th><th></th>
     </tr>
   </thead>
@@ -43,7 +43,7 @@
         {% else %}<span class="badge badge-rejected">{{ r.approval }}</span>
         {% endif %}
       </td>
-      <td class="num">{{ r.scraped_count }}</td>
+      <td class="num">{{ r.scraped_count }} <span class="muted">/ {{ r.requested_leads }}</span></td>
       <td class="num">{{ r.moved_count }}</td>
       <td class="num">{{ r.credits_spent }}</td>
       <td class="datecell">{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '' }}</td>

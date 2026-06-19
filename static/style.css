@@ -287,6 +287,7 @@ table.batch-list th { background: #f9fafb; color: var(--muted); padding: 10px 14
 table.batch-list td { padding: 11px 14px; border-bottom: 1px solid #f3f4f6; }
 table.batch-list tr:last-child td { border-bottom: none; }
 table.batch-list td.num { font-variant-numeric: tabular-nums; }
+table.batch-list td.num .muted { color: var(--muted); font-weight: 400; }
 table.batch-list td.datecell { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
 table.batch-list td.notes { color: var(--muted); font-size: 12px; }
 table.batch-list td.empty { text-align: center; padding: 32px; color: var(--muted); }
