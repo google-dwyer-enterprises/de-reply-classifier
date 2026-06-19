@@ -323,6 +323,7 @@ def main() -> None:
         run_script("followup_features.py")
         run_script("scripts/apply_followup_patterns_view.py")
         run_script("scripts/gen_followup_patterns_report.py")
+        run_script("scripts/gen_followup_playbook.py")
     elif args.command == "generate-followup-experiments":
         import followup_experiments_data as fxd
         from datetime import datetime, timedelta, timezone
