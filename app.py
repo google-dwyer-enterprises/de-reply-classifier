@@ -618,6 +618,54 @@ def followups_templates_toggle(template_id):
     return redirect(url_for("followups_templates"))
 
 
+# --- Phase 2: the A/B tool (pull interest replies, suggest follow-ups, mark sent) ---
+
+@app.route("/followups")
+@require_role("scraper")
+def followups_tool():
+    from datetime import datetime, timedelta, timezone
+    import followup_experiments_data as fx
+    days = _parse_int_or_none(request.args.get("days"), 1, 90) or 7
+    client = (request.args.get("client") or "").strip() or None
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    created = fx.ensure_experiments(client, since)   # generate once for new replies
+    return render_template(
+        "followups.html",
+        rows=fx.fetch_for_view(client, since),
+        clients=fx.fetch_clients(),
+        sel_client=client, days=days, created=created,
+    )
+
+
+@app.route("/followups/<int:exp_id>/sent", methods=["POST"])
+@require_role("scraper")
+def followups_mark_sent(exp_id):
+    import followup_experiments_data as fx
+    idx = _parse_int_or_none(request.form.get("variation_idx"), 0, 10)
+    if idx is not None:
+        fx.mark_sent(exp_id, idx)
+    return redirect(url_for("followups_tool",
+                            client=(request.form.get("client") or None),
+                            days=(request.form.get("days") or None)))
+
+
+@app.route("/followups/<int:exp_id>/skip", methods=["POST"])
+@require_role("scraper")
+def followups_skip(exp_id):
+    import followup_experiments_data as fx
+    fx.skip(exp_id)
+    return redirect(url_for("followups_tool",
+                            client=(request.form.get("client") or None),
+                            days=(request.form.get("days") or None)))
+
+
+@app.route("/followups/results")
+@require_role("analyst")
+def followups_results():
+    import followup_experiments_attrib as fxa
+    return render_template("followups_results.html", **fxa.fetch_results())
+
+
 # ---------------------------------------------------------------------------
 # Filters used in templates
 # ---------------------------------------------------------------------------
@@ -625,6 +673,12 @@ def followups_templates_toggle(template_id):
 @app.template_filter("csvlist")
 def _filter_csvlist(s):
     return _parse_csv_list(s)
+
+
+@app.template_filter("humanize")
+def _filter_humanize(s):
+    from followup_analytics import humanize_text
+    return humanize_text(s or "")
 
 
 if __name__ == "__main__":

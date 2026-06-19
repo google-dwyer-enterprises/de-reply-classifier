@@ -58,6 +58,14 @@ LABEL_DEFINITIONS = {
 FOLLOWUP_FEATURE_MODEL = "claude-haiku-4-5"
 FOLLOWUP_PROMPT_VERSION = "ff1"
 
+# Interest follow-up A/B — AI generation arm (INTEREST_FOLLOWUP_AB_PLAN.md).
+# Bump FOLLOWUP_GEN_PROMPT_VERSION on any change to prompts/followup_generate.txt.
+FOLLOWUP_GEN_MODEL = "claude-haiku-4-5"
+FOLLOWUP_GEN_PROMPT_VERSION = "fg1"
+FOLLOWUP_GEN_N_VARIATIONS = 3        # drafts per reply (both arms)
+# Interest entry set (signed-off): right-now interest only.
+FOLLOWUP_INTEREST_LABELS = ("interested", "booked")
+
 # dimension -> {enum value: definition}. The first value of each is the fallback
 # the LLM (and coerce_features) must use when none clearly applies.
 FOLLOWUP_FEATURE_SPEC: dict[str, dict[str, str]] = {

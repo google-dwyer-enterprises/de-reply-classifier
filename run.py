@@ -191,6 +191,9 @@ def main() -> None:
     sub.add_parser("refresh-followup-patterns",
                    help="Full descriptive follow-up analysis: extract features → rebuild "
                         "followup_patterns_mv/_timing_mv → regenerate the HTML report")
+    sub.add_parser("attribute-followup-experiments",
+                   help="Interest follow-up A/B: link marked-sent experiments to real sends "
+                        "and attribute the reply outcome (run on the daily cron)")
 
     sub.add_parser("update-status", help="Materialize auto_status onto leads table from latest non-oof classification")
 
@@ -317,6 +320,10 @@ def main() -> None:
         run_script("followup_features.py")
         run_script("scripts/apply_followup_patterns_view.py")
         run_script("scripts/gen_followup_patterns_report.py")
+    elif args.command == "attribute-followup-experiments":
+        import followup_experiments_attrib as fxa
+        print(">>> attribute-followup-experiments")
+        print(fxa.attribute())
     elif args.command == "update-status":
         update_status_main()
     elif args.command == "sync":
