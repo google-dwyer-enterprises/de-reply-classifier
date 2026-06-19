@@ -11,6 +11,7 @@ Read-only. Reuses db.connect() (psycopg2). No new tables/views.
 """
 from __future__ import annotations
 
+import html
 import math
 import re
 
@@ -32,11 +33,16 @@ _HUMANIZE_BRANDS = re.compile(
     r"AliExpress|DoorDash|PageFly|ShipBob|GrubHub|"
     r"MoM|YoY|WoW|QoQ|PoP|DtC|McK|MacBook")
 _URL_OR_EMAIL = re.compile(r"https?://\S+|www\.\S+|\b[\w.+-]+@[\w.-]+\.\w+\b")
+_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")   # [label](url) -> label
 
 
 def humanize_text(text: str) -> str:
     if not text:
         return text
+    # decode HTML entities (&nbsp; &amp; &#39; …), fold non-breaking spaces, and
+    # flatten markdown links to just their label so bodies read cleanly.
+    text = html.unescape(text).replace("\xa0", " ")
+    text = _MD_LINK.sub(r"\1", text)
     holds: list[str] = []
 
     def _hold(m):
