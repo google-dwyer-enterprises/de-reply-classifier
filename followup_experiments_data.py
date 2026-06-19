@@ -147,6 +147,7 @@ def ensure_experiments(client: str | None, since, cap: int = 20) -> int:
     created = 0
     anthropic_client = None
     gen_prompt = None
+    ai_disabled = False   # set if this host has no Anthropic key/package
     try:
         cur = conn.cursor()
         params = ([INTEREST_LABELS, since, client, cap] if client
@@ -162,10 +163,18 @@ def ensure_experiments(client: str | None, since, cap: int = 20) -> int:
                 scenario = SCENARIO_FOR_LABEL.get(label, "interested_general")
                 variations = build_static_variations(scenario, lead, templates_by_scenario)
             else:
+                if ai_disabled:
+                    continue   # AI arm unavailable on this host — skip; retried elsewhere
                 if anthropic_client is None:
-                    from anthropic import Anthropic
-                    anthropic_client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-                    gen_prompt = _build_gen_prompt()
+                    try:
+                        from anthropic import Anthropic
+                        anthropic_client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+                        gen_prompt = _build_gen_prompt()
+                    except Exception:
+                        # No ANTHROPIC_API_KEY / anthropic package here (e.g. the web
+                        # service). Don't 500 the page — skip AI-arm rows this call.
+                        ai_disabled = True
+                        continue
                 try:
                     variations = build_ai_variations(anthropic_client, gen_prompt, subject, body, lead)
                 except Exception:

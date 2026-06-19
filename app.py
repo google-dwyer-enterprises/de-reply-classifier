@@ -628,12 +628,14 @@ def followups_tool():
     days = _parse_int_or_none(request.args.get("days"), 1, 90) or 7
     client = (request.args.get("client") or "").strip() or None
     since = datetime.now(timezone.utc) - timedelta(days=days)
-    created = fx.ensure_experiments(client, since)   # generate once for new replies
+    # Display only — fast queries, no LLM. Suggestions are generated in the
+    # background (run.py generate-followup-experiments, on the daily cron) so a
+    # page load never blocks on Haiku and never needs the key on the web host.
     return render_template(
         "followups.html",
         rows=fx.fetch_for_view(client, since),
         clients=fx.fetch_clients(),
-        sel_client=client, days=days, created=created,
+        sel_client=client, days=days,
     )
 
 
