@@ -595,12 +595,12 @@ def move_approved_leads_for_request(conn, request_id: int) -> int:
             insert into lead_contacts (
               lead_email, first_name, last_name, title, company_name,
               website, industry, lead_list_source, imported_at,
-              mv_result, mv_checked_at, mobile
+              mv_result, mv_checked_at, mobile, scrape_request_id
             )
             select p.email, p.first_name, p.last_name, p.title, p.company_name,
                    p.company_website, p.source_industry,
                    'BetterContact', now(), p.mv_result, p.mv_checked_at,
-                   p.mobile
+                   p.mobile, p.scrape_request_id
               from prospeo_new_leads p
              where p.scrape_request_id = %s
                and p.lead_approval = 'approved'
