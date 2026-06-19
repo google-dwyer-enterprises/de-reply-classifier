@@ -174,7 +174,11 @@ def run_feature(f):
             sc, parsed_ok = None, False
         return lbl, sc, r, parsed_ok
 
-    tasks = [(lbl, prov, model, row) for lbl, prov, model in LADDER for row in f["rows"]]
+    # Gemini 3.1 Pro forces thinking mode (~100s/call) — cap its rows so one slow model
+    # doesn't make the whole run take an hour. Its smaller n is shown transparently.
+    SLOW_CAP = {"Gemini 3.1 Pro": 12}
+    tasks = [(lbl, prov, model, row) for lbl, prov, model in LADDER
+             for row in f["rows"][:SLOW_CAP.get(lbl, len(f["rows"]))]]
     with ThreadPoolExecutor(max_workers=8) as ex:
         for lbl, sc, r, parsed_ok in ex.map(work, tasks):
             a = agg[lbl]

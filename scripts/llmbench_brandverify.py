@@ -27,7 +27,13 @@ load_dotenv(".env")
 
 import db
 import brand_verify as bv
-from scripts.llmbench import call_llm, CHEAP
+from scripts.llmbench import call_llm, LADDER
+
+# Gemini 3.1 Pro forces thinking mode and, on full real website payloads, runs many
+# minutes per call (or hangs) — prohibitive for this high-volume step. Excluded from the
+# quality run (cap 0); its brand-verify cost is already known (~$663/mo, far over budget).
+# Other models keep the full sample.
+SLOW_CAP = {"Gemini 3.1 Pro": 0}
 
 SITE_SYS = bv.SITE_PROMPT.read_text(encoding="utf-8")
 
@@ -95,57 +101,61 @@ def main():
         print("NO homepages fetched (network blocked here?). Run on a networked host.", flush=True)
         return
 
-    # run site-verdict through each provider
+    # run site-verdict through every model in the ladder (keyed by label, since
+    # several models share a provider). Pro is capped via SLOW_CAP.
     def run(args):
-        prov, model, dom, v, p = args
+        lbl, prov, model, dom, v, p = args
         r = call_llm(prov, model, SITE_SYS, p, max_out=450)
         label = None
         if not r["error"]:
             out = bv._parse_verdict_json(r["text"])
             label = (out or {}).get("label")
-        return dom, v, prov, label, r
+        return lbl, dom, v, label, r
 
-    tasks = [(prov, model, dom, v, p) for prov, model in CHEAP.items()
-             for dom, (v, p) in payloads.items()]
-    res = {p: {} for p in CHEAP}        # prov -> {dom: label}
-    costs = {p: [] for p in CHEAP}
-    errs = {p: 0 for p in CHEAP}
+    dom_items = list(payloads.items())  # [(dom, (v, p)), ...]
+    tasks = [(lbl, prov, model, dom, v, p) for lbl, prov, model in LADDER
+             for dom, (v, p) in dom_items[:SLOW_CAP.get(lbl, len(dom_items))]]
+    res = {lbl: {} for lbl, _, _ in LADDER}      # label -> {dom: site label}
+    costs = {lbl: [] for lbl, _, _ in LADDER}
+    errs = {lbl: 0 for lbl, _, _ in LADDER}
     with ThreadPoolExecutor(max_workers=8) as ex:
-        for dom, v, prov, label, r in ex.map(run, tasks):
-            if r["error"]: errs[prov] += 1; continue
-            res[prov][dom] = label
-            costs[prov].append(r["cost"])
+        for lbl, dom, v, label, r in ex.map(run, tasks):
+            if r["error"]: errs[lbl] += 1; continue
+            res[lbl][dom] = label
+            costs[lbl].append(r["cost"])
 
     REJECTISH = {"reseller"}   # the site step's reject-class label
-    out_rows = []
-    haiku = res["anthropic"]
+    haiku = res["Haiku 4.5 (current)"]
     summary = {}
-    for prov in CHEAP:
-        labels = res[prov]
-        passes = [d for d, (v, _) in payloads.items() if v == "pass"]
-        fails = [d for d, (v, _) in payloads.items() if v == "fail"]
+    for lbl, prov, model in LADDER:
+        labels = res[lbl]
+        scored = set(labels)               # denominators over what THIS model actually scored
+        passes = [d for d, (v, _) in payloads.items() if v == "pass" and d in scored]
+        fails = [d for d, (v, _) in payloads.items() if v == "fail" and d in scored]
         false_rej = [d for d in passes if labels.get(d) in REJECTISH]
         fail_caught = [d for d in fails if labels.get(d) in (REJECTISH | {"unknown"})]
         # agreement with Haiku's site label (over domains both labeled)
         both = [d for d in labels if d in haiku and labels[d] and haiku[d]]
         agree = sum(labels[d] == haiku[d] for d in both) / len(both) if both else None
-        n = len(costs[prov])
-        summary[prov] = {
-            "model": CHEAP[prov], "n": n, "errors": errs[prov],
+        n = len(costs[lbl])
+        summary[lbl] = {
+            "provider": prov, "model": model, "n": n, "errors": errs[lbl],
             "false_rejections": len(false_rej), "false_rej_domains": false_rej,
             "passes": len(passes),
             "fail_caught": len(fail_caught), "fails": len(fails),
             "fail_catch_rate": round(len(fail_caught) / len(fails), 3) if fails else None,
             "agree_with_haiku": round(agree, 3) if agree is not None else None,
-            "cost_per_call": round(sum(costs[prov]) / n, 6) if n else None,
+            "cost_per_call": round(sum(costs[lbl]) / n, 6) if n else None,
         }
     Path("debug").mkdir(exist_ok=True)
     Path("debug/_bv_quality.json").write_text(json.dumps(
-        {"n_domains": len(payloads), "fetch_fail": fetch_fail, "providers": summary}, indent=2))
+        {"n_domains": len(payloads), "fetch_fail": fetch_fail, "models": summary}, indent=2))
 
     print("\n=== brand-verify site-step QUALITY (vs ground truth) ===")
-    for prov, s in summary.items():
-        print(f"  {prov:10} {s['model']:24} agree_haiku={s['agree_with_haiku']} "
+    for lbl, s in summary.items():
+        if not s["n"]:
+            print(f"  {lbl:24} NO DATA (err {s['errors']})"); continue
+        print(f"  {lbl:24} agree_haiku={s['agree_with_haiku']} "
               f"false_rej={s['false_rejections']}/{s['passes']} "
               f"fail_catch={s['fail_caught']}/{s['fails']} ${s['cost_per_call']}/call (err {s['errors']})")
     print("\nwrote debug/_bv_quality.json")
