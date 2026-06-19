@@ -155,11 +155,22 @@ def fetch_recent_batches(limit: int = 50) -> list[dict]:
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                select id, status, approval, scraped_count, moved_count,
-                       credits_spent, max_credits, created_at, ready_at, moved_at,
-                       review_token, notes
-                  from scrape_requests
-                 order by id desc
+                select sr.id, sr.status, sr.approval, sr.moved_count,
+                       sr.credits_spent, sr.max_credits, sr.created_at,
+                       sr.ready_at, sr.moved_at, sr.review_token, sr.notes,
+                       sr.requested_leads,
+                       -- scraped_count is the ACCEPTED count, but the worker only
+                       -- writes it at mark_ready. For a still-running batch that
+                       -- column is 0, so show a live accepted count from the rows
+                       -- persisted so far; finished batches keep the authoritative
+                       -- stored value (rows may have moved/been pruned later).
+                       case when sr.status = 'running'
+                            then (select count(*) from prospeo_new_leads p
+                                   where p.scrape_request_id = sr.id and not p.rejected)
+                            else sr.scraped_count
+                       end as scraped_count
+                  from scrape_requests sr
+                 order by sr.id desc
                  limit %s
             """, (limit,))
             return list(cur.fetchall())
