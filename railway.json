@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "python run.py refresh && python run.py refresh-followup-patterns",
+    "startCommand": "python run.py refresh && python run.py refresh-followup-patterns && python run.py attribute-followup-experiments",
     "restartPolicyType": "NEVER",
     "cronSchedule": "0 9 * * *"
   }
