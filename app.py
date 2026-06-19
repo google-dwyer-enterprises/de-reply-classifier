@@ -634,6 +634,13 @@ def followups_skip(exp_id):
                             days=(request.form.get("days") or None)))
 
 
+@app.route("/followups/results")
+@require_role("analyst")
+def followups_results():
+    import followup_experiments_attrib as fxa
+    return render_template("followups_results.html", **fxa.fetch_results())
+
+
 # ---------------------------------------------------------------------------
 # Filters used in templates
 # ---------------------------------------------------------------------------

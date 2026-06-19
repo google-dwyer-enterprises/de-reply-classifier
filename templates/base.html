@@ -20,6 +20,7 @@
       <a href="{{ url_for('followups_templates') }}">Templates</a>
     {% elif current_role == 'analyst' %}
       <a href="{{ url_for('analytics') }}">Follow-up Analytics</a>
+      <a href="{{ url_for('followups_results') }}">A/B Results</a>
     {% endif %}
     {% if current_user %}
       <span class="nav-user">{{ current_user }}</span>

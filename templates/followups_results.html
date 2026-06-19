@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}A/B Results · Dwyer Console{% endblock %}
+{% block brand %}Dwyer Console{% endblock %}
+{% block head %}
+<style>
+  .verdict { border-radius:10px; padding:16px 18px; margin:16px 0; font-size:16px; font-weight:600; border:1px solid; }
+  .verdict.thin { background:#f7f8fa; border-color:#e1e4e8; color:#5e6470; }
+  .verdict.tie  { background:#fffbeb; border-color:#fde68a; color:#92400e; }
+  .verdict.ai, .verdict.static { background:#f3fbf6; border-color:#bbf7d0; color:#166534; }
+  .cols { display:flex; gap:16px; flex-wrap:wrap; }
+  .arm { flex:1; min-width:240px; background:#fff; border:1px solid #e1e4e8; border-radius:10px; padding:16px 18px; }
+  .arm h3 { margin:0 0 10px; font-size:16px; }
+  .big { font-size:30px; font-weight:800; color:#2563eb; }
+  .sub { color:#5e6470; font-size:13px; margin-top:2px; }
+  .stat { margin:10px 0; }
+  .stat .k { color:#8c959f; font-size:12.5px; }
+  .ci { color:#8c959f; font-size:12.5px; }
+  .muted { color:#8c959f; font-size:13px; }
+  table.mini { width:100%; border-collapse:collapse; margin-top:8px; }
+  table.mini td { padding:3px 0; font-size:13.5px; }
+  table.mini td.r { text-align:right; font-variant-numeric:tabular-nums; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Follow-up A/B — templates vs AI</h1>
+<p class="lede">For leads who replied interested, each follow-up is randomly written from a
+<b>curated template</b> or <b>AI-generated</b> for that reply. This compares how often each
+style earns a positive next reply. Randomized, so it's a fair head-to-head.</p>
+
+<div class="verdict {{ verdict.state }}">{{ verdict.text }}</div>
+
+<div class="cols">
+  {% for key in ['static','ai'] %}{% set a = arms[key] %}
+  <div class="arm">
+    <h3>{{ a.label }}</h3>
+    <div class="big">{{ a.positive_pct if a.positive_pct is not none else '—' }}%</div>
+    <div class="sub">positive-reply rate{% if a.decided %} <span class="ci">(95% range {{ a.ci_lo }}–{{ a.ci_hi }}%)</span>{% endif %}</div>
+    <table class="mini">
+      <tr><td class="k">Sent &amp; decided</td><td class="r">{{ a.decided }}</td></tr>
+      <tr><td class="k">Positive replies</td><td class="r">{{ a.positives }}</td></tr>
+      <tr><td class="k">Booked</td><td class="r">{{ a.booked }}{% if a.booked_pct is not none %} ({{ a.booked_pct }}%){% endif %}</td></tr>
+      <tr><td class="k">Awaiting outcome</td><td class="r">{{ a.pending }}</td></tr>
+      <tr><td class="k">Not yet sent</td><td class="r">{{ a.awaiting }}</td></tr>
+    </table>
+    {% if not a.enough %}<p class="muted" style="margin-top:8px">Below the reliability bar
+      (need ≥{{ min_decided }} decided &amp; ≥{{ min_positives }} positive).</p>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<p class="muted" style="margin-top:18px">A winner is only declared once <b>both</b> styles pass the
+reliability bar (≥{{ min_decided }} decided and ≥{{ min_positives }} positive replies each) <b>and</b>
+their ranges don't overlap — so a lucky early streak won't be mistaken for a real winner.
+"Booked" is the true goal but is rarer, so positive-reply rate is the day-to-day scoreboard.</p>
+{% endblock %}
