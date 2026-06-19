@@ -226,7 +226,7 @@ h1 { font-size: 24px; font-weight: 700; margin: 8px 0 4px; letter-spacing: -0.01
 .alert-ok { background: var(--green-soft); border-left: 4px solid var(--green); color: #14532d; }
 .alert-error { background: var(--red-soft); border-left: 4px solid var(--red); color: #7f1d1d; }
 
-.btn { background: white; color: #374151; border: 1.5px solid var(--border); padding: 8px 18px; border-radius: 6px; font: inherit; cursor: pointer; font-size: 14px; }
+.btn { background: white; color: #374151; border: 1.5px solid var(--border); padding: 8px 18px; border-radius: 6px; font: inherit; cursor: pointer; font-size: 14px; white-space: nowrap; display: inline-block; text-decoration: none; }
 .btn:hover { background: #f9fafb; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-small { padding: 5px 12px; font-size: 12px; }
