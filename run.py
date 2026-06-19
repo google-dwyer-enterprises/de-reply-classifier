@@ -191,6 +191,9 @@ def main() -> None:
     sub.add_parser("refresh-followup-patterns",
                    help="Full descriptive follow-up analysis: extract features → rebuild "
                         "followup_patterns_mv/_timing_mv → regenerate the HTML report")
+    sub.add_parser("generate-followup-experiments",
+                   help="Interest follow-up A/B: assign arms + generate static/AI follow-up "
+                        "variations for new interest replies (run on the daily cron)")
     sub.add_parser("attribute-followup-experiments",
                    help="Interest follow-up A/B: link marked-sent experiments to real sends "
                         "and attribute the reply outcome (run on the daily cron)")
@@ -320,6 +323,12 @@ def main() -> None:
         run_script("followup_features.py")
         run_script("scripts/apply_followup_patterns_view.py")
         run_script("scripts/gen_followup_patterns_report.py")
+    elif args.command == "generate-followup-experiments":
+        import followup_experiments_data as fxd
+        from datetime import datetime, timedelta, timezone
+        since = datetime.now(timezone.utc) - timedelta(days=14)
+        print(">>> generate-followup-experiments")
+        print("created:", fxd.ensure_experiments(None, since, cap=500))
     elif args.command == "attribute-followup-experiments":
         import followup_experiments_attrib as fxa
         print(">>> attribute-followup-experiments")
