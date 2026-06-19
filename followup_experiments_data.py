@@ -57,6 +57,11 @@ def _candidate_sql(with_client: bool) -> str:
         left join followup_experiments e on e.source_reply_id = r.id
        where l.label = any(%s) and e.id is null
          and r.reply_timestamp >= %s {client_clause}
+         -- drop Google-Calendar notification emails (the 'booked' noise): they're
+         -- the booking itself, not a lead message that needs a follow-up.
+         and coalesce(r.body,'') not ilike '%%Join with Google Meet%%'
+         and coalesce(r.body,'') not ilike '%%meet.google.com%%'
+         and coalesce(r.body,'') not ilike '%%This event has been updated%%'
     ),
     dedup as (
       select distinct on (lead_email) * from cand
@@ -153,7 +158,8 @@ def ensure_experiments(client: str | None, since, cap: int = 20) -> int:
         params = ([INTEREST_LABELS, since, client, cap] if client
                   else [INTEREST_LABELS, since, cap])
         cur.execute(_candidate_sql(bool(client)), params)
-        rows = cur.fetchall()
+        # Drop excluded senders (internal addresses, bots, do-not-reply, etc.)
+        rows = [r for r in cur.fetchall() if not config.is_excluded_sender(r[1])]
         templates_by_scenario = ft.fetch_active_templates()
 
         for rid, lead_email, rclient, subject, body, ts, label in rows:
@@ -212,7 +218,8 @@ def fetch_for_view(client: str | None, since) -> list[dict]:
                and r.reply_timestamp >= %s {clause}
              order by e.status asc, r.reply_timestamp desc
         """, params)
-        return [dict(r) for r in cur.fetchall()]
+        return [dict(r) for r in cur.fetchall()
+                if not config.is_excluded_sender(r["lead_email"])]
     finally:
         conn.close()
 
