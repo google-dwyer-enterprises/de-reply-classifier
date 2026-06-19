@@ -569,6 +569,17 @@ alter table bettercontact_scrape_state add column if not exists parked_at timest
 alter table scrape_requests add column if not exists enrichment text not null default 'email';
 alter table lead_contacts add column if not exists mobile text;
 
+-- Provenance: which scrape_requests batch a moved lead came from. Nullable —
+-- null for Apollo/vendor-uploaded leads (they don't originate from a batch);
+-- set by the worker's move step for BetterContact-sourced leads. ON DELETE SET
+-- NULL so deleting a batch nulls the provenance rather than deleting a real
+-- lead. Makes per-batch cleanup/audit precise (delete ... where
+-- scrape_request_id = any(...)) instead of matching on email + list source.
+alter table lead_contacts
+  add column if not exists scrape_request_id bigint references scrape_requests(id) on delete set null;
+create index if not exists lead_contacts_scrape_request_id_idx
+  on lead_contacts (scrape_request_id) where scrape_request_id is not null;
+
 -- "Are they on Amazon" (Victor, 6/12): per-domain Amazon-registry presence
 -- from the 275k-brand SmartScout table (guarded fuzzy match), stamped on
 -- every verified company independent of the brand/reseller verdict.
