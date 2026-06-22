@@ -54,6 +54,12 @@ body {
 .sidebar {
   width: var(--sidebar-w); flex: 0 0 var(--sidebar-w);
   background: var(--side-bg); color: var(--side-fg);
+}
+/* The dark column stretches to the full page height (flex-stretch on .app), so
+   it never leaves a gap below the nav on tall pages or when 100vh renders short
+   (browser zoom / mobile UI). The nav lives in an inner layer pinned to the
+   viewport so it still stays put while scrolling. */
+.sidebar-sticky {
   display: flex; flex-direction: column;
   position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
@@ -93,7 +99,7 @@ body {
 
 /* mobile: sidebar slides in over the content */
 @media (max-width: 860px) {
-  .sidebar { position: fixed; left: 0; top: 0; z-index: 60; transform: translateX(-100%);
+  .sidebar { position: fixed; left: 0; top: 0; height: 100vh; z-index: 60; transform: translateX(-100%);
     transition: transform 0.22s ease; box-shadow: 0 0 30px rgba(0,0,0,0.3); }
   .nav-toggle:checked ~ .sidebar { transform: translateX(0); }
   .nav-close { display: block; color: var(--side-fg-dim); font-size: 26px; line-height: 1;

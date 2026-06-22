@@ -13,6 +13,7 @@
 <div class="app">
   <input type="checkbox" id="nav-toggle" class="nav-toggle" hidden>
   <aside class="sidebar">
+   <div class="sidebar-sticky">
     <div class="side-top">
       <a href="{{ url_for('index') }}" class="side-logo">
         <img src="{{ url_for('static', filename='dwyer-logo.png') }}" alt="Dwyer Enterprises">
@@ -65,6 +66,7 @@
       </span>
       <a href="{{ url_for('logout') }}" class="side-logout">Log out</a>
     </div>
+   </div>
   </aside>
   <main class="main">
     <label for="nav-toggle" class="nav-open" aria-label="Open menu">
