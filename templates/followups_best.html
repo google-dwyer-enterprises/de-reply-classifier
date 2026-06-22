@@ -20,6 +20,14 @@
 <p class="lede">Proven follow-up templates, grouped by the situation. Copy one, paste it into Instantly,
 and swap in the lead's details. (The full deep-dive analysis is on the Follow-up Analytics page.)</p>
 
+<div class="callout">
+  <strong>Where this fits</strong>
+  A copy-and-go view of your <b>active templates</b>, grouped by situation. To add, edit, or retire what
+  shows here, use the <a href="{{ url_for('followups_templates') }}">Templates</a> page. For the "why these
+  work" evidence, see <a href="{{ url_for('analytics') }}">Follow-up Analytics</a> and the
+  <a href="{{ url_for('followups_playbook') }}" target="_blank" rel="noopener">Playbook&nbsp;↗</a>.
+</div>
+
 {% if not grouped %}
   <div class="alert">No templates yet. Add your best replies on the
     <a href="{{ url_for('followups_templates') }}">Templates</a> page.</div>
