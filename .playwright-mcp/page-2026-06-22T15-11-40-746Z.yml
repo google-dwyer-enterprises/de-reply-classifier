@@ -1,0 +1,79 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - link "Dwyer Enterprises" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - img "Dwyer Enterprises" [ref=e6]
+    - navigation [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]: Scraping
+        - link "Batches" [ref=e10] [cursor=pointer]:
+          - /url: /batches
+          - img [ref=e11]
+          - generic [ref=e15]: Batches
+        - link "Submit batch" [ref=e16] [cursor=pointer]:
+          - /url: /submit
+          - img [ref=e17]
+          - generic [ref=e18]: Submit batch
+      - generic [ref=e19]:
+        - generic [ref=e20]: Follow-ups
+        - link "Follow-ups" [ref=e21] [cursor=pointer]:
+          - /url: /followups
+          - img [ref=e22]
+          - generic [ref=e24]: Follow-ups
+        - link "Best replies" [ref=e25] [cursor=pointer]:
+          - /url: /followups/best
+          - img [ref=e26]
+          - generic [ref=e28]: Best replies
+        - link "Templates" [ref=e29] [cursor=pointer]:
+          - /url: /followups/templates
+          - img [ref=e30]
+          - generic [ref=e33]: Templates
+        - link "A/B Results" [ref=e34] [cursor=pointer]:
+          - /url: /followups/results
+          - img [ref=e35]
+          - generic [ref=e36]: A/B Results
+      - generic [ref=e37]:
+        - generic [ref=e38]: Analytics
+        - link "Follow-up Analytics" [ref=e39] [cursor=pointer]:
+          - /url: /analytics
+          - img [ref=e40]
+          - generic [ref=e43]: Follow-up Analytics
+    - generic [ref=e44]:
+      - generic [ref=e45]:
+        - img [ref=e46]
+        - text: jam
+      - link "Log out" [ref=e49] [cursor=pointer]:
+        - /url: /logout
+  - main [ref=e50]:
+    - generic [ref=e51]:
+      - heading "Your lead batches" [level=1] [ref=e52]
+      - paragraph [ref=e53]: Most recent first. Click "Review" on any batch that's ready.
+      - table [ref=e55]:
+        - rowgroup [ref=e56]:
+          - row "# Status Approval Accepted / Target Moved Credits Created Notes" [ref=e57]:
+            - columnheader "#" [ref=e58]
+            - columnheader "Status" [ref=e59]
+            - columnheader "Approval" [ref=e60]
+            - columnheader "Accepted / Target" [ref=e61]
+            - columnheader "Moved" [ref=e62]
+            - columnheader "Credits" [ref=e63]
+            - columnheader "Created" [ref=e64]
+            - columnheader "Notes" [ref=e65]
+            - columnheader [ref=e66]
+        - rowgroup [ref=e67]:
+          - row "#44 ready pending 1052 / 1000 0 3458.0 2026-06-19 19:25 first real batch. Review →" [ref=e68]:
+            - cell "#44" [ref=e69]:
+              - strong [ref=e70]: "#44"
+            - cell "ready" [ref=e71]:
+              - generic [ref=e72]: ready
+            - cell "pending" [ref=e73]:
+              - generic [ref=e74]: pending
+            - cell "1052 / 1000" [ref=e75]
+            - cell "0" [ref=e76]
+            - cell "3458.0" [ref=e77]
+            - cell "2026-06-19 19:25" [ref=e78]
+            - cell "first real batch." [ref=e79]
+            - cell "Review →" [ref=e80]:
+              - link "Review →" [ref=e81] [cursor=pointer]:
+                - /url: /batch/2b9dac89-c85e-4472-8f55-2f555800eea9
+    - generic [ref=e82]: Dwyer Enterprises

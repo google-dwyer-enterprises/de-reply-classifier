@@ -1,0 +1,208 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - link "Dwyer Enterprises" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - img "Dwyer Enterprises" [ref=e6]
+    - navigation [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]: Scraping
+        - link "Batches" [ref=e10] [cursor=pointer]:
+          - /url: /batches
+          - img [ref=e11]
+          - generic [ref=e15]: Batches
+        - link "Submit batch" [ref=e16] [cursor=pointer]:
+          - /url: /submit
+          - img [ref=e17]
+          - generic [ref=e18]: Submit batch
+      - generic [ref=e19]:
+        - generic [ref=e20]: Follow-ups
+        - link "Follow-ups" [ref=e21] [cursor=pointer]:
+          - /url: /followups
+          - img [ref=e22]
+          - generic [ref=e24]: Follow-ups
+        - link "Best replies" [ref=e25] [cursor=pointer]:
+          - /url: /followups/best
+          - img [ref=e26]
+          - generic [ref=e28]: Best replies
+        - link "Templates" [ref=e29] [cursor=pointer]:
+          - /url: /followups/templates
+          - img [ref=e30]
+          - generic [ref=e33]: Templates
+        - link "A/B Results" [ref=e34] [cursor=pointer]:
+          - /url: /followups/results
+          - img [ref=e35]
+          - generic [ref=e36]: A/B Results
+      - generic [ref=e37]:
+        - generic [ref=e38]: Analytics
+        - link "Follow-up Analytics" [ref=e39] [cursor=pointer]:
+          - /url: /analytics
+          - img [ref=e40]
+          - generic [ref=e43]: Follow-up Analytics
+    - generic [ref=e44]:
+      - generic [ref=e45]:
+        - img [ref=e46]
+        - text: jam
+      - link "Log out" [ref=e49] [cursor=pointer]:
+        - /url: /logout
+  - main [ref=e50]:
+    - generic [ref=e51]:
+      - heading "Follow-up templates" [level=1] [ref=e52]
+      - paragraph [ref=e53]:
+        - text: Curate the "best replies" library. Active templates show on the
+        - link "Best replies" [ref=e54] [cursor=pointer]:
+          - /url: /followups/best
+        - text: page and feed the A/B test's template arm.
+      - generic [ref=e55]:
+        - generic [ref=e56]:
+          - generic [ref=e57]: Situation
+          - combobox [ref=e58]:
+            - option "They're interested — keep it moving" [selected]
+            - option "They asked about price or details"
+            - option "Lock in / confirm a time"
+            - option "Re-warm a lead who went quiet"
+            - option "Other / general"
+        - generic [ref=e59]:
+          - generic [ref=e60]: Title (short)
+          - textbox "e.g. Quick nudge for a time" [ref=e61]
+        - generic [ref=e62]:
+          - generic [ref=e63]: Subject (optional)
+          - textbox [ref=e64]
+        - generic [ref=e65]:
+          - generic [ref=e66]: Body
+          - 'textbox "Hi {first_name}, ..." [ref=e67]'
+          - paragraph [ref=e68]:
+            - text: Use
+            - code [ref=e69]: "{first_name}"
+            - text: and
+            - code [ref=e70]: "{company}"
+            - text: as placeholders.
+        - button "Save template" [ref=e71] [cursor=pointer]
+        - button "Clear" [ref=e72] [cursor=pointer]
+      - heading "Library (8)" [level=2] [ref=e73]
+      - generic [ref=e74]:
+        - generic [ref=e75]:
+          - generic [ref=e76]: They're interested — keep it moving
+          - strong [ref=e77]: You in 60 days (Amazon, GIF)
+        - generic [ref=e78]: "Hey {first_name}, This is you waking up, checking your phone, and realizing... it's finally working. This is you in 60 days lol. [GIF] I checked out your Amazon products and know how to get you there - we have an Amazon seller system. Would love to chat, ready for it? Let's get you there."
+        - generic [ref=e79]:
+          - button "Edit" [ref=e80] [cursor=pointer]
+          - button "Deactivate" [ref=e82] [cursor=pointer]
+      - generic [ref=e83]:
+        - generic [ref=e84]:
+          - generic [ref=e85]: They're interested — keep it moving
+          - strong [ref=e86]: Extra cash, new normal (GIF)
+        - generic [ref=e87]: "Hey {first_name}, What it'd feel like to see extra cash hit your account... without tacking on extra fees or lifting a finger more than you already do. [GIF] Feels good, right? Let's make that your new normal - ready when you are."
+        - generic [ref=e88]:
+          - button "Edit" [ref=e89] [cursor=pointer]
+          - button "Deactivate" [ref=e91] [cursor=pointer]
+      - generic [ref=e92]:
+        - generic [ref=e93]:
+          - generic [ref=e94]: They're interested — keep it moving
+          - strong [ref=e95]: Profit without extra fees (GIF)
+        - generic [ref=e96]: "Hey {first_name}, Your reaction when you get your profit without paying extra fees: [GIF] Don't you want to be this happy? Let's make it happen."
+        - generic [ref=e97]:
+          - button "Edit" [ref=e98] [cursor=pointer]
+          - button "Deactivate" [ref=e100] [cursor=pointer]
+      - generic [ref=e101]:
+        - generic [ref=e102]:
+          - generic [ref=e103]: They're interested — keep it moving
+          - strong [ref=e104]: Not a high-pressure call (GIF)
+        - generic [ref=e105]: "{first_name}, you probably think the call is gonna be a waste of time - just a high-pressure sales call. But I'd love to talk about how we can help with [their pain point]. [GIF] Here's my calendar link, feel free to schedule at your convenience."
+        - generic [ref=e106]:
+          - button "Edit" [ref=e107] [cursor=pointer]
+          - button "Deactivate" [ref=e109] [cursor=pointer]
+      - generic [ref=e110]:
+        - generic [ref=e111]:
+          - generic [ref=e112]: They're interested — keep it moving
+          - strong [ref=e113]: This is so you (dream outcome + GIF)
+        - generic [ref=e114]: "{first_name}, this is so you [GIF] When you find out you can have [dream outcome - e.g. Amazon profit]. Ready to talk? Here's my calendar link"
+        - generic [ref=e115]:
+          - button "Edit" [ref=e116] [cursor=pointer]
+          - button "Deactivate" [ref=e118] [cursor=pointer]
+      - generic [ref=e119]:
+        - generic [ref=e120]:
+          - generic [ref=e121]: They're interested — keep it moving
+          - strong [ref=e122]: Still a priority? (check-in)
+        - generic [ref=e123]: "{first_name}, is [their interest - e.g. Amazon profit] still a priority for you? Would love to chat about it. Free to talk this week? Here's my calendar link"
+        - generic [ref=e124]:
+          - button "Edit" [ref=e125] [cursor=pointer]
+          - button "Deactivate" [ref=e127] [cursor=pointer]
+      - generic [ref=e128]:
+        - generic [ref=e129]:
+          - generic [ref=e130]: They're interested — keep it moving
+          - strong [ref=e131]: Ready to talk? (you seemed interested)
+        - generic [ref=e132]: "{first_name}, you seemed interested about [their interest - e.g. Amazon profit, US to EU expansion], ready to talk? Here's my calendar link. Looking forward to meeting you"
+        - generic [ref=e133]:
+          - button "Edit" [ref=e134] [cursor=pointer]
+          - button "Deactivate" [ref=e136] [cursor=pointer]
+      - generic [ref=e137]:
+        - generic [ref=e138]:
+          - generic [ref=e139]: Re-warm a lead who went quiet
+          - strong [ref=e140]: Trying everything / still focused? (re-warm)
+        - generic [ref=e141]: "Hey {first_name}, Okay I admit it, I'm trying everything to get a reply from you haha [GIF] I know things may have changed since we last spoke, so I just wanted to check - are you still focused on [their offer/goal]? Either way, I'd love to reconnect and chat about how we might support you this year. Free this week or next?"
+        - generic [ref=e142]:
+          - button "Edit" [ref=e143] [cursor=pointer]
+          - button "Deactivate" [ref=e145] [cursor=pointer]
+      - heading "Suggested from your best replies" [level=2] [ref=e146]
+      - paragraph [ref=e147]: Top-performing real follow-ups (each got a positive reply). Click "Use as template" to prefill the form above, then edit and save.
+      - generic [ref=e148]:
+        - generic [ref=e149]: Hey Justin, nice to meet you. We can help your brand expand in Walmart.com, Target.com, Wayfair, Amazon EU and UK, Canada, etc. Our business name is Navira. You can check our website at https://navira.io/ Our office is located at 7167 Cross County Rd, Suite A, North Charleston, SC 29418 We can chat more. Here's our calendar link. Looking forward to meeting you
+        - generic [ref=e150]:
+          - text: Navira · booked ✓ ·
+          - button "Use as template →" [ref=e151] [cursor=pointer]
+      - generic [ref=e152]:
+        - generic [ref=e153]: We work with 40+ brands, including Bosch, Rain Bird, and Bridgford
+        - generic [ref=e154]:
+          - text: Navira · booked ✓ ·
+          - button "Use as template →" [ref=e155] [cursor=pointer]
+      - generic [ref=e156]:
+        - generic [ref=e157]: Hi Raz,Yes, that's essentially it. We purchase your inventory at wholesale and sell across our marketplace storefronts globally, covering the EU, UK, Asia, and other international markets.On Amazon, noted and respected. We work within whatever channel restrictions a brand sets. If Amazon is off the table, we operate across other platforms and regions where your brand isn't currently active.The real question is whether there's untapped international demand for Era of Nature that we could capture without stepping
+        - generic [ref=e158]:
+          - text: Epic · booked ✓ ·
+          - button "Use as template →" [ref=e159] [cursor=pointer]
+      - generic [ref=e160]:
+        - generic [ref=e161]: Hey Ahmad, I understand. Feel free to check our website, our services and offers are listed. We have several case studies available as well. If you change your mind, feel free to schedule a meeting here.
+        - generic [ref=e162]:
+          - text: Epic · booked ✓ ·
+          - button "Use as template →" [ref=e163] [cursor=pointer]
+      - generic [ref=e164]:
+        - generic [ref=e165]: Hey Beth, nice to meet you, and I appreciate the questions Which markets do you see as the best fit for our brand? We will be providing free analysis for your brand to which country/s we can start expanding Which channels do you typically prioritize at launch? We mostly prioritize Amazon, Tiktok and Shopify for European markets, but we also do Walmart.com, eBay, etc. How does your inventory purchasing structure work? We initially buy at least 10% of the inventory to start with at our agreed price What brand control would we maintain across pricing, presentation, and messaging? You still control everything about your brand, we will follow the pricing, presentation, and messaging How do you manage international compliance, VAT/tax, returns, and customer care? We have people and partners chec
+        - generic [ref=e166]:
+          - text: Epic · booked ✓ ·
+          - button "Use as template →" [ref=e167] [cursor=pointer]
+      - generic [ref=e168]:
+        - generic [ref=e169]: Hi Indrek, yes we can do that. We'll provide analysis
+        - generic [ref=e170]:
+          - text: Epic · booked ✓ ·
+          - button "Use as template →" [ref=e171] [cursor=pointer]
+      - generic [ref=e172]:
+        - generic [ref=e173]: Hi Ari, this is so you When you find out that you can have global sales without managing overseas operations.Ready to talk? Here’s my calendar link
+        - generic [ref=e174]:
+          - text: Epic · booked ✓ ·
+          - button "Use as template →" [ref=e175] [cursor=pointer]
+      - generic [ref=e176]:
+        - generic [ref=e177]: Hey Robert, nice to meet you. We have some available schedules this week and next week. Here's our calendar link. Looking forward to meeting you
+        - generic [ref=e178]:
+          - text: Epic · booked ✓ ·
+          - button "Use as template →" [ref=e179] [cursor=pointer]
+      - generic [ref=e180]:
+        - generic [ref=e181]: Hi Arthur, you seemed interested about expanding your brand globally, ready to talk? Here's my calendar link. Looking forward to meeting you
+        - generic [ref=e182]:
+          - text: Epic · booked ✓ ·
+          - button "Use as template →" [ref=e183] [cursor=pointer]
+      - generic [ref=e184]:
+        - generic [ref=e185]: Hi Hadeel, you seemed interested about expanding your brand globally, ready to talk? Here's my calendar link. Looking forward to meeting you
+        - generic [ref=e186]:
+          - text: Epic · booked ✓ ·
+          - button "Use as template →" [ref=e187] [cursor=pointer]
+      - generic [ref=e188]:
+        - generic [ref=e189]: Hey Daniel, glad to hear you're already operating in the EU market. Yes, we are keen to represent your brand in the US, and if you're ope,n we can also expand in Asia. Here's our calendar link. Would love to provide you with more details
+        - generic [ref=e190]:
+          - text: Epic · booked ✓ ·
+          - button "Use as template →" [ref=e191] [cursor=pointer]
+      - generic [ref=e192]:
+        - generic [ref=e193]: Speak soon! Looking forward to meeting you
+        - generic [ref=e194]:
+          - text: Epic · booked ✓ ·
+          - button "Use as template →" [ref=e195] [cursor=pointer]
+    - generic [ref=e196]: Lead Scrape Automation · Dwyer Enterprises

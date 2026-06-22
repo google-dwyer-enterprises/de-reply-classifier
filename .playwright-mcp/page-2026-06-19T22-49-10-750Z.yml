@@ -1,0 +1,259 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - link "Dwyer Enterprises" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - img "Dwyer Enterprises" [ref=e6]
+    - navigation [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]: Scraping
+        - link "Batches" [ref=e10] [cursor=pointer]:
+          - /url: /batches
+          - img [ref=e11]
+          - generic [ref=e15]: Batches
+        - link "Submit batch" [ref=e16] [cursor=pointer]:
+          - /url: /submit
+          - img [ref=e17]
+          - generic [ref=e18]: Submit batch
+      - generic [ref=e19]:
+        - generic [ref=e20]: Follow-ups
+        - link "Follow-ups" [ref=e21] [cursor=pointer]:
+          - /url: /followups
+          - img [ref=e22]
+          - generic [ref=e24]: Follow-ups
+        - link "Best replies" [ref=e25] [cursor=pointer]:
+          - /url: /followups/best
+          - img [ref=e26]
+          - generic [ref=e28]: Best replies
+        - link "Templates" [ref=e29] [cursor=pointer]:
+          - /url: /followups/templates
+          - img [ref=e30]
+          - generic [ref=e33]: Templates
+        - link "A/B Results" [ref=e34] [cursor=pointer]:
+          - /url: /followups/results
+          - img [ref=e35]
+          - generic [ref=e36]: A/B Results
+      - generic [ref=e37]:
+        - generic [ref=e38]: Analytics
+        - link "Follow-up Analytics" [ref=e39] [cursor=pointer]:
+          - /url: /analytics
+          - img [ref=e40]
+          - generic [ref=e43]: Follow-up Analytics
+    - generic [ref=e44]:
+      - generic [ref=e45]:
+        - img [ref=e46]
+        - text: jam
+      - link "Log out" [ref=e49] [cursor=pointer]:
+        - /url: /logout
+  - main [ref=e50]:
+    - generic [ref=e51]:
+      - heading "Your lead batches" [level=1] [ref=e52]
+      - paragraph [ref=e53]: Most recent first. Click "Review" on any batch that's ready.
+      - table [ref=e54]:
+        - rowgroup [ref=e55]:
+          - row "# Status Approval Accepted / Target Moved Credits Created Notes" [ref=e56]:
+            - columnheader "#" [ref=e57]
+            - columnheader "Status" [ref=e58]
+            - columnheader "Approval" [ref=e59]
+            - columnheader "Accepted / Target" [ref=e60]
+            - columnheader "Moved" [ref=e61]
+            - columnheader "Credits" [ref=e62]
+            - columnheader "Created" [ref=e63]
+            - columnheader "Notes" [ref=e64]
+            - columnheader [ref=e65]
+        - rowgroup [ref=e66]:
+          - row "#44 ready pending 1052 / 1000 0 3458.0 2026-06-19 19:25 first real batch. Review →" [ref=e67]:
+            - cell "#44" [ref=e68]:
+              - strong [ref=e69]: "#44"
+            - cell "ready" [ref=e70]:
+              - generic [ref=e71]: ready
+            - cell "pending" [ref=e72]:
+              - generic [ref=e73]: pending
+            - cell "1052 / 1000" [ref=e74]
+            - cell "0" [ref=e75]
+            - cell "3458.0" [ref=e76]
+            - cell "2026-06-19 19:25" [ref=e77]
+            - cell "first real batch." [ref=e78]
+            - cell "Review →" [ref=e79]:
+              - link "Review →" [ref=e80] [cursor=pointer]:
+                - /url: /batch/2b9dac89-c85e-4472-8f55-2f555800eea9
+          - row "#43 ready pending 7 / 5 2 16.0 2026-06-18 16:02 Review →" [ref=e81]:
+            - cell "#43" [ref=e82]:
+              - strong [ref=e83]: "#43"
+            - cell "ready" [ref=e84]:
+              - generic [ref=e85]: ready
+            - cell "pending" [ref=e86]:
+              - generic [ref=e87]: pending
+            - cell "7 / 5" [ref=e88]
+            - cell "2" [ref=e89]
+            - cell "16.0" [ref=e90]
+            - cell "2026-06-18 16:02" [ref=e91]
+            - cell [ref=e92]
+            - cell "Review →" [ref=e93]:
+              - link "Review →" [ref=e94] [cursor=pointer]:
+                - /url: /batch/74e10649-0401-43a0-83ad-13c2ddcf2420
+          - row "#42 failed pending 0 / 5 0 0.0 2026-06-18 15:49 Review →" [ref=e95]:
+            - cell "#42" [ref=e96]:
+              - strong [ref=e97]: "#42"
+            - cell "failed" [ref=e98]:
+              - generic [ref=e99]: failed
+            - cell "pending" [ref=e100]:
+              - generic [ref=e101]: pending
+            - cell "0 / 5" [ref=e102]
+            - cell "0" [ref=e103]
+            - cell "0.0" [ref=e104]
+            - cell "2026-06-18 15:49" [ref=e105]
+            - cell [ref=e106]
+            - cell "Review →" [ref=e107]:
+              - link "Review →" [ref=e108] [cursor=pointer]:
+                - /url: /batch/33205d50-1f19-4893-8695-2aed766fee84
+          - row "#41 failed pending 0 / 5 0 0.0 2026-06-18 15:07 Review →" [ref=e109]:
+            - cell "#41" [ref=e110]:
+              - strong [ref=e111]: "#41"
+            - cell "failed" [ref=e112]:
+              - generic [ref=e113]: failed
+            - cell "pending" [ref=e114]:
+              - generic [ref=e115]: pending
+            - cell "0 / 5" [ref=e116]
+            - cell "0" [ref=e117]
+            - cell "0.0" [ref=e118]
+            - cell "2026-06-18 15:07" [ref=e119]
+            - cell [ref=e120]
+            - cell "Review →" [ref=e121]:
+              - link "Review →" [ref=e122] [cursor=pointer]:
+                - /url: /batch/949f1431-ecbe-48ce-adb6-75e6377fb2d5
+          - row "#40 failed pending 0 / 5 0 0.0 2026-06-18 14:56 testingg Review →" [ref=e123]:
+            - cell "#40" [ref=e124]:
+              - strong [ref=e125]: "#40"
+            - cell "failed" [ref=e126]:
+              - generic [ref=e127]: failed
+            - cell "pending" [ref=e128]:
+              - generic [ref=e129]: pending
+            - cell "0 / 5" [ref=e130]
+            - cell "0" [ref=e131]
+            - cell "0.0" [ref=e132]
+            - cell "2026-06-18 14:56" [ref=e133]
+            - cell "testingg" [ref=e134]
+            - cell "Review →" [ref=e135]:
+              - link "Review →" [ref=e136] [cursor=pointer]:
+                - /url: /batch/c6b2a373-a378-4d8b-9733-2b3abc9d86a8
+          - row "#39 failed pending 0 / 5 0 0.0 2026-06-18 14:55 testinggg Review →" [ref=e137]:
+            - cell "#39" [ref=e138]:
+              - strong [ref=e139]: "#39"
+            - cell "failed" [ref=e140]:
+              - generic [ref=e141]: failed
+            - cell "pending" [ref=e142]:
+              - generic [ref=e143]: pending
+            - cell "0 / 5" [ref=e144]
+            - cell "0" [ref=e145]
+            - cell "0.0" [ref=e146]
+            - cell "2026-06-18 14:55" [ref=e147]
+            - cell "testinggg" [ref=e148]
+            - cell "Review →" [ref=e149]:
+              - link "Review →" [ref=e150] [cursor=pointer]:
+                - /url: /batch/e00b6e3e-5e02-4b9b-8fe2-87f61cc5c24c
+          - row "#38 failed pending 0 / 5 0 0.0 2026-06-18 14:50 testing. Review →" [ref=e151]:
+            - cell "#38" [ref=e152]:
+              - strong [ref=e153]: "#38"
+            - cell "failed" [ref=e154]:
+              - generic [ref=e155]: failed
+            - cell "pending" [ref=e156]:
+              - generic [ref=e157]: pending
+            - cell "0 / 5" [ref=e158]
+            - cell "0" [ref=e159]
+            - cell "0.0" [ref=e160]
+            - cell "2026-06-18 14:50" [ref=e161]
+            - cell "testing." [ref=e162]
+            - cell "Review →" [ref=e163]:
+              - link "Review →" [ref=e164] [cursor=pointer]:
+                - /url: /batch/d7fae774-f3df-43e0-8d5b-66df84066ff6
+          - row "#34 moved pending 0 / 3 2 0.0 2026-06-11 16:17 MV gate prod test — 3 brand-verified leads from the 6/11 acc Review →" [ref=e165]:
+            - cell "#34" [ref=e166]:
+              - strong [ref=e167]: "#34"
+            - cell "moved" [ref=e168]:
+              - generic [ref=e169]: moved
+            - cell "pending" [ref=e170]:
+              - generic [ref=e171]: pending
+            - cell "0 / 3" [ref=e172]
+            - cell "2" [ref=e173]
+            - cell "0.0" [ref=e174]
+            - cell "2026-06-11 16:17" [ref=e175]
+            - cell "MV gate prod test — 3 brand-verified leads from the 6/11 acc" [ref=e176]
+            - cell "Review →" [ref=e177]:
+              - link "Review →" [ref=e178] [cursor=pointer]:
+                - /url: /batch/01848af7-8885-4434-ac0b-21509dc8a248
+          - row "#32 ready pending 5 / 1 0 7.0 2026-06-10 17:12 Review →" [ref=e179]:
+            - cell "#32" [ref=e180]:
+              - strong [ref=e181]: "#32"
+            - cell "ready" [ref=e182]:
+              - generic [ref=e183]: ready
+            - cell "pending" [ref=e184]:
+              - generic [ref=e185]: pending
+            - cell "5 / 1" [ref=e186]
+            - cell "0" [ref=e187]
+            - cell "7.0" [ref=e188]
+            - cell "2026-06-10 17:12" [ref=e189]
+            - cell [ref=e190]
+            - cell "Review →" [ref=e191]:
+              - link "Review →" [ref=e192] [cursor=pointer]:
+                - /url: /batch/a3e4df40-b855-46dc-85d0-638c6ba815f9
+          - row "#31 moved pending 1 / 1 3 4.0 2026-06-10 16:46 Review →" [ref=e193]:
+            - cell "#31" [ref=e194]:
+              - strong [ref=e195]: "#31"
+            - cell "moved" [ref=e196]:
+              - generic [ref=e197]: moved
+            - cell "pending" [ref=e198]:
+              - generic [ref=e199]: pending
+            - cell "1 / 1" [ref=e200]
+            - cell "3" [ref=e201]
+            - cell "4.0" [ref=e202]
+            - cell "2026-06-10 16:46" [ref=e203]
+            - cell [ref=e204]
+            - cell "Review →" [ref=e205]:
+              - link "Review →" [ref=e206] [cursor=pointer]:
+                - /url: /batch/0d062c9f-cb15-4f57-8939-dfc7b2796694
+          - row "#30 moved pending 8 / 10 5 24.0 2026-06-09 19:14 Testing Review →" [ref=e207]:
+            - cell "#30" [ref=e208]:
+              - strong [ref=e209]: "#30"
+            - cell "moved" [ref=e210]:
+              - generic [ref=e211]: moved
+            - cell "pending" [ref=e212]:
+              - generic [ref=e213]: pending
+            - cell "8 / 10" [ref=e214]
+            - cell "5" [ref=e215]
+            - cell "24.0" [ref=e216]
+            - cell "2026-06-09 19:14" [ref=e217]
+            - cell "Testing" [ref=e218]
+            - cell "Review →" [ref=e219]:
+              - link "Review →" [ref=e220] [cursor=pointer]:
+                - /url: /batch/1b104ce8-da05-40a7-bf97-d80355216e7b
+          - row "#19 moved rejected 3 / 5 1 20.0 2026-06-05 18:10 Testing again. Delete after testing. Review →" [ref=e221]:
+            - cell "#19" [ref=e222]:
+              - strong [ref=e223]: "#19"
+            - cell "moved" [ref=e224]:
+              - generic [ref=e225]: moved
+            - cell "rejected" [ref=e226]:
+              - generic [ref=e227]: rejected
+            - cell "3 / 5" [ref=e228]
+            - cell "1" [ref=e229]
+            - cell "20.0" [ref=e230]
+            - cell "2026-06-05 18:10" [ref=e231]
+            - cell "Testing again. Delete after testing." [ref=e232]
+            - cell "Review →" [ref=e233]:
+              - link "Review →" [ref=e234] [cursor=pointer]:
+                - /url: /batch/4030dff8-b525-4660-8a63-7f3a6cc04f9c
+          - row "#15 moved pending 3 / 5 2 17.0 2026-06-05 14:49 Testing, Delete afterwards Review →" [ref=e235]:
+            - cell "#15" [ref=e236]:
+              - strong [ref=e237]: "#15"
+            - cell "moved" [ref=e238]:
+              - generic [ref=e239]: moved
+            - cell "pending" [ref=e240]:
+              - generic [ref=e241]: pending
+            - cell "3 / 5" [ref=e242]
+            - cell "2" [ref=e243]
+            - cell "17.0" [ref=e244]
+            - cell "2026-06-05 14:49" [ref=e245]
+            - cell "Testing, Delete afterwards" [ref=e246]
+            - cell "Review →" [ref=e247]:
+              - link "Review →" [ref=e248] [cursor=pointer]:
+                - /url: /batch/796cb3c0-40f4-4acc-8b9d-d2d6d723e801
+    - generic [ref=e249]: Lead Scrape Automation · Dwyer Enterprises

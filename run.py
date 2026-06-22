@@ -191,9 +191,6 @@ def main() -> None:
     sub.add_parser("refresh-followup-patterns",
                    help="Full descriptive follow-up analysis: extract features → rebuild "
                         "followup_patterns_mv/_timing_mv → regenerate the HTML report")
-    sub.add_parser("category-booking-report",
-                   help="Which categories/titles book calls: clean book-rate by category "
-                        "(domain-recovered) → regenerate docs/replies/CATEGORY_BOOKING.html")
     sub.add_parser("generate-followup-experiments",
                    help="Interest follow-up A/B: assign arms + generate static/AI follow-up "
                         "variations for new interest replies (run on the daily cron)")
@@ -327,10 +324,6 @@ def main() -> None:
         run_script("scripts/apply_followup_patterns_view.py")
         run_script("scripts/gen_followup_patterns_report.py")
         run_script("scripts/gen_followup_playbook.py")
-        # Bundled here so the daily report-regen cron also refreshes it.
-        run_script("scripts/gen_category_booking_report.py")
-    elif args.command == "category-booking-report":
-        run_script("scripts/gen_category_booking_report.py")
     elif args.command == "generate-followup-experiments":
         import followup_experiments_data as fxd
         from datetime import datetime, timedelta, timezone
