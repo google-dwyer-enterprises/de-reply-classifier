@@ -23,6 +23,11 @@
   .tier-less { background:#fee2e2; color:#991b1b; }
   .tier-unknown { background:#eef1f5; color:#5e6470; }
   .muted { color:var(--muted); font-size:12.5px; }
+  .conf { display:inline-block; border-radius:10px; padding:0 8px; font-size:11px; font-weight:600; margin-left:4px; cursor:help; }
+  .conf-reliable { background:#d1fae5; color:#166534; }
+  .conf-fair { background:#fef3c7; color:#92400e; }
+  .conf-rough { background:#fee2e2; color:#991b1b; }
+  .cb-legend { color:var(--muted); font-size:12.5px; margin:6px 0 0; }
 </style>
 {% endblock %}
 
@@ -32,7 +37,8 @@
     <div class="cb-lab" title="{{ r.label }}">{{ r.label }}</div>
     <div class="cb-track"><div class="cb-fill" style="width:{{ r.bar }}%"></div></div>
     <div class="cb-val">{{ r.rate|round|int }}%</div>
-    <div class="cb-det">{{ r.booked }} booked / {{ r.engaged }} engaged · 95% {{ r.ci_lo }}–{{ r.ci_hi }}% · {{ r.share }}% of bookings</div>
+    <div class="cb-det">{{ r.booked }} booked of {{ r.engaged }} · {{ r.share }}% of all bookings
+      <span class="conf conf-{{ r.conf }}" title="We're 95% confident the true rate is {{ r.ci_lo }}–{{ r.ci_hi }}% (based on {{ r.engaged }} leads).">{{ r.conf_label }}</span></div>
   </div>
   {% else %}
   <p class="muted">No groups clear the support floor yet.</p>
@@ -55,6 +61,10 @@
 contact title. "Book rate" = booked &divide; genuinely-engaged leads — it excludes unsubscribe / auto-reply /
 wrong-person / customer-service noise, which otherwise drags some categories down unfairly.</p>
 <p class="cb-fresh">↻ Live — reads the latest data every time you open this page.</p>
+<p class="cb-legend"><b>How reliable is each number?</b>
+  <span class="conf conf-reliable">Reliable</span> = lots of data ·
+  <span class="conf conf-fair">Fairly reliable</span> = some ·
+  <span class="conf conf-rough">Rough — few leads</span> = treat as a hint (hover any badge for the exact range).</p>
 
 <div class="cb-tiles">
   <div class="cb-tile"><div class="n">{{ booked_total }}</div><div class="k">Booked calls analyzed</div></div>

@@ -147,6 +147,16 @@ def _enrich(rows: list[dict]) -> tuple[list[dict], list[dict]]:
         lo, hi = wilson(r["booked"], eng)
         r["ci_lo"], r["ci_hi"] = round(lo * 100), round(hi * 100)
         r["share"] = round(100.0 * r["booked"] / total_booked)
+        # Translate the confidence-interval width into a plain reliability badge
+        # (non-technical readers don't parse "95% 10-29%"). The exact range goes
+        # in the hover tooltip for anyone who wants it.
+        width = r["ci_hi"] - r["ci_lo"]
+        if width <= 8:
+            r["conf"], r["conf_label"] = "reliable", "Reliable"
+        elif width <= 15:
+            r["conf"], r["conf_label"] = "fair", "Fairly reliable"
+        else:
+            r["conf"], r["conf_label"] = "rough", "Rough — few leads"
     ranked = sorted([r for r in rows if r["engaged"] >= MIN_ENGAGED],
                     key=lambda r: r["rate"], reverse=True)
     thin = sorted([r for r in rows if r["engaged"] < MIN_ENGAGED and r["booked"] >= 1],
