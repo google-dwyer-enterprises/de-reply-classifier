@@ -74,13 +74,26 @@
     <div class="main-inner">
       {% block content %}{% endblock %}
     </div>
-    <footer class="footer">Lead Scrape Automation · Dwyer Enterprises</footer>
+    <footer class="footer">Dwyer Enterprises</footer>
   </main>
 </div>
 {% else %}
 {# unauthenticated (login) — no sidebar, just the content block #}
 {{ self.content() }}
 {% endif %}
+<script>
+  // Wrap every table in a horizontal-scroll box so wide tables scroll inside
+  // their own container on small screens instead of pushing the whole page
+  // sideways. .table-scroll only enables overflow under the mobile breakpoint
+  // (see CSS), so it never interferes with the desktop sticky table header.
+  document.querySelectorAll('table').forEach(function (t) {
+    if (t.parentElement && t.parentElement.classList.contains('table-scroll')) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'table-scroll';
+    t.parentNode.insertBefore(wrap, t);
+    wrap.appendChild(t);
+  });
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

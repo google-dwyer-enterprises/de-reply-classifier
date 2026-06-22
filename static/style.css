@@ -276,6 +276,9 @@ h1 { font-size: 24px; font-weight: 700; margin: 8px 0 4px; letter-spacing: -0.01
 .chip-label:hover { background: #e5e7eb; }
 .chip-label input { display: none; }
 .chip-label:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); color: #1e3a8a; font-weight: 600; }
+/* An industry picked in the other list (target vs skip) is disabled here so the
+   two lists can't contradict each other. */
+.chip-label.chip-disabled { opacity: 0.4; cursor: not-allowed; }
 .form-actions { padding-top: 12px; }
 
 /* ------- batch list ------- */
@@ -323,6 +326,15 @@ table.batch-list td.empty { text-align: center; padding: 32px; color: var(--mute
 .action-bar .spacer { flex: 1; }
 .action-bar .helper-keys { color: var(--muted); font-size: 12px; }
 .action-bar kbd { background: #f3f4f6; border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; font-size: 11px; font-family: ui-monospace, monospace; }
+
+/* Horizontal-scroll wrapper (added around every table in base.html). Stays
+   inert on desktop — overflow only engages under the mobile breakpoint — so the
+   sticky lead-table header (which needs a visible-overflow ancestor) is
+   unaffected, while wide tables scroll inside their own box on phones instead
+   of forcing the whole page to scroll sideways. */
+@media (max-width: 860px) {
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
 
 table.lead-table {
   /* no overflow:hidden here — it would break the sticky header below.

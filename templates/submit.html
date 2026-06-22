@@ -105,3 +105,34 @@
 </form>
 
 {% endblock %}
+
+{% block scripts %}
+<script>
+  // Keep the "target" and "skip" industry lists from contradicting each other:
+  // checking an industry in one list disables (and clears) the same industry in
+  // the other. Disabled checkboxes aren't submitted, so a chip can only ever be
+  // in one list. Runs once on load to cover prefilled re-run forms too.
+  (function () {
+    var target = document.querySelectorAll('input[name="industries"]');
+    var skip = document.querySelectorAll('input[name="skip_industries"]');
+    function index(list) { var m = {}; list.forEach(function (c) { m[c.value] = c; }); return m; }
+    var skipByVal = index(skip), targetByVal = index(target);
+    function wire(list, otherByVal) {
+      list.forEach(function (c) {
+        var other = otherByVal[c.value];
+        if (!other) return;
+        function apply() {
+          if (c.checked) { other.checked = false; other.disabled = true; }
+          else { other.disabled = false; }
+          var lbl = other.closest('.chip-label');
+          if (lbl) lbl.classList.toggle('chip-disabled', other.disabled);
+        }
+        c.addEventListener('change', apply);
+        apply();
+      });
+    }
+    wire(target, skipByVal);
+    wire(skip, targetByVal);
+  })();
+</script>
+{% endblock %}
