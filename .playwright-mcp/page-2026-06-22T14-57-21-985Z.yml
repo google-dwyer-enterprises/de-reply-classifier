@@ -1,0 +1,120 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - link "Dwyer Enterprises" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - img "Dwyer Enterprises" [ref=e6]
+    - navigation [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]: Scraping
+        - link "Batches" [ref=e10] [cursor=pointer]:
+          - /url: /batches
+          - img [ref=e11]
+          - generic [ref=e15]: Batches
+        - link "Submit batch" [ref=e16] [cursor=pointer]:
+          - /url: /submit
+          - img [ref=e17]
+          - generic [ref=e18]: Submit batch
+      - generic [ref=e19]:
+        - generic [ref=e20]: Follow-ups
+        - link "Follow-ups" [ref=e21] [cursor=pointer]:
+          - /url: /followups
+          - img [ref=e22]
+          - generic [ref=e24]: Follow-ups
+        - link "Best replies" [ref=e25] [cursor=pointer]:
+          - /url: /followups/best
+          - img [ref=e26]
+          - generic [ref=e28]: Best replies
+        - link "Templates" [ref=e29] [cursor=pointer]:
+          - /url: /followups/templates
+          - img [ref=e30]
+          - generic [ref=e33]: Templates
+        - link "A/B Results" [ref=e34] [cursor=pointer]:
+          - /url: /followups/results
+          - img [ref=e35]
+          - generic [ref=e36]: A/B Results
+      - generic [ref=e37]:
+        - generic [ref=e38]: Analytics
+        - link "Follow-up Analytics" [ref=e39] [cursor=pointer]:
+          - /url: /analytics
+          - img [ref=e40]
+          - generic [ref=e43]: Follow-up Analytics
+    - generic [ref=e44]:
+      - generic [ref=e45]:
+        - img [ref=e46]
+        - text: jam
+      - link "Log out" [ref=e49] [cursor=pointer]:
+        - /url: /logout
+  - main [ref=e50]:
+    - generic [ref=e51]:
+      - heading "Submit a lead batch request" [level=1] [ref=e52]
+      - paragraph [ref=e53]: Fill in what you need. You'll get an email when results are ready to review.
+      - generic [ref=e54]:
+        - generic [ref=e55]:
+          - generic [ref=e56]: How many leads do you need?
+          - spinbutton "How many leads do you need?" [ref=e57]: "500"
+          - paragraph [ref=e58]: Between 1 and 5000. Typical hit rate is ~80% of requested.
+        - generic [ref=e59]:
+          - generic [ref=e60]: Max credits (optional — leave empty for the default 1,000)
+          - spinbutton "Max credits (optional — leave empty for the default 1,000)" [ref=e61]
+          - paragraph [ref=e62]:
+            - text: Hard cap on BetterContact credits this batch can burn. Leave empty and the worker uses a safe
+            - strong [ref=e63]: 1,000-credit default
+            - text: — about $20 worst-case if you forget to set a cap. Set explicitly when you need more (e.g.
+            - code [ref=e64]: "5000"
+            - text: for a 1,500-lead target with a sparse filter).
+            - strong [ref=e65]: If you set it, it must cover at least one page
+            - text: — roughly
+            - strong [ref=e66]: 28+ credits
+            - text: for email (more for larger targets), or
+            - strong [ref=e67]: 56+
+            - text: with phone enrichment — otherwise the batch can't start.
+        - generic [ref=e68]:
+          - generic [ref=e69]: Industries to target (leave none selected for all 12)
+          - generic [ref=e70]:
+            - generic [ref=e71] [cursor=pointer]: Retail Apparel and Fashion
+            - generic [ref=e72] [cursor=pointer]: Apparel Manufacturing
+            - generic [ref=e73] [cursor=pointer]: Cosmetics
+            - generic [ref=e74] [cursor=pointer]: Personal Care Product Manufacturing
+            - generic [ref=e75] [cursor=pointer]: Food and Beverage Manufacturing
+            - generic [ref=e76] [cursor=pointer]: Furniture and Home Furnishings Manufacturing
+            - generic [ref=e77] [cursor=pointer]: Sporting Goods Manufacturing
+            - generic [ref=e78] [cursor=pointer]: Consumer Goods
+            - generic [ref=e79] [cursor=pointer]: Pet Services
+            - generic [ref=e80] [cursor=pointer]: Retail Groceries
+            - generic [ref=e81] [cursor=pointer]: Retail Health and Personal Care Products
+        - generic [ref=e82]:
+          - generic [ref=e83]: Industries to skip (optional)
+          - generic [ref=e84]:
+            - generic [ref=e85] [cursor=pointer]: Retail Apparel and Fashion
+            - generic [ref=e86] [cursor=pointer]: Apparel Manufacturing
+            - generic [ref=e87] [cursor=pointer]: Cosmetics
+            - generic [ref=e88] [cursor=pointer]: Personal Care Product Manufacturing
+            - generic [ref=e89] [cursor=pointer]: Food and Beverage Manufacturing
+            - generic [ref=e90] [cursor=pointer]: Furniture and Home Furnishings Manufacturing
+            - generic [ref=e91] [cursor=pointer]: Sporting Goods Manufacturing
+            - generic [ref=e92] [cursor=pointer]: Consumer Goods
+            - generic [ref=e93] [cursor=pointer]: Pet Services
+            - generic [ref=e94] [cursor=pointer]: Retail Groceries
+            - generic [ref=e95] [cursor=pointer]: Retail Health and Personal Care Products
+        - generic [ref=e96]:
+          - generic [ref=e97]: Countries
+          - generic [ref=e98]:
+            - generic [ref=e99] [cursor=pointer]: United States
+            - generic [ref=e100] [cursor=pointer]: Canada
+        - generic [ref=e101]:
+          - generic [ref=e102]: What to enrich
+          - generic [ref=e103]:
+            - generic [ref=e104] [cursor=pointer]: Emails only (default)
+            - generic [ref=e105] [cursor=pointer]: Emails + phone numbers
+          - paragraph [ref=e106]:
+            - text: Phone numbers cost
+            - strong [ref=e107]: 10 credits each
+            - text: on top of 1 credit per email — a batch with phones can cost up to
+            - strong [ref=e108]: 11×
+            - text: "more. Phone-only isn't offered: every lead needs an email to enter the pool."
+        - generic [ref=e109]:
+          - generic [ref=e110]: Notes (optional)
+          - textbox "Notes (optional)" [ref=e111]:
+            - /placeholder: Anything specific about this batch?
+        - button "Submit batch request →" [ref=e113] [cursor=pointer]
+    - generic [ref=e114]: Lead Scrape Automation · Dwyer Enterprises

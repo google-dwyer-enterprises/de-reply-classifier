@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Category bookings · Dwyer Console{% endblock %}
+{% block head %}
+<style>
+  .cb-tiles { display:flex; gap:14px; flex-wrap:wrap; margin:16px 0 6px; }
+  .cb-tile { flex:1; min-width:150px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .cb-tile .n { font-size:26px; font-weight:800; color:var(--accent); letter-spacing:-.02em; }
+  .cb-tile .k { color:var(--muted); font-size:12.5px; margin-top:2px; }
+  .cb-row { display:grid; grid-template-columns:210px 1fr 46px; gap:6px 12px; align-items:center; margin:8px 0; }
+  .cb-lab { font-weight:600; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cb-track { background:#eef1f5; border-radius:5px; height:22px; }
+  .cb-fill { background:linear-gradient(90deg,#16a34a,#22c55e); height:100%; border-radius:5px; }
+  .cb-val { font-weight:700; text-align:right; font-variant-numeric:tabular-nums; }
+  .cb-det { grid-column:2 / 4; color:var(--muted); font-size:12px; margin:-3px 0 3px; }
+  .cb-fresh { color:var(--muted); font-size:12.5px; margin:2px 0 0; }
+  details.cb { margin:12px 0; } details.cb summary { cursor:pointer; color:var(--accent); font-size:13.5px; }
+  table.cb-thin { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; max-width:520px; }
+  table.cb-thin th, table.cb-thin td { padding:4px 8px; border-bottom:1px solid #f3f4f6; text-align:left; }
+  table.cb-thin td.r, table.cb-thin th.r { text-align:right; font-variant-numeric:tabular-nums; }
+</style>
+{% endblock %}
+
+{% macro bars(rows) %}
+  {% for r in rows %}
+  <div class="cb-row">
+    <div class="cb-lab" title="{{ r.label }}">{{ r.label }}</div>
+    <div class="cb-track"><div class="cb-fill" style="width:{{ r.bar }}%"></div></div>
+    <div class="cb-val">{{ r.rate|round|int }}%</div>
+    <div class="cb-det">{{ r.booked }} booked / {{ r.engaged }} engaged · 95% {{ r.ci_lo }}–{{ r.ci_hi }}% · {{ r.share }}% of bookings</div>
+  </div>
+  {% else %}
+  <p class="muted">No groups clear the support floor yet.</p>
+  {% endfor %}
+{% endmacro %}
+
+{% macro thin(rows, kind) %}
+  {% if rows %}
+  <details class="cb"><summary>Small {{ kind }} that booked (under {{ min_engaged }} engaged — counts only, too few to rank)</summary>
+    <table class="cb-thin"><tr><th>{{ kind|capitalize }}</th><th class="r">Booked</th><th class="r">Engaged</th></tr>
+    {% for r in rows %}<tr><td>{{ r.label }}</td><td class="r">{{ r.booked }}</td><td class="r">{{ r.engaged }}</td></tr>{% endfor %}
+    </table>
+  </details>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<h1>Which categories &amp; people book calls</h1>
+<p class="lede">Across every lead that replied, this ranks <b>book rate</b> by product category and by
+contact title. "Book rate" = booked &divide; genuinely-engaged leads — it excludes unsubscribe / auto-reply /
+wrong-person / customer-service noise, which otherwise drags some categories down unfairly.</p>
+<p class="cb-fresh">↻ Live — reads the latest data every time you open this page.</p>
+
+<div class="cb-tiles">
+  <div class="cb-tile"><div class="n">{{ booked_total }}</div><div class="k">Booked calls analyzed</div></div>
+  <div class="cb-tile"><div class="n">{{ booked_cat }}</div><div class="k">Matched to a category ({{ cov_pct }}%)</div></div>
+  <div class="cb-tile"><div class="n">{{ via_domain }}</div><div class="k">Recovered via company domain</div></div>
+  <div class="cb-tile"><div class="n">{{ uncat }}</div><div class="k">Still uncategorized (see notes)</div></div>
+</div>
+
+<h2>Categories that book best</h2>
+<p class="lede">Ranked by book rate among engaged leads. Bar = rate; the small print shows raw counts,
+the 95% confidence range, and the category's share of all bookings.</p>
+{{ bars(cat_ranked) }}
+{{ thin(cat_thin, 'categories') }}
+
+<h2>Who books — by title</h2>
+<p class="lede">Same book rate, grouped by the contact's role (titles are free-text, so they're bucketed).
+Title comes from the lead's own record only, so coverage is lower than for categories.</p>
+{{ bars(title_ranked) }}
+{{ thin(title_thin, 'titles') }}
+{% if title_missing %}
+<p class="cb-fresh">Note: {{ title_missing.booked }} of {{ booked_total }} bookings ({{ title_missing_pct }}%) have
+<b>no title on record</b> — title coverage is the main gap to close (see below).</p>
+{% endif %}
+
+<div class="callout" style="margin-top:24px">
+  <strong>How to read this — and what it can't tell you</strong>
+  <ul style="margin:6px 0 0; padding-left:18px;">
+    <li><b>Descriptive, not proof.</b> It shows where bookings <i>happened</i>, not that a category <i>causes</i> them. Check the "share of bookings" before chasing a high rate on a small base.</li>
+    <li><b>Coverage:</b> {{ booked_cat }} of {{ booked_total }} bookings ({{ cov_pct }}%) have a category; {{ via_domain }} were recovered via their company domain. The remaining {{ uncat }} (mostly leads whose reply address isn't in the enrichment pool) are excluded from the ranking.</li>
+    <li><b>Confidence:</b> groups under {{ min_engaged }} engaged aren't ranked; every ranked rate carries a Wilson 95% interval — wide ranges mean "not enough data to trust the order yet."</li>
+    <li><b>Domain-borrow assumption:</b> leads on the same company domain are treated as the same category — safe for single-brand companies, looser for conglomerates.</li>
+    <li><b>Category labels</b> come from enrichment and mix Amazon browse categories (which dominate the ranked list) with a long tail of other industry labels; only categories with real volume are ranked.</li>
+  </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,249 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - link "Dwyer Enterprises" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - img "Dwyer Enterprises" [ref=e6]
+    - navigation [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e9]: Scraping
+        - link "Batches" [ref=e10] [cursor=pointer]:
+          - /url: /batches
+          - img [ref=e11]
+          - generic [ref=e15]: Batches
+        - link "Submit batch" [ref=e16] [cursor=pointer]:
+          - /url: /submit
+          - img [ref=e17]
+          - generic [ref=e18]: Submit batch
+      - generic [ref=e19]:
+        - generic [ref=e20]: Follow-ups
+        - link "Follow-ups" [ref=e21] [cursor=pointer]:
+          - /url: /followups
+          - img [ref=e22]
+          - generic [ref=e24]: Follow-ups
+        - link "Best replies" [ref=e25] [cursor=pointer]:
+          - /url: /followups/best
+          - img [ref=e26]
+          - generic [ref=e28]: Best replies
+        - link "Templates" [ref=e29] [cursor=pointer]:
+          - /url: /followups/templates
+          - img [ref=e30]
+          - generic [ref=e33]: Templates
+        - link "A/B Results" [ref=e34] [cursor=pointer]:
+          - /url: /followups/results
+          - img [ref=e35]
+          - generic [ref=e36]: A/B Results
+      - generic [ref=e37]:
+        - generic [ref=e38]: Analytics
+        - link "Follow-up Analytics" [ref=e39] [cursor=pointer]:
+          - /url: /analytics
+          - img [ref=e40]
+          - generic [ref=e43]: Follow-up Analytics
+    - generic [ref=e44]:
+      - generic [ref=e45]:
+        - img [ref=e46]
+        - text: jam
+      - link "Log out" [ref=e49] [cursor=pointer]:
+        - /url: /logout
+  - main [ref=e50]:
+    - generic [ref=e51]:
+      - heading "Follow-ups for interested leads" [level=1] [ref=e52]
+      - paragraph [ref=e53]: Leads who replied interested or booked. Each gets ready-to-send suggestions — copy the one you like, send it in Instantly, then click "I sent this" so we can learn what works.
+      - generic [ref=e54]:
+        - generic [ref=e55]:
+          - generic [ref=e56]: Client
+          - combobox [ref=e57]:
+            - option "All clients" [selected]
+            - option "Advancer"
+            - option "AMZPPC"
+            - option "BG"
+            - option "Dayly"
+            - option "DE"
+            - option "EC"
+            - option "Epic"
+            - option "EPIC"
+            - option "HOA"
+            - option "Lumian"
+            - option "Maison"
+            - option "MOD"
+            - option "Navira"
+            - option "other"
+            - option "PP"
+            - option "RippleEffect"
+            - option "Sellervue"
+            - option "SOKO"
+            - option "Velocity"
+            - option "Zonlabs"
+        - generic [ref=e58]:
+          - generic [ref=e59]: Last … days
+          - spinbutton [ref=e60]: "7"
+        - button "Show" [ref=e61] [cursor=pointer]
+      - heading "To follow up (8)" [level=2] [ref=e62]
+      - generic [ref=e63]:
+        - generic [ref=e64]:
+          - generic [ref=e65]: contact@guestinresidence.com · EC · replied Jun 15
+          - text: "Hello Julia, Thank you for reaching out. Your email has been received and our team will be in touch. In the meantime, we have an [FAQ](https://guestinresidence.com/en\\-ma/pages/faq) that may be able to help you. Kind regards, Guest In Residence &nbsp;On Monday, June 15th 2026 at 1:08:23 PM julia@oneecommlab.com wrote: &nbsp;&nbsp;&nbsp;Hello , &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;Looked at So…"
+        - generic [ref=e66]:
+          - generic [ref=e67]:
+            - generic [ref=e68]: Thanks for getting back to me. I checked out your FAQ—looks like you've got a solid operation. I think there's a real opportunity to expand your reach on marketplaces like Amazon and Walmart that we should chat about. Here's my calendar link.
+            - generic [ref=e69]:
+              - button "Copy" [ref=e70] [cursor=pointer]
+              - button "I sent this ✓" [ref=e72] [cursor=pointer]
+          - generic [ref=e73]:
+            - generic [ref=e74]: Got it, thanks for looping me in. Rather than take up your team's time with back-and-forth, how about we hop on a quick call so I can understand your current setup and see if we're a fit? Here's my calendar link.
+            - generic [ref=e75]:
+              - button "Copy" [ref=e76] [cursor=pointer]
+              - button "I sent this ✓" [ref=e78] [cursor=pointer]
+          - generic [ref=e79]:
+            - generic [ref=e80]: Appreciate the response. I'm curious about your international expansion plans—that's where we typically see the biggest wins for brands like yours. Quick call to explore? Here's my calendar link.
+            - generic [ref=e81]:
+              - button "Copy" [ref=e82] [cursor=pointer]
+              - button "I sent this ✓" [ref=e84] [cursor=pointer]
+              - button "Skip" [ref=e86] [cursor=pointer]
+      - generic [ref=e87]:
+        - generic [ref=e88]:
+          - generic [ref=e89]: support@iwae.com · EC · replied Jun 15
+          - text: "##- Please do not write below this line -## <div style=\"background: #ff8800; color: #ffffff; font-weight: bold; line-height: 35px; margin: 10px 0 14px 0; text-align: center; text-decoration: underline; vertical-align: middle; width: 100%;\">Ticket # 545000: Walmart revenue for Ingrams Water And Air Llc.</div> Your request (# 545000) has been received and is being reviewed by our support staff. …"
+        - generic [ref=e90]:
+          - generic [ref=e91]:
+            - generic [ref=e92]: Rebekah, thanks for looking into this. The Walmart opportunity really does make sense given your Amazon catalog is already built out. Quick 15-min call to map out the expansion play? Here's my calendar link
+            - generic [ref=e93]:
+              - button "Copy" [ref=e94] [cursor=pointer]
+              - button "I sent this ✓" [ref=e96] [cursor=pointer]
+          - generic [ref=e97]:
+            - generic [ref=e98]: Love that you see the potential here. Since your products are already proven on Amazon, moving them to Walmart with lower CPCs feels like a no-brainer next step. Can we lock in 15 minutes this week? Here's my calendar link
+            - generic [ref=e99]:
+              - button "Copy" [ref=e100] [cursor=pointer]
+              - button "I sent this ✓" [ref=e102] [cursor=pointer]
+          - generic [ref=e103]:
+            - generic [ref=e104]: So glad this resonated. Before we dig in, curious—are you more interested in the Walmart marketplace expansion first, or would retail store placement matter to you too? Either way, let's talk it through. Here's my calendar link
+            - generic [ref=e105]:
+              - button "Copy" [ref=e106] [cursor=pointer]
+              - button "I sent this ✓" [ref=e108] [cursor=pointer]
+              - button "Skip" [ref=e110] [cursor=pointer]
+      - generic [ref=e111]:
+        - generic [ref=e112]:
+          - generic [ref=e113]: nicolai@owcollection.com · EPIC · replied Jun 15
+          - text: "Hi Emily, Thank you for reaching out. The model could potentially be relevant for us, but only if it is structured as a controlled Amazon Fashion setup with strong brand protection, approved product selection, and clear pricing rules. Before setting up a call, could you please share more information on: -Your relationship with Epic Global Inc. -Whether the proposed setup is focused on Amazon F…"
+        - generic [ref=e114]:
+          - generic [ref=e115]:
+            - generic [ref=e116]: Hey Nicolai, This is you waking up, checking your phone, and realizing... it's finally working. This is you in 60 days lol. [GIF] I checked out your Amazon products and know how to get you there - we have an Amazon seller system. Would love to chat, ready for it? Let's get you there.
+            - generic [ref=e117]:
+              - button "Copy" [ref=e118] [cursor=pointer]
+              - button "I sent this ✓" [ref=e120] [cursor=pointer]
+          - generic [ref=e121]:
+            - generic [ref=e122]: Hey Nicolai, What it'd feel like to see extra cash hit your account... without tacking on extra fees or lifting a finger more than you already do. [GIF] Feels good, right? Let's make that your new normal - ready when you are.
+            - generic [ref=e123]:
+              - button "Copy" [ref=e124] [cursor=pointer]
+              - button "I sent this ✓" [ref=e126] [cursor=pointer]
+          - generic [ref=e127]:
+            - generic [ref=e128]: "Hey Nicolai, Your reaction when you get your profit without paying extra fees: [GIF] Don't you want to be this happy? Let's make it happen."
+            - generic [ref=e129]:
+              - button "Copy" [ref=e130] [cursor=pointer]
+              - button "I sent this ✓" [ref=e132] [cursor=pointer]
+              - button "Skip" [ref=e134] [cursor=pointer]
+      - generic [ref=e135]:
+        - generic [ref=e136]:
+          - generic [ref=e137]: info@vedcare.in · Epic · replied Jun 15
+          - text: "Dear Ms. Ellie Hayes, Thank you for reaching out and for your interest in partnering with our brand. We appreciate the opportunity to explore new international marketplaces. Before proceeding further, we would like to understand your business model in more detail. Could you please share the following information: • Company profile and official website details • The marketplaces and countries w…"
+        - generic [ref=e138]:
+          - generic [ref=e139]:
+            - generic [ref=e140]: Hey Vijay, thanks for getting back to us. I'll compile all those details and get them over to you by EOD tomorrow. Rather than wait for docs though, could we grab 15 min this week so I can walk you through how we actually work? Here's my calendar link
+            - generic [ref=e141]:
+              - button "Copy" [ref=e142] [cursor=pointer]
+              - button "I sent this ✓" [ref=e144] [cursor=pointer]
+          - generic [ref=e145]:
+            - generic [ref=e146]: Totally understand wanting to vet everything first. Instead of a back-and-forth on docs, how about a quick call where I can address your questions about our model, terms, and partner examples in real time? Here's my calendar link
+            - generic [ref=e147]:
+              - button "Copy" [ref=e148] [cursor=pointer]
+              - button "I sent this ✓" [ref=e150] [cursor=pointer]
+          - generic [ref=e151]:
+            - generic [ref=e152]: Appreciate you laying out what you need to see. I've got all that info ready, but honestly a 15-min call would be faster than doc exchanges—I can answer your questions directly and you'll get a real sense of how we operate. Here's my calendar link
+            - generic [ref=e153]:
+              - button "Copy" [ref=e154] [cursor=pointer]
+              - button "I sent this ✓" [ref=e156] [cursor=pointer]
+              - button "Skip" [ref=e158] [cursor=pointer]
+      - generic [ref=e159]:
+        - generic [ref=e160]:
+          - generic [ref=e161]: help@dulytek.com · Epic · replied Jun 15
+          - text: "Hi Ellie, Thank you for your persistence. I would be open to a quick call to discuss the global expansion of Dulytek and Rosineer. Are you available for a phone conversation this Thursday or Friday? Please let me know what time works best for you. Best regards, Bob On Mon, Jun 8, 2026 at 11:25 AM Ellie Hayes <elliehayes@topchooseecomm.com> wrote: > Hey Robert, > > At this point I'm just hop…"
+        - generic [ref=e162]:
+          - generic [ref=e163]:
+            - generic [ref=e164]: "Perfect, {first_name}. Thursday or Friday works great. I'm thinking 15 minutes to map out where Dulytek and Rosineer have the biggest opportunity in Europe right now. Here's my calendar link"
+            - generic [ref=e165]:
+              - button "Copy" [ref=e166] [cursor=pointer]
+              - button "I sent this ✓" [ref=e168] [cursor=pointer]
+          - generic [ref=e169]:
+            - generic [ref=e170]: "Love it, {first_name}. Let's lock in Thursday or Friday — I want to show you what we're seeing with brands in your space moving into EU/UK right now. Here's my calendar link"
+            - generic [ref=e171]:
+              - button "Copy" [ref=e172] [cursor=pointer]
+              - button "I sent this ✓" [ref=e174] [cursor=pointer]
+          - generic [ref=e175]:
+            - generic [ref=e176]: Thursday or Friday is ideal. I'll come prepped with specifics on where you can expand fastest with both brands. Here's my calendar link
+            - generic [ref=e177]:
+              - button "Copy" [ref=e178] [cursor=pointer]
+              - button "I sent this ✓" [ref=e180] [cursor=pointer]
+              - button "Skip" [ref=e182] [cursor=pointer]
+      - generic [ref=e183]:
+        - generic [ref=e184]:
+          - generic [ref=e185]: david@soapbox.co · Navira · replied Jun 14
+          - text: "How are you different than open borders? On Fri, Jun 12, 2026 at 2:45 PM Natalia Kensington < natalia.k@choiceecomm.com> wrote: > Hello David, > > I just checked out your Amazon store, great item. But here’s the kicker… > if you’re not branching out to Europe, the UK, or any global territories > outside of the US, you’re losing out on money. > > This is how we support businesses like yours > * W…"
+        - generic [ref=e186]:
+          - generic [ref=e187]:
+            - generic [ref=e188]: Hey there, This is you waking up, checking your phone, and realizing... it's finally working. This is you in 60 days lol. [GIF] I checked out your Amazon products and know how to get you there - we have an Amazon seller system. Would love to chat, ready for it? Let's get you there.
+            - generic [ref=e189]:
+              - button "Copy" [ref=e190] [cursor=pointer]
+              - button "I sent this ✓" [ref=e192] [cursor=pointer]
+          - generic [ref=e193]:
+            - generic [ref=e194]: Hey there, What it'd feel like to see extra cash hit your account... without tacking on extra fees or lifting a finger more than you already do. [GIF] Feels good, right? Let's make that your new normal - ready when you are.
+            - generic [ref=e195]:
+              - button "Copy" [ref=e196] [cursor=pointer]
+              - button "I sent this ✓" [ref=e198] [cursor=pointer]
+          - generic [ref=e199]:
+            - generic [ref=e200]: "Hey there, Your reaction when you get your profit without paying extra fees: [GIF] Don't you want to be this happy? Let's make it happen."
+            - generic [ref=e201]:
+              - button "Copy" [ref=e202] [cursor=pointer]
+              - button "I sent this ✓" [ref=e204] [cursor=pointer]
+              - button "Skip" [ref=e206] [cursor=pointer]
+      - generic [ref=e207]:
+        - generic [ref=e208]:
+          - generic [ref=e209]: emma@distdesigns.com · EC · replied Jun 13
+          - text: "Interested On Fri, Jun 12, 2026 at 6:12 AM Ellie Hayes <ellie@globalchooseecomm.com> wrote: > Hey Emma, > > We're locking in a few brands this quarter for the full package, exclusive > US distribution (hijackers gone), plus international expansion across over > 40 countries. > > Distinctive Designs seems like the right fit, but only if you're ready to > solve both the hijacker problem AND move o…"
+        - generic [ref=e210]:
+          - generic [ref=e211]:
+            - generic [ref=e212]: Perfect, Emma! Love the quick reply. Given your timeline, let's jump on a call this week to map out the hijacker removal + international rollout strategy. Here's my calendar link
+            - generic [ref=e213]:
+              - button "Copy" [ref=e214] [cursor=pointer]
+              - button "I sent this ✓" [ref=e216] [cursor=pointer]
+          - generic [ref=e217]:
+            - generic [ref=e218]: Great to hear, Emma! I want to make sure the 30-60 day window works for your team. Quick call to align on next steps? Here's my calendar link
+            - generic [ref=e219]:
+              - button "Copy" [ref=e220] [cursor=pointer]
+              - button "I sent this ✓" [ref=e222] [cursor=pointer]
+          - generic [ref=e223]:
+            - generic [ref=e224]: Awesome! Before we move forward, I'd love to understand what's blocking international expansion for you right now—that'll help us nail the plan. Here's my calendar link
+            - generic [ref=e225]:
+              - button "Copy" [ref=e226] [cursor=pointer]
+              - button "I sent this ✓" [ref=e228] [cursor=pointer]
+              - button "Skip" [ref=e230] [cursor=pointer]
+      - generic [ref=e231]:
+        - generic [ref=e232]:
+          - generic [ref=e233]: alan@deluxfarms.com · EPIC · replied Jun 13
+          - text: Hello Natalia, Thanks for reaching out — this sounds interesting and worth a conversation. Let's set up a call for next week. Does Thursday, June 18th or Friday, June 19th work on your end? I'm available at either 1:00 PM or 3:00 PM Pacific. Ahead of our call, it would also be helpful if you could share a couple of case studies or references from CPG/specialty food brands you've worked with — j…
+        - generic [ref=e234]:
+          - generic [ref=e235]:
+            - generic [ref=e236]: Hey Alan, This is you waking up, checking your phone, and realizing... it's finally working. This is you in 60 days lol. [GIF] I checked out your Amazon products and know how to get you there - we have an Amazon seller system. Would love to chat, ready for it? Let's get you there.
+            - generic [ref=e237]:
+              - button "Copy" [ref=e238] [cursor=pointer]
+              - button "I sent this ✓" [ref=e240] [cursor=pointer]
+          - generic [ref=e241]:
+            - generic [ref=e242]: Hey Alan, What it'd feel like to see extra cash hit your account... without tacking on extra fees or lifting a finger more than you already do. [GIF] Feels good, right? Let's make that your new normal - ready when you are.
+            - generic [ref=e243]:
+              - button "Copy" [ref=e244] [cursor=pointer]
+              - button "I sent this ✓" [ref=e246] [cursor=pointer]
+          - generic [ref=e247]:
+            - generic [ref=e248]: "Hey Alan, Your reaction when you get your profit without paying extra fees: [GIF] Don't you want to be this happy? Let's make it happen."
+            - generic [ref=e249]:
+              - button "Copy" [ref=e250] [cursor=pointer]
+              - button "I sent this ✓" [ref=e252] [cursor=pointer]
+              - button "Skip" [ref=e254] [cursor=pointer]
+    - generic [ref=e255]: Lead Scrape Automation · Dwyer Enterprises
