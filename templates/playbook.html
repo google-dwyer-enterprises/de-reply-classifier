@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Follow-up Playbook · Dwyer Console{% endblock %}
+{% block head %}
+<style>
+  .pb { max-width: 860px; }
+  .pb .sub { color:#5e6470; margin:0 0 4px; }
+  .pb .fresh { color:#8c959f; font-size:12.5px; margin:2px 0 18px; }
+  .pb h2 { font-size:19px; margin:32px 0 10px; }
+  .pb .box { background:#fff; border:1px solid #e1e4e8; border-left:4px solid #16a34a; border-radius:10px; padding:16px 20px; margin:16px 0; }
+  .pb .box.warn { border-left-color:#b45309; background:#fffdf7; }
+  .pb .box.timing { border-left-color:#2563eb; }
+  .pb .box h3 { margin:0 0 8px; font-size:16px; }
+  .pb ol, .pb ul { margin:8px 0; padding-left:20px; } .pb li { margin:8px 0; }
+  .pb .muted { color:#8c959f; }
+  .pb .stage { background:#fff; border:1px solid #e1e4e8; border-radius:12px; padding:16px 18px; margin:14px 0; }
+  .pb .stage-head { display:flex; gap:14px; align-items:flex-start; margin-bottom:10px; }
+  .pb .stage-n { background:#1c2433; color:#fff; font-weight:800; border-radius:8px; padding:6px 12px; font-size:15px; flex:0 0 auto; }
+  .pb .stage-when { font-weight:700; } .pb .stage-goal { color:#5e6470; font-size:13.5px; }
+  .pb .stage-meta { display:flex; flex-direction:column; gap:3px; font-size:13px; color:#374151; margin:6px 0 10px; }
+  .pb .copybox { position:relative; background:#f7f8fa; border:1px solid #e1e4e8; border-radius:8px; padding:12px 14px; }
+  .pb .copybox pre { white-space:pre-wrap; font-family:inherit; font-size:14px; margin:0; }
+  .pb .copy-btn { position:absolute; top:10px; right:10px; border:1px solid #2563eb; background:#fff; color:#2563eb; border-radius:6px; padding:3px 12px; cursor:pointer; font-size:12.5px; }
+  .pb .copy-btn.copied { background:#16a34a; border-color:#16a34a; color:#fff; }
+  .pb .why { font-size:12.5px; color:#5e6470; margin:10px 0 0; }
+  .pb table { width:100%; border-collapse:collapse; background:#fff; border:1px solid #e1e4e8; border-radius:10px; overflow:hidden; margin:10px 0; }
+  .pb th, .pb td { padding:9px 12px; border-bottom:1px solid #f0f1f3; text-align:left; font-size:13.5px; }
+  .pb th { background:#f9fafb; color:#5e6470; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
+  .pb td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .pb td.up { color:#16a34a; font-weight:700; } .pb td.down { color:#dc2626; font-weight:700; }
+  .pb td.skew { color:#b45309; font-size:11px; }
+  .pb .tbar { display:grid; grid-template-columns:120px 1fr 90px; align-items:center; gap:10px; margin:6px 0; }
+  .pb .tlab { font-size:13px; font-weight:600; }
+  .pb .ttrack { background:#eef1f5; border-radius:5px; height:20px; } .pb .ttrack span { display:block; height:100%; background:#2563eb; border-radius:5px; }
+  .pb .tval { font-size:12.5px; font-variant-numeric:tabular-nums; text-align:right; }
+  .pb code { background:#eef2f7; padding:1px 5px; border-radius:4px; font-size:13px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pb">
+<h1>The optimized follow-up playbook</h1>
+<p class="sub">For leads who've shown <b>interest</b> — the most reply-getting way to follow up, FU1 through FU5,
+ready to copy. Built from {{ "{:,}".format(overview.analyzed) }} real follow-ups
+({{ overview.positive }} positive replies, {{ overview.booked }} booked).</p>
+<p class="fresh">↻ Live — the evidence and timing below read the latest data every time you open this page.</p>
+
+<div class="box"><h3>How to follow up — the rules in one place</h3><ul>
+  {% for t, d in rules %}<li><b>{{ t }}.</b> <span class="muted">{{ d }}</span></li>{% endfor %}
+</ul></div>
+
+<h2>The 5-stage sequence</h2>
+<p class="sub">Use <code>{first_name}</code> / <code>{company}</code> for the lead's details and fill the
+<b>[bracketed]</b> bits per lead. One ask + your calendar link every time.</p>
+{% for s in stages %}
+<div class="stage">
+  <div class="stage-head"><span class="stage-n">FU{{ s.n }}</span>
+    <div><div class="stage-when">{{ s.when }}</div><div class="stage-goal">{{ s.goal }}</div></div></div>
+  <div class="stage-meta">
+    <span><b>Compliment / hook:</b> {{ s.hook }}</span>
+    <span><b>Tone:</b> {{ s.tone }}</span>
+    <span><b>Structure:</b> {{ s.structure }}</span>
+  </div>
+  <div class="copybox"><button class="copy-btn" type="button">Copy</button><pre>{{ s.copy }}</pre></div>
+  <p class="why"><b>Why this works:</b> {{ s.why }}</p>
+</div>
+{% endfor %}
+
+<h2>What the winning replies actually do</h2>
+<p class="sub">From the live effectiveness analysis — positive-reply rate with the trait vs without, and the lift.</p>
+<h3 style="font-size:15px;color:#166534;margin:6px 0">✓ Do more of this</h3>
+<table><thead><tr><th>What the message did</th><th></th><th>Reply rate</th><th>Lift</th><th></th></tr></thead><tbody>
+  {% for r in do %}<tr><td>{{ r.ch }}</td><td>{{ r.val }}</td>
+    <td class="num">{{ r.w }}% <span class="muted">vs {{ r.wo }}%</span></td>
+    <td class="num up">{{ r.lift }}×</td>
+    <td>{% if r.skew %}<span class="skew">mostly 1 client</span>{% endif %}</td></tr>{% endfor %}
+</tbody></table>
+<h3 style="font-size:15px;color:#991b1b;margin:16px 0 6px">✕ Avoid this</h3>
+<table><thead><tr><th>What the message did</th><th></th><th>Reply rate</th><th>Lift</th><th></th></tr></thead><tbody>
+  {% for r in avoid %}<tr><td>{{ r.ch }}</td><td>{{ r.val }}</td>
+    <td class="num">{{ r.w }}% <span class="muted">vs {{ r.wo }}%</span></td>
+    <td class="num down">{{ r.lift }}×</td>
+    <td>{% if r.skew %}<span class="skew">mostly 1 client</span>{% endif %}</td></tr>{% endfor %}
+</tbody></table>
+
+<h2>Front-load it — reply rate drops fast by stage</h2>
+<div class="box timing">
+  {% for t in timing %}
+  <div class="tbar"><div class="tlab">Follow-up #{{ t.fu }}</div>
+    <div class="ttrack"><span style="width:{{ t.bar }}%"></span></div>
+    <div class="tval">{{ t.p }}% <span class="muted">({{ t.s }})</span></div></div>
+  {% endfor %}
+  <p class="muted" style="margin:12px 0 0">The first three touches earn most of the bookings. After FU5 it's
+  under 4% — stop and restart fresh later rather than keep bumping.</p>
+</div>
+
+<div class="box warn"><h3>⚠️ How sure are we about this?</h3>
+<p style="margin:0 0 8px">These patterns are <b>descriptive, not proven cause-and-effect</b>: most of the analyzed
+follow-ups went to leads who were <i>already</i> warm, so a style's score is partly <i>who</i> got it, not just
+<i>how</i> it was written. This playbook leans toward compliment/value openers, a clear ask and a businesslike
+tone — and <b>away</b> from the GIF-heavy, ultra-casual style currently in heavy use, because that's what the data favors.</p>
+<p style="margin:0"><b>The live A/B test</b> (your curated templates vs AI-written, on the
+<a href="{{ url_for('followups_results') }}">A/B Results</a> page) is what will <i>prove</i> which actually books
+more. Treat this as the strong starting hypothesis — and update it as the A/B fills in.</p></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.copy-btn').forEach(function (b) {
+  b.addEventListener('click', function () {
+    navigator.clipboard.writeText(b.parentElement.querySelector('pre').innerText).then(function () {
+      b.classList.add('copied'); b.textContent = 'Copied!';
+      setTimeout(function () { b.classList.remove('copied'); b.textContent = 'Copy'; }, 1500);
+    });
+  });
+});
+</script>
+{% endblock %}
