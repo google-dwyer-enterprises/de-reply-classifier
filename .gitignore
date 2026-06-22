@@ -48,3 +48,7 @@ noco.db
 # original design session, intentionally not version-controlled)
 transcript.md
 SESSION_HANDOFF.*
+
+# Claude/Playwright local artifacts — never commit
+.playwright-mcp/
+/*.png
