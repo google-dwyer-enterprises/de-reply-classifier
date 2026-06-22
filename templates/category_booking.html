@@ -17,6 +17,12 @@
   table.cb-thin { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; max-width:520px; }
   table.cb-thin th, table.cb-thin td { padding:4px 8px; border-bottom:1px solid #f3f4f6; text-align:left; }
   table.cb-thin td.r, table.cb-thin th.r { text-align:right; font-variant-numeric:tabular-nums; }
+  .tier { display:inline-block; border-radius:5px; padding:1px 9px; font-size:12px; font-weight:600; white-space:nowrap; }
+  .tier-more { background:#d1fae5; color:#166534; }
+  .tier-maintain { background:#fef3c7; color:#92400e; }
+  .tier-less { background:#fee2e2; color:#991b1b; }
+  .tier-unknown { background:#eef1f5; color:#5e6470; }
+  .muted { color:var(--muted); font-size:12.5px; }
 </style>
 {% endblock %}
 
@@ -62,6 +68,24 @@ wrong-person / customer-service noise, which otherwise drags some categories dow
 the 95% confidence range, and the category's share of all bookings.</p>
 {{ bars(cat_ranked) }}
 {{ thin(cat_thin, 'categories') }}
+
+<h2>What to scrape next</h2>
+<p class="lede">The 12 scrape industries, ranked by the book rate of the categories they target. (The
+scraper's industries don't map 1:1 to booking categories — and almost no historical bookings carry a
+scrape industry — so this is a curated bridge, not a direct measurement.) Favor "scrape more", ease off "scrape less".</p>
+<table class="cb-thin" style="max-width:none">
+  <tr><th>Scrape industry</th><th class="r">Book rate</th><th>Priority</th><th>Covers booking categories</th></tr>
+  {% for s in scrape_priority %}
+  <tr>
+    <td><b>{{ s.industry }}</b></td>
+    <td class="r">{% if s.rate is not none %}{{ s.rate|round|int }}% <span class="muted">({{ s.engaged }} eng)</span>{% else %}—{% endif %}</td>
+    <td><span class="tier tier-{{ s.tier }}">{{ {'more':'Scrape more','maintain':'Maintain','less':'Scrape less','unknown':'No data'}[s.tier] }}</span></td>
+    <td class="muted">{{ s.categories }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="muted">Pooled book rate of the mapped categories; a category can feed more than one industry,
+so industries that target the same categories share those bookings.</p>
 
 <h2>Who books — by title</h2>
 <p class="lede">Same book rate, grouped by the contact's role (titles are free-text, so they're bucketed).
