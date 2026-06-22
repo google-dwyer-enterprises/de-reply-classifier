@@ -27,6 +27,14 @@
 <b>curated template</b> or <b>AI-generated</b> for that reply. This compares how often each
 style earns a positive next reply. Randomized, so it's a fair head-to-head.</p>
 
+<div class="callout">
+  <strong>Where this fits</strong>
+  Every follow-up the <a href="{{ url_for('followups_tool') }}">Follow-ups</a> tool sends is randomly a
+  <b>Template</b> (from <a href="{{ url_for('followups_templates') }}">Templates</a>) or an <b>AI-written</b>
+  version — this is the scoreboard. It stays "not enough data yet" until there's enough to call a fair
+  winner, so until then keep sending both.
+</div>
+
 <div class="verdict {{ verdict.state }}">{{ verdict.text }}</div>
 
 <div class="cols">

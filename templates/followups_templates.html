@@ -24,6 +24,14 @@
 <p class="lede">Curate the "best replies" library. <b>Active</b> templates show on the
 <a href="{{ url_for('followups_best') }}">Best replies</a> page and feed the A/B test's template arm.</p>
 
+<div class="callout">
+  <strong>Why this page matters</strong>
+  Templates you save here are reused automatically: the <a href="{{ url_for('followups_tool') }}">Follow-ups</a>
+  tool offers an active template (with the lead's name auto-filled) as the <b>Template</b> option, and
+  <a href="{{ url_for('followups_results') }}">A/B Results</a> scores it against the AI-written version.
+  Write good wording once here and it's sent for every matching lead — no rewriting per lead.
+</div>
+
 <form method="post" action="{{ url_for('followups_templates_save') }}" class="tpl-form">
   <input type="hidden" name="template_id" id="f_id" value="">
   <div class="form-field">
