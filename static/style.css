@@ -325,10 +325,23 @@ table.batch-list td.empty { text-align: center; padding: 32px; color: var(--mute
 .action-bar kbd { background: #f3f4f6; border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; font-size: 11px; font-family: ui-monospace, monospace; }
 
 table.lead-table {
+  /* no overflow:hidden here — it would break the sticky header below.
+     Rounded top corners are restored on the first/last th instead. */
   width: 100%; border-collapse: collapse; font-size: 13px;
-  background: white; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  background: white; border: 1px solid var(--border); border-radius: 8px;
 }
-table.lead-table th { background: #f9fafb; color: var(--muted); padding: 10px 12px; text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+/* Sticky column headers: stay visible while scrolling the (often 1000+ row)
+   review table. top:69px parks them just under the sticky .action-bar (69px
+   tall on desktop). white-space:nowrap keeps every label on one line so the
+   header row reads evenly instead of some labels wrapping to two lines.
+   box-shadow draws the bottom rule (a collapsed border doesn't repaint on a
+   sticky cell during scroll). */
+table.lead-table th { position: sticky; top: 69px; z-index: 5; background: #f9fafb; color: var(--muted); padding: 10px 12px; text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; white-space: nowrap; border-bottom: 1px solid var(--border); box-shadow: inset 0 -1px 0 var(--border); }
+table.lead-table thead th:first-child { border-top-left-radius: 8px; }
+table.lead-table thead th:last-child { border-top-right-radius: 8px; }
+/* Short verdict columns (On Amazon, Email verified) read cleaner centered. */
+table.lead-table th:nth-child(8), table.lead-table th:nth-child(9),
+table.lead-table td:nth-child(8), table.lead-table td:nth-child(9) { text-align: center; }
 table.lead-table td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
 table.lead-table tr:last-child td { border-bottom: none; }
 table.lead-table tr:hover td { background: #f9fafb; }
