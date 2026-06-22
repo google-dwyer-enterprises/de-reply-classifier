@@ -327,30 +327,35 @@ table.batch-list td.empty { text-align: center; padding: 32px; color: var(--mute
 .action-bar .helper-keys { color: var(--muted); font-size: 12px; }
 .action-bar kbd { background: #f3f4f6; border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; font-size: 11px; font-family: ui-monospace, monospace; }
 
-/* Horizontal-scroll wrapper (added around every table in base.html). Stays
-   inert on desktop — overflow only engages under the mobile breakpoint — so the
-   sticky lead-table header (which needs a visible-overflow ancestor) is
-   unaffected, while wide tables scroll inside their own box on phones instead
-   of forcing the whole page to scroll sideways. */
-@media (max-width: 860px) {
-  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* Wrap every table (added in base.html) so wide tables scroll horizontally
+   inside their own box instead of spilling past the cards / pushing the whole
+   page sideways. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* The review grid is wider than the 1160px reading column and has 1000+ rows,
+   so make it a self-contained scroll panel: it lines up with the cards above
+   (no width spill), scrolls horizontally for the extra columns, and — on
+   desktop — gets a bounded height so rows scroll inside the box with the header
+   frozen to its top. The panel's border+radius is the visual frame now (the
+   table's own border/corner-radius are dropped to avoid a double frame). */
+.table-scroll:has(> table.lead-table) {
+  overflow: auto;
+  border: 1px solid var(--border); border-radius: 8px;
+}
+@media (min-width: 861px) {
+  .table-scroll:has(> table.lead-table) { max-height: calc(100vh - 220px); }
 }
 
 table.lead-table {
-  /* no overflow:hidden here — it would break the sticky header below.
-     Rounded top corners are restored on the first/last th instead. */
   width: 100%; border-collapse: collapse; font-size: 13px;
-  background: white; border: 1px solid var(--border); border-radius: 8px;
+  background: white; border: none;
 }
-/* Sticky column headers: stay visible while scrolling the (often 1000+ row)
-   review table. top:69px parks them just under the sticky .action-bar (69px
-   tall on desktop). white-space:nowrap keeps every label on one line so the
-   header row reads evenly instead of some labels wrapping to two lines.
-   box-shadow draws the bottom rule (a collapsed border doesn't repaint on a
-   sticky cell during scroll). */
-table.lead-table th { position: sticky; top: 69px; z-index: 5; background: #f9fafb; color: var(--muted); padding: 10px 12px; text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; white-space: nowrap; border-bottom: 1px solid var(--border); box-shadow: inset 0 -1px 0 var(--border); }
-table.lead-table thead th:first-child { border-top-left-radius: 8px; }
-table.lead-table thead th:last-child { border-top-right-radius: 8px; }
+/* Sticky column headers stay visible while scrolling the panel. top:0 pins them
+   to the panel's top (the .action-bar above stays put via its own sticky).
+   white-space:nowrap keeps every label on one line so the header row reads
+   evenly. box-shadow draws the bottom rule (a collapsed border doesn't repaint
+   on a sticky cell during scroll). */
+table.lead-table th { position: sticky; top: 0; z-index: 5; background: #f9fafb; color: var(--muted); padding: 10px 12px; text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; white-space: nowrap; border-bottom: 1px solid var(--border); box-shadow: inset 0 -1px 0 var(--border); }
 /* Short verdict columns (On Amazon, Email verified) read cleaner centered. */
 table.lead-table th:nth-child(8), table.lead-table th:nth-child(9),
 table.lead-table td:nth-child(8), table.lead-table td:nth-child(9) { text-align: center; }
