@@ -80,6 +80,52 @@ TITLE_BUCKET = """
 """
 
 
+# Curated bridge: the 12 Prospeo/BetterContact scrape industries (what the
+# scraper actually targets) -> the Amazon booking categories they correspond to.
+# Needed because the scraper's vocabulary differs from the booking categories and
+# only ~5 of 483 booked leads carry a scrape industry, so we can't tie bookings
+# to scrape industries directly. A category may feed more than one industry.
+SCRAPE_INDUSTRY_MAP = {
+    "Cosmetics": ["Beauty & Personal Care"],
+    "Personal Care Product Manufacturing": ["Beauty & Personal Care", "Health & Household"],
+    "Retail Health and Personal Care Products": ["Health & Household", "Beauty & Personal Care", "Supplements"],
+    "Alternative Medicine": ["Supplements", "Health & Household"],
+    "Food and Beverage Manufacturing": ["Grocery & Gourmet Food"],
+    "Retail Groceries": ["Grocery & Gourmet Food"],
+    "Furniture and Home Furnishings Manufacturing": ["Home & Kitchen", "Tools & Home Improvement"],
+    "Pet Services": ["Pet Supplies"],
+    "Sporting Goods Manufacturing": ["Sports & Outdoors"],
+    "Retail Apparel and Fashion": ["Apparel & Fashion", "Clothing, Shoes & Jewelry"],
+    "Apparel Manufacturing": ["Apparel & Fashion", "Clothing, Shoes & Jewelry"],
+    "Consumer Goods": ["Toys & Games", "Baby Products", "Electronics", "Automotive"],
+}
+
+
+def _scrape_priority(cats: list[dict]) -> list[dict]:
+    """Rank the scrape industries by the pooled book rate of the booking
+    categories they target. Tiers: >=20% scrape MORE, 14-20% MAINTAIN, <14% LESS."""
+    by_label = {c["label"]: c for c in cats}
+    out = []
+    for industry, amazon_cats in SCRAPE_INDUSTRY_MAP.items():
+        booked = engaged = 0
+        used = []
+        for ac in amazon_cats:
+            c = by_label.get(ac)
+            if c:
+                booked += c["booked"]
+                engaged += c["engaged"]
+                used.append(ac)
+        rate = round(100.0 * booked / engaged, 1) if engaged else None
+        lo, hi = wilson(booked, engaged)
+        tier = ("more" if rate is not None and rate >= 20
+                else "maintain" if rate is not None and rate >= 14
+                else "less" if rate is not None else "unknown")
+        out.append({"industry": industry, "booked": booked, "engaged": engaged,
+                    "rate": rate, "ci_lo": round(lo * 100), "ci_hi": round(hi * 100),
+                    "tier": tier, "categories": ", ".join(used) or "—"})
+    return sorted(out, key=lambda r: (r["rate"] is not None, r["rate"] or 0), reverse=True)
+
+
 def wilson(pos: int, n: int, z: float = 1.96) -> tuple[float, float]:
     """Wilson score 95% interval for a proportion (sane on small n)."""
     if n == 0:
@@ -156,6 +202,7 @@ def fetch_category_booking() -> dict:
         "uncat": booked_total - (cov["booked_cat"] or 0),
         "cov_pct": round(100.0 * (cov["booked_cat"] or 0) / (booked_total or 1)),
         "cat_ranked": cat_ranked, "cat_thin": cat_thin,
+        "scrape_priority": _scrape_priority(cats),
         "title_ranked": title_ranked, "title_thin": title_thin,
         "title_missing": title_missing,
         "title_missing_pct": round(100.0 * (title_missing["booked"] if title_missing else 0) / (booked_total or 1)),
