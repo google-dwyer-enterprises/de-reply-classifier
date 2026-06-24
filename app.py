@@ -574,20 +574,9 @@ def batch_mass_reject(token):
 
 
 # ---------------------------------------------------------------------------
-# Interest follow-up A/B — Phase 1: best-replies page + template curation
-# (scraper role = Jam). See docs/replies/INTEREST_FOLLOWUP_AB_PLAN.md.
+# Interest follow-up A/B — template curation (scraper role = Jam).
+# See docs/replies/INTEREST_FOLLOWUP_AB_PLAN.md.
 # ---------------------------------------------------------------------------
-
-@app.route("/followups/best")
-@require_role("scraper")
-def followups_best():
-    import followup_templates_data as ft
-    return render_template(
-        "followups_best.html",
-        grouped=ft.fetch_active_templates(),
-        scenario_label=ft.SCENARIO_LABEL,
-    )
-
 
 @app.route("/followups/templates", methods=["GET"])
 @require_role("scraper")

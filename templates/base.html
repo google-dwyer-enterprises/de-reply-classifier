@@ -38,10 +38,6 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H5.2L4 17.2V4z"/><path d="M8 9h8"/><path d="M8 12h5"/></svg>
           <span>Follow-ups</span>
         </a>
-        <a href="{{ url_for('followups_best') }}" class="side-link {{ 'active' if request.endpoint == 'followups_best' }}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.5 5.3 5.5.8-4 4 1 5.6-5-2.8-5 2.8 1-5.6-4-4 5.5-.8L12 3z"/></svg>
-          <span>Best replies</span>
-        </a>
         <a href="{{ url_for('followups_templates') }}" class="side-link {{ 'active' if request.endpoint in ('followups_templates','followups_templates_save','followups_templates_toggle') }}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
           <span>Templates</span>
