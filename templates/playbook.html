@@ -16,9 +16,11 @@
   .pb .stage-head { display:flex; gap:14px; align-items:flex-start; margin-bottom:10px; }
   .pb .stage-n { background:#1c2433; color:#fff; font-weight:800; border-radius:8px; padding:6px 12px; font-size:15px; flex:0 0 auto; }
   .pb .stage-when { font-weight:700; } .pb .stage-goal { color:#5e6470; font-size:13.5px; }
-  .pb .stage-meta { display:flex; flex-direction:column; gap:3px; font-size:13px; color:#374151; margin:6px 0 10px; }
-  .pb .copybox { position:relative; background:#f7f8fa; border:1px solid #e1e4e8; border-radius:8px; padding:12px 14px; }
-  .pb .copybox pre { white-space:pre-wrap; font-family:inherit; font-size:14px; margin:0; }
+  .pb .stage-meta { display:grid; grid-template-columns:max-content 1fr; gap:5px 12px; font-size:13px; color:#374151; margin:10px 0 12px; padding:10px 12px; background:#f9fafb; border:1px solid #f0f1f3; border-radius:8px; }
+  .pb .stage-meta dt { color:#8c959f; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; font-weight:700; padding-top:2px; }
+  .pb .stage-meta dd { margin:0; }
+  .pb .copybox { position:relative; background:#f7f8fa; border:1px solid #e1e4e8; border-radius:8px; padding:14px 16px; }
+  .pb .copybox pre { white-space:pre-wrap; font-family:inherit; font-size:14px; line-height:1.6; margin:0; padding-right:64px; }
   .pb .copy-btn { position:absolute; top:10px; right:10px; border:1px solid #2563eb; background:#fff; color:#2563eb; border-radius:6px; padding:3px 12px; cursor:pointer; font-size:12.5px; }
   .pb .copy-btn.copied { background:#16a34a; border-color:#16a34a; color:#fff; }
   .pb .why { font-size:12.5px; color:#5e6470; margin:10px 0 0; }
@@ -28,6 +30,8 @@
   .pb td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
   .pb td.up { color:#16a34a; font-weight:700; } .pb td.down { color:#dc2626; font-weight:700; }
   .pb td.skew { color:#b45309; font-size:11px; }
+  .pb tbody tr:nth-child(even) td { background:#fbfcfd; }
+  .pb tbody tr:hover td { background:#f4f7fb; }
   .pb .tbar { display:grid; grid-template-columns:120px 1fr 90px; align-items:center; gap:10px; margin:6px 0; }
   .pb .tlab { font-size:13px; font-weight:600; }
   .pb .ttrack { background:#eef1f5; border-radius:5px; height:20px; } .pb .ttrack span { display:block; height:100%; background:#2563eb; border-radius:5px; }
@@ -55,12 +59,12 @@ ready to copy. Built from {{ "{:,}".format(overview.analyzed) }} real follow-ups
 <div class="stage">
   <div class="stage-head"><span class="stage-n">FU{{ s.n }}</span>
     <div><div class="stage-when">{{ s.when }}</div><div class="stage-goal">{{ s.goal }}</div></div></div>
-  <div class="stage-meta">
-    <span><b>Compliment / hook:</b> {{ s.hook }}</span>
-    <span><b>Tone:</b> {{ s.tone }}</span>
-    <span><b>Structure:</b> {{ s.structure }}</span>
-  </div>
-  <div class="copybox"><button class="copy-btn" type="button">Copy</button><pre>{{ s.copy }}</pre></div>
+  <dl class="stage-meta">
+    <dt>Hook</dt><dd>{{ s.hook }}</dd>
+    <dt>Tone</dt><dd>{{ s.tone }}</dd>
+    <dt>Structure</dt><dd>{{ s.structure }}</dd>
+  </dl>
+  <div class="copybox"><button class="copy-btn" type="button">Copy</button><pre>{{ s['copy'] }}</pre></div>
   <p class="why"><b>Why this works:</b> {{ s.why }}</p>
 </div>
 {% endfor %}
@@ -68,15 +72,17 @@ ready to copy. Built from {{ "{:,}".format(overview.analyzed) }} real follow-ups
 <h2>What the winning replies actually do</h2>
 <p class="sub">From the live effectiveness analysis — positive-reply rate with the trait vs without, and the lift.</p>
 <h3 style="font-size:15px;color:#166534;margin:6px 0">✓ Do more of this</h3>
-<table><thead><tr><th>What the message did</th><th></th><th>Reply rate</th><th>Lift</th><th></th></tr></thead><tbody>
-  {% for r in do %}<tr><td>{{ r.ch }}</td><td>{{ r.val }}</td>
+<table><thead><tr><th>What the message did</th><th class="num">Reply rate <span class="muted">(with vs without)</span></th><th class="num">Lift</th><th>Note</th></tr></thead><tbody>
+  {% for r in do %}<tr>
+    <td>{{ r.ch }}{% if r.val %} — <span class="muted">{{ r.val }}</span>{% endif %}</td>
     <td class="num">{{ r.w }}% <span class="muted">vs {{ r.wo }}%</span></td>
     <td class="num up">{{ r.lift }}×</td>
     <td>{% if r.skew %}<span class="skew">mostly 1 client</span>{% endif %}</td></tr>{% endfor %}
 </tbody></table>
 <h3 style="font-size:15px;color:#991b1b;margin:16px 0 6px">✕ Avoid this</h3>
-<table><thead><tr><th>What the message did</th><th></th><th>Reply rate</th><th>Lift</th><th></th></tr></thead><tbody>
-  {% for r in avoid %}<tr><td>{{ r.ch }}</td><td>{{ r.val }}</td>
+<table><thead><tr><th>What the message did</th><th class="num">Reply rate <span class="muted">(with vs without)</span></th><th class="num">Lift</th><th>Note</th></tr></thead><tbody>
+  {% for r in avoid %}<tr>
+    <td>{{ r.ch }}{% if r.val %} — <span class="muted">{{ r.val }}</span>{% endif %}</td>
     <td class="num">{{ r.w }}% <span class="muted">vs {{ r.wo }}%</span></td>
     <td class="num down">{{ r.lift }}×</td>
     <td>{% if r.skew %}<span class="skew">mostly 1 client</span>{% endif %}</td></tr>{% endfor %}
