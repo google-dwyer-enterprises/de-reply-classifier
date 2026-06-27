@@ -381,6 +381,33 @@ def _parse_int_or_none(value, lo: int = 1, hi: int = 100000) -> int | None:
     return None
 
 
+def _submit_base_context() -> dict:
+    """Live scrape-priority for the submit form: order the industries by booking
+    performance and flag the 'scrape more' tier so the next batch targets the
+    best performers (Victor's June-24 ask). Best-effort — a data hiccup must
+    never block submitting a batch, so it falls back to the plain list."""
+    pri_by_ind: dict = {}
+    try:
+        import category_booking_data as cbd
+        for p in cbd.fetch_scrape_priority():
+            pri_by_ind[p["industry"]] = p
+    except Exception:
+        pri_by_ind = {}
+    tier_rank = {"more": 0, "maintain": 1, "less": 2, "unknown": 3}
+    ordered = sorted(
+        BC_INDUSTRIES,
+        key=lambda i: (tier_rank.get((pri_by_ind.get(i) or {}).get("tier"), 3),
+                       -((pri_by_ind.get(i) or {}).get("rate") or 0)),
+    )
+    scrape_more = [i for i in ordered if (pri_by_ind.get(i) or {}).get("tier") == "more"]
+    return {
+        "industries": ordered,
+        "countries": COUNTRIES,
+        "industry_priority": pri_by_ind,
+        "default_industries": scrape_more,
+    }
+
+
 @app.route("/submit", methods=["GET"])
 @require_role("scraper")
 def submit_form():
@@ -398,9 +425,8 @@ def submit_form():
     }
     return render_template(
         "submit.html",
-        industries=BC_INDUSTRIES,
-        countries=COUNTRIES,
         prefill=prefill,
+        **_submit_base_context(),
     )
 
 
@@ -414,8 +440,7 @@ def submit_post():
     if not (1 <= requested_leads <= 5000):
         return render_template(
             "submit.html",
-            industries=BC_INDUSTRIES,
-            countries=COUNTRIES,
+            **_submit_base_context(),
             error="Requested leads must be between 1 and 5000.",
             form=request.form,
         ), 400
@@ -434,8 +459,7 @@ def submit_post():
     if raw_cap and max_credits is None:
         return render_template(
             "submit.html",
-            industries=BC_INDUSTRIES,
-            countries=COUNTRIES,
+            **_submit_base_context(),
             error=f"Max credits {raw_cap!r} isn't a whole number between "
                   f"1 and 100,000. Leave it empty for the default 1,000.",
             form=request.form,

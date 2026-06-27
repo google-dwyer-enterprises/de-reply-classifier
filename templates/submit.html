@@ -34,14 +34,22 @@
   </div>
 
   <div class="form-field">
-    <label>Industries to target <span class="hint-inline">(leave none selected for all 12)</span></label>
+    <label>Industries to target <span class="hint-inline">(top performers are pre-selected — adjust freely; select none to target all)</span></label>
+    <p class="hint" style="margin:-2px 0 8px">Ranked by booking performance from the
+      <a href="{{ url_for('category_booking') }}" target="_blank" rel="noopener">category analysis</a> —
+      <span style="font-weight:700;color:#166534">Scrape more</span> ·
+      <span style="font-weight:700;color:#92400e">Maintain</span> ·
+      <span style="font-weight:700;color:#991b1b">Scrape less</span>. Decision-maker titles
+      (owners / founders) are already prioritised in scraping.</p>
     <div class="chip-group">
-      {% set chosen_ind = p.industries if p.industries else (form.getlist('industries') if form else []) %}
+      {% set chosen_ind = p.industries if p.industries else (form.getlist('industries') if form else default_industries) %}
       {% for ind in industries %}
+        {% set pr = industry_priority.get(ind) if industry_priority else none %}
         <label class="chip-label">
           <input type="checkbox" name="industries" value="{{ ind }}"
                  {% if ind in chosen_ind %}checked{% endif %}>
-          <span>{{ ind }}</span>
+          <span>{{ ind }}{% if pr and pr.tier != 'unknown' %}
+            <span style="font-size:10.5px;font-weight:700;border-radius:5px;padding:0 6px;margin-left:5px;{% if pr.tier=='more' %}background:#d1fae5;color:#166534{% elif pr.tier=='maintain' %}background:#fef3c7;color:#92400e{% else %}background:#fee2e2;color:#991b1b{% endif %}">{{ {'more':'Scrape more','maintain':'Maintain','less':'Scrape less'}[pr.tier] }}{% if pr.rate is not none %} · {{ pr.rate|round|int }}%{% endif %}</span>{% endif %}</span>
         </label>
       {% endfor %}
     </div>
