@@ -669,6 +669,15 @@ def followups_results():
     return render_template("followups_results.html", **fxa.fetch_results())
 
 
+@app.route("/followups/best")
+@require_role("scraper", "analyst")
+def followups_best():
+    # Data-ranked best replies by follow-up stage (rebuild of the old static
+    # page). Reads followup_message_features live on every load.
+    import followup_best_replies_data as br
+    return render_template("best_replies.html", **br.fetch_best_replies())
+
+
 @app.route("/followups/playbook")
 @require_role("scraper", "analyst")
 def followups_playbook():

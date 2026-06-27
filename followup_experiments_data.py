@@ -104,8 +104,47 @@ def build_static_variations(scenario: str, lead: dict, templates_by_scenario: di
     return out
 
 
-def _build_gen_prompt() -> str:
-    return open(_GEN_PROMPT_PATH, encoding="utf-8").read().replace("{n}", str(N_VARS))
+def fetch_top_exemplars(cur, k: int = 6) -> list[str]:
+    """Best real follow-ups (booked-first, concise, deduped) to show the AI as
+    style exemplars so it prioritises what actually works. Pulled from
+    followup_message_features (same source as the Best-replies page)."""
+    cur.execute("""
+        select followup_new_text, responded_booked
+          from followup_message_features
+         where extractor_version = 'fx1' and boundary_detected
+           and responded_positive
+           and coalesce(btrim(followup_new_text), '') <> ''
+           and char_len between 30 and 400
+         order by responded_booked desc, is_confirmed_winner desc,
+                  ffup_position asc, sent_timestamp desc
+         limit 40
+    """)
+    seen, out = set(), []
+    for (txt, _booked) in cur.fetchall():
+        t = re.sub(r"\s+", " ", (txt or "").replace("�", "")).strip()
+        if len(t) < 30:
+            continue
+        key = re.sub(r"[^a-z0-9]", "", t.lower())[:60]
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(t[:400])
+        if len(out) >= k:
+            break
+    return out
+
+
+def _build_gen_prompt(exemplars: list[str] | None = None) -> str:
+    base = open(_GEN_PROMPT_PATH, encoding="utf-8").read().replace("{n}", str(N_VARS))
+    if exemplars:
+        ex = "\n".join(f'{i + 1}. "{t}"' for i, t in enumerate(exemplars))
+        base += (
+            "\n\nFor reference, here are real follow-ups WE have sent that earned a "
+            "positive reply or booked a call. Match their natural, concise, direct "
+            "style and structure — but do NOT copy them verbatim or reuse their "
+            "specific names, numbers, or details:\n" + ex
+        )
+    return base
 
 
 def _parse_drafts(text: str) -> list[str]:
@@ -175,7 +214,9 @@ def ensure_experiments(client: str | None, since, cap: int = 20) -> int:
                     try:
                         from anthropic import Anthropic
                         anthropic_client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-                        gen_prompt = _build_gen_prompt()
+                        # Feed the AI the top-performing real replies as style
+                        # exemplars so it prioritises what actually works.
+                        gen_prompt = _build_gen_prompt(fetch_top_exemplars(cur))
                     except Exception:
                         # No ANTHROPIC_API_KEY / anthropic package here (e.g. the web
                         # service). Don't 500 the page — skip AI-arm rows this call.

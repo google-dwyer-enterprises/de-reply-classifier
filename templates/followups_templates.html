@@ -52,6 +52,7 @@
 </form>
 
 <h2>Library ({{ templates|length }})</h2>
+<p class="muted" style="margin:-2px 0 8px">Ordered by performance — the best reply rate from the A/B test first. Rates fill in as templates get sent.</p>
 {% if not templates %}<p class="muted">Nothing yet — add one above, or use a suggestion below.</p>{% endif %}
 {% for t in templates %}
   <div class="tpl-row {% if not t.is_active %}inactive{% endif %}">
@@ -59,6 +60,8 @@
       <span class="badge">{{ scenario_label.get(t.scenario_key, t.scenario_key) }}</span>
       <strong>{{ t.title or 'Untitled' }}</strong>
       {% if not t.is_active %}<span class="muted">(inactive)</span>{% endif %}
+      {% if t.sends %}<span class="badge" style="background:#d1fae5;color:#166534">{{ t.rate }}% reply · {{ t.sends }} sent</span>
+      {% else %}<span class="muted">no A/B data yet</span>{% endif %}
     </div>
     {% if t.subject %}<div class="muted">Subject: {{ t.subject }}</div>{% endif %}
     <pre class="tpl-body">{{ t.body }}</pre>
