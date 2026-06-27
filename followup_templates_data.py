@@ -66,19 +66,43 @@ def fetch_active_templates() -> dict[str, list[dict]]:
 
 
 def fetch_all_templates() -> list[dict]:
-    """Every template (active + inactive) for the curation admin."""
+    """Every template (active + inactive) for the curation admin, ORDERED BY
+    performance. Performance is attributed from the A/B test: each `static`-arm
+    experiment whose chosen variation carried this template's id counts as a
+    send, and `responded_positive` as a win. Active templates with the best
+    reply rate sort first; templates with no sends yet keep a stable order and
+    are flagged 'no data yet' (the A/B only recently started)."""
     conn = _conn()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
-            select id, scenario_key, title, body, subject, is_active,
-                   approved_by, source_note, version, updated_at
-              from followup_templates
-             order by is_active desc, scenario_key, updated_at desc
+            with perf as (
+              select (variations -> chosen_variation_idx ->> 'template_id')::bigint as tid,
+                     count(*) as sends,
+                     count(*) filter (where responded_positive) as pos
+                from followup_experiments
+               where arm = 'static' and chosen_variation_idx is not null
+                 and (variations -> chosen_variation_idx ->> 'template_id') is not null
+               group by 1
+            )
+            select t.id, t.scenario_key, t.title, t.body, t.subject, t.is_active,
+                   t.approved_by, t.source_note, t.version, t.updated_at,
+                   coalesce(p.sends, 0) as sends,
+                   coalesce(p.pos, 0)   as pos
+              from followup_templates t
+              left join perf p on p.tid = t.id
+             order by t.is_active desc,
+                      (p.pos::float / nullif(p.sends, 0)) desc nulls last,
+                      coalesce(p.sends, 0) desc,
+                      t.scenario_key, t.updated_at desc
         """)
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
+    for r in rows:
+        r["rate"] = round(100.0 * r["pos"] / r["sends"]) if r["sends"] else None
+    return rows
+
 
 
 def upsert_template(*, template_id: int | None, scenario_key: str, title: str,

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Best replies · Dwyer Console{% endblock %}
+{% block brand %}Dwyer Console{% endblock %}
+{% block head %}
+<style>
+  .br-tiles { display:flex; gap:14px; flex-wrap:wrap; margin:16px 0 8px; }
+  .br-tile { flex:1; min-width:150px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .br-tile .n { font-size:24px; font-weight:800; color:var(--accent); letter-spacing:-.02em; }
+  .br-tile .k { color:var(--muted); font-size:12.5px; margin-top:2px; }
+  .br-fresh { color:var(--muted); font-size:12.5px; margin:2px 0 0; }
+  .br-strip { background:#fff; border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin:10px 0 6px; }
+  .br-row { display:grid; grid-template-columns:160px 1fr 150px; gap:6px 12px; align-items:center; margin:7px 0; }
+  .br-lab { font-weight:600; font-size:13px; }
+  .br-track { background:#eef1f5; border-radius:5px; height:20px; }
+  .br-fill { background:linear-gradient(90deg,#2563eb,#3b82f6); height:100%; border-radius:5px; }
+  .br-val { font-size:12.5px; font-variant-numeric:tabular-nums; text-align:right; color:#374151; }
+  .stage-head { display:flex; align-items:baseline; gap:10px; margin:26px 0 4px; flex-wrap:wrap; }
+  .stage-head h2 { font-size:18px; margin:0; }
+  .stage-rate { font-size:13px; color:#166534; font-weight:700; background:#d1fae5; border-radius:6px; padding:1px 9px; }
+  .stage-rate.thin { color:#92400e; background:#fef3c7; }
+  .stage-sub { color:var(--muted); font-size:12.5px; }
+  .rep { background:#fff; border:1px solid var(--border); border-radius:10px; padding:12px 14px 12px 14px; margin:10px 0; position:relative; }
+  .rep-top { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .rank { background:#1c2433; color:#fff; font-weight:800; border-radius:6px; padding:2px 9px; font-size:12.5px; }
+  .badge-booked { background:#d1fae5; color:#166534; border-radius:6px; padding:1px 8px; font-size:11.5px; font-weight:700; }
+  .badge-pos { background:#e0f2fe; color:#075985; border-radius:6px; padding:1px 8px; font-size:11.5px; font-weight:700; }
+  .rep-client { color:var(--muted); font-size:12px; margin-left:auto; }
+  .rep pre { white-space:pre-wrap; font-family:inherit; font-size:13.5px; line-height:1.55; margin:0; color:#1a1d23; }
+  .copy-btn { border:1px solid var(--accent); background:#fff; color:var(--accent); border-radius:6px; padding:3px 12px; cursor:pointer; font-size:12.5px; }
+  .copy-btn.copied { background:#16a34a; border-color:#16a34a; color:#fff; }
+  .muted { color:var(--muted); font-size:12.5px; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Best replies — ranked by what actually works</h1>
+<p class="lede">The real follow-ups that earned a reply, pulled from {{ "{:,}".format(overall_sends) }} sent
+follow-ups and <b>ranked by performance, organised by follow-up stage</b>. Copy one, paste it into Instantly,
+and swap in the lead's details.</p>
+<p class="br-fresh">↻ Live — reads the latest follow-up data every time you open this page.</p>
+
+<div class="callout">
+  <strong>Where this fits</strong>
+  These are the <b>top-performing real replies by stage</b> (booked ones first). To manage the generic
+  template library, use <a href="{{ url_for('followups_templates') }}">Templates</a>; for the full
+  prescriptive sequence see the <a href="{{ url_for('followups_playbook') }}" target="_blank" rel="noopener">Playbook&nbsp;↗</a>.
+</div>
+
+<div class="br-tiles">
+  <div class="br-tile"><div class="n">{{ "{:,}".format(overall_sends) }}</div><div class="k">Follow-ups analysed</div></div>
+  <div class="br-tile"><div class="n">{{ overall_rate }}%</div><div class="k">Got an interested / booked reply</div></div>
+  <div class="br-tile"><div class="n">{{ overall_booked }}</div><div class="k">Ended in a booked call</div></div>
+  <div class="br-tile"><div class="n">{{ top3_share }}%</div><div class="k">of replies come from follow-ups 1–3</div></div>
+</div>
+
+<h2 style="font-size:18px; margin:24px 0 6px;">Reply rate by follow-up stage</h2>
+<p class="muted" style="margin:0 0 6px">Reply rate drops fast after the third touch — front-load your best lines into FU1–FU3.</p>
+<div class="br-strip">
+  {% for s in panel %}
+  <div class="br-row">
+    <div class="br-lab">{{ s.label }}</div>
+    <div class="br-track"><div class="br-fill" style="width:{{ s.bar }}%"></div></div>
+    <div class="br-val">{{ s.rate }}% <span class="muted">({{ s.pos }}/{{ s.sends }}{% if s.booked %} · {{ s.booked }} booked{% endif %})</span></div>
+  </div>
+  {% endfor %}
+</div>
+
+{% for s in ranked %}
+<div class="stage-head">
+  <h2>{{ s.label }}</h2>
+  <span class="stage-rate {{ 'thin' if s.thin }}">{{ s.rate }}% reply rate</span>
+  <span class="stage-sub">{{ s.pos }} replies of {{ s.sends }} sent{% if s.booked %} · {{ s.booked }} booked{% endif %}{% if s.thin %} · few sends, treat as a hint{% endif %}</span>
+</div>
+{% for r in s.replies %}
+<div class="rep">
+  <div class="rep-top">
+    <span class="rank">#{{ r.rank }}</span>
+    {% if r.booked %}<span class="badge-booked">Booked a call</span>{% else %}<span class="badge-pos">Got a reply</span>{% endif %}
+    <button class="copy-btn" type="button">Copy</button>
+    <span class="rep-client">{{ r.client or '—' }}</span>
+  </div>
+  <pre>{{ r.text }}</pre>
+</div>
+{% endfor %}
+{% else %}
+<p class="muted">No ranked replies yet — once follow-ups accumulate outcomes they'll appear here.</p>
+{% endfor %}
+
+<div class="callout" style="margin-top:24px">
+  <strong>How to read this — and what it can't tell you</strong>
+  <ul style="margin:6px 0 0; padding-left:18px;">
+    <li><b>Descriptive, not proof.</b> These are replies that <i>happened</i> to land a response — many went to leads who were already warm, so the wording isn't the only reason they worked.</li>
+    <li><b>Ranked by outcome:</b> booked calls first, then other interested replies, newest first; near-duplicate openings are removed.</li>
+    <li><b>One client sent ~half</b> of all follow-ups, so some lines reflect that client's style more than a universal best.</li>
+    <li><b>The takeaway:</b> {{ top3_share }}% of all replies come from follow-ups 1–3 — that's where your strongest lines belong.</li>
+  </ul>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('.copy-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var txt = btn.closest('.rep').querySelector('pre').innerText;
+    navigator.clipboard.writeText(txt).then(function () {
+      btn.classList.add('copied'); btn.textContent = 'Copied!';
+      setTimeout(function () { btn.classList.remove('copied'); btn.textContent = 'Copy'; }, 1500);
+    });
+  });
+});
+</script>
+{% endblock %}
