@@ -199,6 +199,31 @@ def fetch_category_booking() -> dict:
     finally:
         conn.close()
 
+    return _assemble(cur_cov=cov, cats=cats, titles=titles)
+
+
+def fetch_scrape_priority() -> list[dict]:
+    """Just the 12-industry scrape-priority ranking (no titles/coverage) — for
+    the submit form so the next batch targets the best-performing industries.
+    Cheaper than fetch_category_booking()."""
+    conn = connect()
+    params = {"generic": GENERIC_DOMAINS, "noise": NOISE_LABELS}
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(RESOLVE + """
+              select category as label,
+                     count(*) filter (where status1 <> all(%(noise)s) or status = 'booked') as engaged,
+                     count(*) filter (where status = 'booked') as booked
+                from resolved where category is not null group by 1
+            """, params)
+            cats = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    return _scrape_priority(cats)
+
+
+def _assemble(cur_cov, cats, titles) -> dict:
+    cov = cur_cov
     cat_ranked, cat_thin = _enrich(cats)
     # '(no title given)' isn't an actionable role — it's the title-coverage gap.
     # Pull it out of the ranking and surface it as a note instead.
