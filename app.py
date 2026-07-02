@@ -387,12 +387,21 @@ def _submit_base_context() -> dict:
     best performers (Victor's June-24 ask). Best-effort — a data hiccup must
     never block submitting a batch, so it falls back to the plain list."""
     pri_by_ind: dict = {}
+    title_priority: dict = {}
     try:
         import category_booking_data as cbd
         for p in cbd.fetch_scrape_priority():
             pri_by_ind[p["industry"]] = p
     except Exception:
         pri_by_ind = {}
+    # Titles are surfaced ADVISORY-only (not selectable): the booking signal by
+    # title is still within-noise, so it informs but doesn't drive the scrape.
+    # Independent try so a title-query hiccup can't hide the industry priority.
+    try:
+        import category_booking_data as cbd
+        title_priority = cbd.fetch_title_priority()
+    except Exception:
+        title_priority = {}
     tier_rank = {"more": 0, "maintain": 1, "less": 2, "unknown": 3}
     ordered = sorted(
         BC_INDUSTRIES,
@@ -405,6 +414,7 @@ def _submit_base_context() -> dict:
         "countries": COUNTRIES,
         "industry_priority": pri_by_ind,
         "default_industries": scrape_more,
+        "title_priority": title_priority,
     }
 
 

@@ -69,6 +69,33 @@
     </div>
   </div>
 
+  {% if title_priority and title_priority.ranked %}
+  <div class="form-field">
+    <label>Job titles <span class="hint-inline">(advisory — informational, not selectable)</span></label>
+    <div class="alert" style="background:#f8fafc;border:1px solid #e2e8f0;color:#334155">
+      {% if not title_priority.signal_strong %}
+      <p style="margin:0 0 8px"><strong>Heads up — titles aren't a strong enough signal to target by yet.</strong>
+        Unlike industries, every job-title band below books within roughly <strong>18–28%</strong> and their
+        confidence ranges <strong>overlap</strong>, and about <strong>{{ title_priority.missing_pct }}% of booked
+        leads have no recorded title</strong>. So scraping keeps targeting proven <strong>decision-makers
+        (owners / founders, plus marketing &amp; e-commerce leads)</strong> rather than auto-narrowing on these
+        numbers. This panel is for information only; it becomes an actual filter once the data separates a
+        clear winner.</p>
+      {% else %}
+      <p style="margin:0 0 8px"><strong>Best-performing job titles</strong> — the data has now separated a clear
+        winner, so these are worth prioritising.</p>
+      {% endif %}
+      <div class="chip-group">
+        {% for t in title_priority.ranked %}
+        <span class="chip-label" style="cursor:default;opacity:.95">
+          <span>{{ t.label }}<span style="font-size:10.5px;font-weight:700;border-radius:5px;padding:0 6px;margin-left:5px;background:#e2e8f0;color:#334155">{% if t.rate is not none %}{{ t.rate|round|int }}% · {% endif %}{{ t.conf_label }}</span></span>
+        </span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="form-field">
     <label>Countries</label>
     <div class="chip-group">

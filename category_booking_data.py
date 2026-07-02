@@ -222,6 +222,52 @@ def fetch_scrape_priority() -> list[dict]:
     return _scrape_priority(cats)
 
 
+def _titles_signal_strong(ranked: list[dict]) -> bool:
+    """True only when the top RELIABLE title bucket clearly separates from the
+    other reliable ones — its Wilson CI floor sits above their CI ceilings.
+    Until then the title ranking is within-noise (all bands overlap ~18-28%),
+    so the submit form shows a caveat instead of acting on it. Flip to True
+    happens automatically once more data pulls a winner clear."""
+    reliable = [r for r in ranked if r.get("conf") != "rough"]
+    if len(reliable) < 2:
+        return False
+    top = max(reliable, key=lambda r: r["rate"] or 0)
+    return all(top["ci_lo"] > r["ci_hi"] for r in reliable if r is not top)
+
+
+def fetch_title_priority() -> dict:
+    """Title buckets ranked by booking performance — ADVISORY panel for the
+    submit form. Titles are a weak discriminator (buckets book within
+    overlapping CIs and ~30% of booked leads carry no title), so this is
+    informational only and does NOT drive the scrape — BetterContact's tuned
+    decision-maker list does. `signal_strong` reports whether the data has
+    matured enough to separate a clear winner. Cheaper than
+    fetch_category_booking() (title query only)."""
+    conn = connect()
+    params = {"generic": GENERIC_DOMAINS, "noise": NOISE_LABELS}
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(RESOLVE + f"""
+              select {TITLE_BUCKET} as label,
+                     count(*) filter (where status1 <> all(%(noise)s) or status = 'booked') as engaged,
+                     count(*) filter (where status = 'booked') as booked
+                from resolved group by 1
+            """, params)
+            titles = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    # '(no title given)' is the coverage gap, not an actionable role — surface
+    # it as the missing-% caveat, keep it out of the ranking.
+    missing = next((t for t in titles if t["label"] == "(no title given)"), None)
+    ranked, _thin = _enrich([t for t in titles if t["label"] != "(no title given)"])
+    total = sum(t["booked"] for t in titles) or 1
+    return {
+        "ranked": ranked,
+        "signal_strong": _titles_signal_strong(ranked),
+        "missing_pct": round(100.0 * (missing["booked"] if missing else 0) / total),
+    }
+
+
 def _assemble(cur_cov, cats, titles) -> dict:
     cov = cur_cov
     cat_ranked, cat_thin = _enrich(cats)
