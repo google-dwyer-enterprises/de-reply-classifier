@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Follow-up pages — audit & consolidation plan</title>
+<style>
+  body { font: 15px/1.55 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#1a1d23; max-width:900px; margin:32px auto; padding:0 20px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:26px 0 8px; border-bottom:1px solid #e5e7eb; padding-bottom:4px; }
+  .sub { color:#6b7280; margin:0 0 18px; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:13.5px; }
+  th, td { border:1px solid #e5e7eb; padding:7px 9px; text-align:left; vertical-align:top; }
+  th { background:#f8fafc; }
+  .keep { color:#166534; font-weight:700; }
+  .merge { color:#92400e; font-weight:700; }
+  .retire { color:#991b1b; font-weight:700; }
+  .park { color:#3730a3; font-weight:700; }
+  .box { border-radius:8px; padding:12px 14px; margin:14px 0; font-size:13.5px; }
+  .amber { background:#fffbeb; border:1px solid #fde68a; color:#78350f; }
+  .green { background:#f0fdf4; border:1px solid #bbf7d0; color:#14532d; }
+  code { background:#f1f5f9; padding:1px 5px; border-radius:4px; font-size:12.5px; }
+  ul { margin:6px 0; padding-left:20px; } li { margin:3px 0; }
+  .arrow { color:#64748b; }
+</style>
+</head>
+<body>
+
+<h1>Follow-up pages — audit &amp; consolidation plan</h1>
+<p class="sub">The follow-up area grew one page per request and now has <b>5 pages</b> where <b>2</b> would do the job better. The same "what works" insight is repeated 4 times, and the A/B pages sit empty. This preserves all the content — it just removes duplicate pages so the useful part is easy to find.</p>
+
+<h2>The problem in one line</h2>
+<p>"What makes a good follow-up" is currently told on <b>four</b> different pages from the <b>same</b> underlying data — and the two A/B pages have <b>zero</b> usage to date.</p>
+
+<h2>Page-by-page verdict</h2>
+<table>
+<tr><th>Page</th><th>What it shows today</th><th>Verdict</th><th>Why</th></tr>
+
+<tr>
+  <td><b>Templates</b><br><code>/followups/templates</code></td>
+  <td>Winning patterns + a real copyable example + editable templates + "suggested from best replies"</td>
+  <td class="keep">KEEP — make it the hub</td>
+  <td>After the latest work this is the superset: it has the insight <i>and</i> the copy-ready email. Everything else duplicates a slice of it. Rename it simply <b>"Follow-ups"</b>.</td>
+</tr>
+
+<tr>
+  <td><b>Best replies</b><br><code>/followups/best</code></td>
+  <td>Real winning replies, ranked by follow-up stage</td>
+  <td class="merge">MERGE → retire</td>
+  <td>Same data as the hub's copyable example + "suggested from best replies." Only unique bit = the by-stage ranking; fold that in as a small strip, then retire the standalone page.</td>
+</tr>
+
+<tr>
+  <td><b>Playbook</b><br><code>/followups/playbook</code></td>
+  <td>The FU1–FU5 sequence + "front-load, reply rate drops by stage"</td>
+  <td class="merge">MERGE → retire</td>
+  <td>The prescriptive advice = the hub's pattern recipe. The genuinely distinct piece is the <b>sequence &amp; timing</b> — fold that into the hub as one section, then retire the page.</td>
+</tr>
+
+<tr>
+  <td><b>Follow-up Analytics</b><br><code>/analytics</code></td>
+  <td>Every writing choice side-by-side (lift), what's helping/hurting, timing</td>
+  <td class="keep">KEEP (conditional)</td>
+  <td>It's the <b>deep statistical view</b> for the analyst role — more detail than the hub's summary. Keep it as the "evidence" page <i>if the analyst view is actually used</i>; if no one opens it, retire and keep only the hub.</td>
+</tr>
+
+<tr>
+  <td><b>A/B Results</b><br><code>/followups/results</code></td>
+  <td>Templates-vs-AI scoreboard</td>
+  <td class="park">HIDE until data</td>
+  <td><b>Empty.</b> 0 sends per arm; needs ~30 sends + 15 positive replies <i>per arm</i> to say anything. Hide from the menu until there's real data so it stops reading as "broken."</td>
+</tr>
+
+<tr>
+  <td><b>Follow-ups tool</b><br><code>/followups</code></td>
+  <td>Per-lead suggested follow-ups (template + AI) to copy &amp; mark sent</td>
+  <td class="park">FIX or PARK</td>
+  <td>It's the only thing that drafts a per-lead email — but <b>0 have ever been marked sent</b> and generation stalled on <b>June 19</b>. It's not in Jam's actual workflow. Either wire it into where she works (Instantly send / sheet export) or park it; don't leave it half-alive.</td>
+</tr>
+
+<tr>
+  <td><b>Category bookings</b><br><code>/analytics/category-booking</code></td>
+  <td>Which categories/titles book calls</td>
+  <td class="keep">KEEP (unrelated)</td>
+  <td>This is <b>scraping</b> intel (feeds the submit form's industry priority), not a follow-up page. No overlap — leave as is.</td>
+</tr>
+</table>
+
+<h2>Before → after</h2>
+<p><b>Now (follow-ups):</b> Follow-ups tool <span class="arrow">·</span> Best replies <span class="arrow">·</span> Templates <span class="arrow">·</span> A/B Results <span class="arrow">·</span> Playbook &nbsp;=&nbsp; <b>5 pages</b></p>
+<p><b>Proposed:</b></p>
+<ul>
+  <li><b>Follow-ups (hub)</b> — winning patterns + a copy-ready real email + editable templates + folded-in by-stage best &amp; the FU1–FU5 sequence/timing. <i>One place to answer "what works and what do I send?"</i></li>
+  <li><b>Follow-ups tool</b> — kept only if we make it useful (send/export into Jam's workflow); otherwise parked.</li>
+  <li><b>Analytics (analyst deep-dive)</b> — kept if used; the detailed evidence behind the hub.</li>
+  <li><b>A/B Results</b> — hidden until there's data.</li>
+</ul>
+<p><b>5 follow-up pages → 1 clear hub</b> (+ an optional analyst view and a to-be-fixed tool).</p>
+
+<div class="box green">
+<b>What this buys us:</b> the useful content stops being spread across four lookalike pages; Jam has one obvious page for "what works + an email to copy." Nothing is lost — every insight moves into the hub.
+</div>
+
+<div class="box amber">
+<b>Please note — this is Victor/Reggie's call, not a silent cleanup.</b> Playbook, Best replies, and the A/B tool were each explicitly requested. Consolidating means walking those back into a single page. The <b>content is preserved</b>; only the extra pages retire. Nothing here will be changed or removed until you sign off.
+</div>
+
+<p class="sub" style="margin-top:22px">Evidence for the A/B calls (live, 2026-07-02): 46 experiments total, <b>0 ever marked sent</b>, all generated on a single day (June 19), 96 recent interest-replies with no suggestion generated, scoreboard 0/0 per arm.</p>
+
+</body>
+</html>

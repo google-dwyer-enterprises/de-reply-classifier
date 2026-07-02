@@ -23,6 +23,41 @@
   .done { color:#166534; font-weight:600; font-size:13.5px; }
   .muted { color:#8c959f; font-size:12.5px; }
   h2 { font-size:16px; margin:24px 0 4px; }
+  /* follow-up # + thread */
+  .exp-head { display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-bottom:9px; }
+  .fu-badge { background:#1d4ed8; color:#fff; font-weight:700; font-size:12.5px; border-radius:6px; padding:3px 11px; letter-spacing:.01em; }
+  .exp-lead { font-weight:600; font-size:13.5px; color:#1a1d23; }
+  .reply .who { color:#8c959f; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; margin-bottom:3px; }
+  .thread-wrap { margin:0 0 12px; }
+  .thread-wrap > summary { cursor:pointer; color:#2563eb; font-size:13px; font-weight:600; list-style:none; padding:6px 0; user-select:none; }
+  .thread-wrap > summary::-webkit-details-marker { display:none; }
+  .thread-wrap > summary::before { content:'▸ '; color:#94a3b8; }
+  .thread-wrap[open] > summary::before { content:'▾ '; }
+  /* vertical timeline */
+  .tl { position:relative; margin:10px 0 2px; padding-left:26px; }
+  .tl::before { content:''; position:absolute; left:6px; top:6px; bottom:12px; width:2px; background:#e5e7eb; }
+  .tl-item { position:relative; margin-bottom:15px; }
+  .tl-item:last-child { margin-bottom:0; }
+  .tl-dot { position:absolute; left:-26px; top:2px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 0 0 1px #cbd5e1; }
+  .tl-out .tl-dot { background:#1d4ed8; box-shadow:0 0 0 1px #1d4ed8; }
+  .tl-in  .tl-dot { background:#fff; box-shadow:0 0 0 2px #94a3b8; }
+  .tl-suggest .tl-dot { background:#f59e0b; box-shadow:0 0 0 1px #f59e0b; border-radius:3px; transform:rotate(45deg); }
+  .tl-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .tl-label { font-size:12px; font-weight:700; }
+  .tl-out .tl-label { color:#1d4ed8; }
+  .tl-in  .tl-label { color:#475569; }
+  .tl-suggest .tl-label { color:#b45309; }
+  .tl-date { color:#94a3b8; font-size:11px; }
+  .tl-subj { font-size:12px; font-weight:600; color:#374151; margin:2px 0 1px; }
+  .tl-body { font-size:12.5px; color:#4b5563; white-space:pre-wrap; line-height:1.55; margin-top:2px; }
+  .tl-toggle { border:0; background:none; color:#2563eb; cursor:pointer; font-size:12px; font-weight:600; padding:0 0 0 2px; }
+  .tl-toggle:hover { text-decoration:underline; }
+  .tl-suggest .tl-date { color:#b45309; font-weight:600; }
+  .vars-head { font-size:13px; color:#334155; margin:4px 0 4px; }
+  .vars-note { color:#8c959f; font-size:12px; margin:0 0 9px; }
+  .var-est { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .est { font-size:12px; font-weight:700; color:#166534; background:#d1fae5; border-radius:5px; padding:1px 8px; }
+  .star { font-size:11.5px; font-weight:700; color:#b45309; }
 </style>
 {% endblock %}
 {% block content %}
@@ -58,13 +93,55 @@ copy the one you like, send it in Instantly, then click <b>"I sent this"</b> so 
 {% if not pending %}<p class="muted">Nothing waiting in this window. Widen the days or pick another client.</p>{% endif %}
 {% for e in pending %}
   <div class="exp">
+    <div class="exp-head">
+      <span class="fu-badge">Follow-up #{{ e.next_followup_num }}</span>
+      <span class="exp-lead">{{ e.lead_email }}</span>
+      {% if e.client %}<span class="muted">· {{ e.client }}</span>{% endif %}
+      <span class="muted">· lead replied {{ e.reply_timestamp.strftime('%b %d') }}</span>
+    </div>
+
     <div class="reply">
-      <div class="who">{{ e.lead_email }}{% if e.client %} · {{ e.client }}{% endif %} · replied {{ e.reply_timestamp.strftime('%b %d') }}</div>
+      <div class="who">Their reply</div>
       {{ (e.body | humanize)[:400] }}{% if (e.body or '')|length > 400 %}…{% endif %}
     </div>
+
+    {% if e.thread and e.thread|length > 1 %}
+    <details class="thread-wrap">
+      <summary>Show full conversation ({{ e.thread|length }} message{{ '' if e.thread|length == 1 else 's' }})</summary>
+      <div class="tl">
+        {% for m in e.thread %}
+        <div class="tl-item tl-{{ m.dir }}">
+          <span class="tl-dot"></span>
+          <div class="tl-head"><span class="tl-label">{{ m.label }}</span><span class="tl-date">{{ m.date }}</span></div>
+          {% if m.subject %}<div class="tl-subj">{{ m.subject }}</div>{% endif %}
+          <div class="tl-body">
+            {%- if m.body|length > 320 -%}
+            <span class="tl-short">{{ m.body[:320] }}… <button type="button" class="tl-toggle" onclick="tlToggle(this)">Show more</button></span>
+            <span class="tl-full" hidden>{{ m.body }} <button type="button" class="tl-toggle" onclick="tlToggle(this)">Show less</button></span>
+            {%- else -%}
+            {{ m.body }}
+            {%- endif -%}
+          </div>
+        </div>
+        {% endfor %}
+        <div class="tl-item tl-suggest">
+          <span class="tl-dot"></span>
+          <div class="tl-head"><span class="tl-label">Follow-up #{{ e.next_followup_num }} (draft)</span><span class="tl-date">← your suggested reply, options below</span></div>
+        </div>
+      </div>
+      <p class="muted" style="margin:8px 2px 0">Conversation as we've synced it{% if e.thread_partial %} — we don't have an outbound message on file for this lead, so the number is a best guess{% else %} — an unsynced send could make the number approximate{% endif %}.</p>
+    </details>
+    {% endif %}
+
+    <div class="vars-head">This is your <b>{{ e.followup_ordinal }} follow-up</b>. Follow-ups at this stage get a reply <b>~{{ e.stage_rate }}%</b> of the time — pick one to send:</div>
+    <p class="vars-note">Estimated reply chance is a guide from past follow-ups with similar wording at this stage — not a guarantee (most replies come from already-warm leads).</p>
     <div class="vars">
       {% for v in e.variations %}
         <div class="var">
+          <div class="var-est">
+            <span class="est">~{{ v.est_chance }}% est. reply chance</span>
+            {% if v.star %}<span class="star">⭐ best match to what works</span>{% endif %}
+          </div>
           <pre>{{ v.text }}</pre>
           <div class="row">
             <button type="button" class="copy-btn">Copy</button>
@@ -92,7 +169,7 @@ copy the one you like, send it in Instantly, then click <b>"I sent this"</b> so 
 <h2>Sent ({{ sent|length }})</h2>
 {% for e in sent %}
   <div class="exp sent">
-    <div class="done">✓ Sent to {{ e.lead_email }}{% if e.client %} · {{ e.client }}{% endif %}</div>
+    <div class="done">✓ Sent Follow-up #{{ e.next_followup_num }} to {{ e.lead_email }}{% if e.client %} · {{ e.client }}{% endif %}</div>
     <pre style="white-space:pre-wrap;font-family:inherit;font-size:13.5px;margin:6px 0 0">{{ e.variations[e.chosen_variation_idx].text if e.chosen_variation_idx is not none and e.variations[e.chosen_variation_idx] else '' }}</pre>
   </div>
 {% endfor %}
@@ -109,5 +186,13 @@ document.querySelectorAll('.copy-btn').forEach(function (btn) {
     });
   });
 });
+// Expand / collapse a truncated timeline message.
+function tlToggle(btn) {
+  var b = btn.closest('.tl-body');
+  var short = b.querySelector('.tl-short'), full = b.querySelector('.tl-full');
+  var showFull = !short.hidden;
+  short.hidden = showFull;
+  full.hidden = !showFull;
+}
 </script>
 {% endblock %}

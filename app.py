@@ -616,10 +616,20 @@ def batch_mass_reject(token):
 @require_role("scraper")
 def followups_templates():
     import followup_templates_data as ft
+    # Winning generic structures (task #3) — best-effort so a data hiccup never
+    # blocks the template curation form below it.
+    patterns = None
+    try:
+        import followup_patterns_data as fp
+        patterns = fp.fetch_winning_patterns()
+    except Exception:
+        patterns = None
     return render_template(
         "followups_templates.html",
+        patterns=patterns,
+        # Prefill the form when arriving from a Best-reply's "Add as template".
+        prefill_body=(request.args.get("prefill") or "").strip() or None,
         templates=ft.fetch_all_templates(),
-        candidates=ft.fetch_candidates(),
         scenarios=ft.SCENARIOS,
         scenario_label=ft.SCENARIO_LABEL,
     )

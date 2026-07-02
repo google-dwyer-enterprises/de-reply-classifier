@@ -51,6 +51,62 @@ def _stage_label(pos: int) -> str:
     return f"Follow-up {pos}" if pos < LATER_FROM else "Later follow-ups (6+)"
 
 
+# Greeting openers that are almost always followed by the recipient's first name.
+# (?i:...) makes the greeting word case-insensitive ('Hi'/'Hey'/'Good morning')
+# while the captured name still requires a leading capital, so 'Hi there,' won't
+# false-match on the lowercase 'there'.
+_GREETING_RE = re.compile(
+    r"^\s*(?i:hi|hey|hello|dear|hiya|heya|good\s+(?:morning|afternoon|evening))\b[\s,]*"
+    r"([A-Z][A-Za-z'’\-]{1,})",
+)
+# Words that follow a greeting but aren't names ("Hi there,", "Hey team,").
+_NAME_STOPWORDS = {"there", "team", "all", "everyone", "folks", "guys", "again",
+                   "hope", "friend", "friends", "hi", "hey", "hello"}
+
+
+def _swap_word(text: str, word: str, placeholder: str, ci: bool = False) -> tuple[str, bool]:
+    """Whole-word replace (case-sensitive by default to avoid clobbering common
+    words that happen to be names, e.g. 'Will'/'Mark' used as verbs)."""
+    new = re.sub(rf"\b{re.escape(word)}\b", placeholder, text, flags=(re.I if ci else 0))
+    return new, (new != text)
+
+
+def _tokenize(text: str, first_name: str | None, last_name: str | None,
+              company: str | None) -> tuple[str, list[str]]:
+    """Swap the LEAD's own identifiers for template placeholders.
+
+    First name is caught two ways: (1) the stored lead name, and (2) — the big
+    one — the name in the opening greeting ('Hi Justin,' -> 'Hi {first_name},'),
+    which works even with no stored name. Last name and company are swapped when
+    present. Everything else — our brand, links, product specifics — is left for
+    the human. Returns (tokenized_text, list of what was swapped)."""
+    out, swapped = text, []
+
+    fnames: list[str] = []
+    if first_name and len(first_name.strip()) >= 2:
+        fnames.append(first_name.strip())
+    m = _GREETING_RE.match(out)
+    if m:
+        cand = m.group(1)
+        if cand.lower() not in _NAME_STOPWORDS and cand not in fnames:
+            fnames.append(cand)
+    for nm in fnames:
+        out, changed = _swap_word(out, nm, "{first_name}")
+        if changed and "first name" not in swapped:
+            swapped.append("first name")
+
+    if last_name and len(last_name.strip()) >= 2:
+        out, changed = _swap_word(out, last_name.strip(), "{last_name}")
+        if changed:
+            swapped.append("last name")
+
+    if company and len(company.strip()) >= 3:
+        out, changed = _swap_word(out, company.strip(), "{company}", ci=True)
+        if changed:
+            swapped.append("company")
+    return out, swapped
+
+
 def fetch_best_replies() -> dict:
     from followup_analytics import humanize_text  # reuse run-on/glyph repair
 
@@ -71,16 +127,23 @@ def fetch_best_replies() -> dict:
             """, {"later": LATER_FROM})
             rate_rows = [dict(r) for r in cur.fetchall()]
 
-            # Winning copy per stage (positive outcomes), best-first
+            # Winning copy per stage (positive outcomes), best-first. Join the
+            # lead's name/company so we can offer a tokenized "Add as template".
             cur.execute("""
-                select case when ffup_position >= %(later)s then %(later)s else ffup_position end as stage,
-                       followup_new_text, client, responded_booked, is_confirmed_winner, sent_timestamp
-                  from followup_message_features
-                 where extractor_version = 'fx1' and boundary_detected
-                   and responded_positive
-                   and coalesce(btrim(followup_new_text), '') <> ''
-                   and ffup_position >= 1
-                 order by stage, responded_booked desc, is_confirmed_winner desc, sent_timestamp desc
+                select case when f.ffup_position >= %(later)s then %(later)s else f.ffup_position end as stage,
+                       f.followup_new_text, f.client, f.responded_booked,
+                       f.is_confirmed_winner, f.sent_timestamp,
+                       coalesce(lc.first_name, l.first_name)                as first_name,
+                       coalesce(lc.last_name, l.last_name)                  as last_name,
+                       coalesce(lc.resolved_company_name, lc.company_name)  as company
+                  from followup_message_features f
+                  left join lead_contacts lc on lc.lead_email = f.lead_email
+                  left join leads l on l.lead_email = f.lead_email
+                 where f.extractor_version = 'fx1' and f.boundary_detected
+                   and f.responded_positive
+                   and coalesce(btrim(f.followup_new_text), '') <> ''
+                   and f.ffup_position >= 1
+                 order by stage, f.responded_booked desc, f.is_confirmed_winner desc, f.sent_timestamp desc
             """, {"later": LATER_FROM})
             win_rows = [dict(r) for r in cur.fetchall()]
     finally:
@@ -118,10 +181,13 @@ def fetch_best_replies() -> dict:
         if key in seen:
             continue
         seen.add(key)
+        disp = txt[:900]
+        tokenized, swapped = _tokenize(disp, w.get("first_name"), w.get("last_name"), w.get("company"))
         st["replies"].append({
-            "text": txt[:900], "client": w["client"],
+            "text": disp, "client": w["client"],
             "booked": w["responded_booked"],
             "rank": len(st["replies"]) + 1,
+            "tokenized": tokenized, "swapped": swapped,
         })
 
     # Order display: stages that actually have winning copy, by stage number.

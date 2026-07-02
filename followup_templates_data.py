@@ -147,47 +147,7 @@ def set_active(template_id: int, active: bool) -> None:
         conn.close()
 
 
-def fetch_candidates(limit: int = 12) -> list[dict]:
-    """Top-performing real follow-ups as template candidates (read-only).
-
-    Pulls cleanly-extracted manual follow-ups that earned a positive outcome,
-    best-first (booked, then confirmed winner, then recent), de-duplicated by a
-    normalized opening so near-identical bumps don't crowd the list.
-    """
-    conn = _conn()
-    try:
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            select followup_new_text, client, responded_booked, sent_timestamp
-              from followup_message_features
-             where extractor_version='fx1' and boundary_detected
-               and responded_positive
-               and coalesce(btrim(followup_new_text),'') <> ''
-             order by responded_booked desc, is_confirmed_winner desc,
-                      sent_timestamp desc
-            limit 200
-        """)
-        rows = cur.fetchall()
-    finally:
-        conn.close()
-
-    from followup_analytics import humanize_text  # lazy: reuse the run-on/glyph repair
-
-    seen: set[str] = set()
-    out: list[dict] = []
-    for r in rows:
-        txt = humanize_text((r["followup_new_text"] or "").replace("�", "").strip())
-        if len(txt) < 20:
-            continue
-        key = re.sub(r"[^a-z0-9]", "", txt.lower())[:60]
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append({
-            "text": txt[:800],
-            "client": r["client"],
-            "booked": r["responded_booked"],
-        })
-        if len(out) >= limit:
-            break
-    return out
+# NOTE: fetch_candidates() was removed — it duplicated the Best replies page
+# (same pool of top real follow-ups). Best replies is now the single place to
+# turn a real winning reply into a template (via its "Add as template" button,
+# which lands on this page with the lead's name already tokenized).
