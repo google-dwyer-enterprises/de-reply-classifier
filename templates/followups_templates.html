@@ -17,6 +17,20 @@
   .tpl-body { white-space:pre-wrap; font-family:inherit; font-size:14px; margin:8px 0; color:#1a1d23; }
   .tpl-actions { display:flex; gap:16px; }
   .muted { color:#8c959f; font-size:12.5px; }
+  .pat-wrap { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:16px 18px; margin:12px 0 22px; }
+  .pat-structure { font-size:15px; font-weight:700; color:#0f172a; margin:4px 0 10px; }
+  .pat-recipe { margin:0 0 12px; padding-left:18px; }
+  .pat-recipe li { font-size:13.5px; margin:5px 0; color:#1a1d23; }
+  .pat-recipe .d { color:#64748b; font-weight:400; font-size:12.5px; }
+  .pat-block { margin:8px 0; }
+  .pat-block .bl { font-size:12.5px; font-weight:700; color:#334155; margin-right:6px; }
+  .pat-chip { display:inline-block; border-radius:6px; padding:1px 8px; margin:2px 4px 2px 0; font-size:12px; background:#eef2ff; color:#3730a3; }
+  .pat-chip.best { background:#d1fae5; color:#166534; font-weight:700; }
+  .pat-chip.faint { background:#f1f5f9; color:#94a3b8; }
+  .conf { font-size:10.5px; font-weight:700; opacity:.8; }
+  .pat-example { background:#fff; border:1px solid #cbd5e1; border-radius:8px; padding:12px 14px; margin:6px 0 14px; }
+  .pat-ex-head { font-weight:700; font-size:13.5px; color:#0f172a; margin-bottom:6px; }
+  .pat-caveat { background:#fffbeb; border:1px solid #fde68a; color:#78350f; border-radius:8px; padding:10px 12px; font-size:12.5px; margin-top:12px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -32,6 +46,61 @@
   Write good wording once here and it's sent for every matching lead — no rewriting per lead.
 </div>
 
+{% if patterns and patterns.pos_all %}
+<h2 style="margin-top:8px">Winning follow-up patterns</h2>
+<p class="muted" style="margin:-2px 0 8px">What actually earns replies — as a generic <b>structure</b> to build on, not a fixed email. Drawn from {{ patterns.pos_all }} positive replies across {{ patterns.n_all }} follow-ups.</p>
+<div class="pat-wrap">
+  {% set picks = [] %}
+  {% for d in patterns.dims %}{% if d.best %}{% set _ = picks.append(d.best.label) %}{% endif %}{% endfor %}
+  {% if picks %}<div class="pat-structure">Suggested structure: {{ picks | join(' &nbsp;→&nbsp; ') | safe }}</div>{% endif %}
+
+  <ul class="pat-recipe">
+    {% for d in patterns.dims %}
+      <li><strong>{{ d.label }}:</strong>
+        {% if d.best %}{{ d.best.label }} <span class="d">— {{ d.best.rate }}% reply · {{ d.best.conf }} confidence.{% if d.best.desc %} {{ d.best.desc }}{% endif %}</span>
+        {% else %}<span class="d">not enough data yet</span>{% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+
+  {% if patterns.example %}
+  <div class="pat-example">
+    <div class="pat-ex-head">✅ Ready to use — a real follow-up in this structure
+      <span class="d">· matches {{ patterns.example.matched|length }}/{{ patterns.example.total }} blocks · earned a positive reply{% if patterns.example.booked %} &amp; booked a call{% endif %}</span>
+    </div>
+    <pre class="tpl-body" id="pat-ex-body">{{ patterns.example.text }}</pre>
+    <div class="tpl-actions">
+      <button type="button" class="link" onclick="copyPatExample(this)">Copy</button>
+      <button type="button" class="link" onclick='useCandidate({{ patterns.example.text|tojson }})'>Use as template →</button>
+    </div>
+    <p class="d" style="margin:6px 0 0">Copy it, swap in the lead's specifics, and send — edit freely, it's a starting point, not a script.</p>
+  </div>
+  {% endif %}
+
+  {% for d in patterns.dims %}
+    <div class="pat-block">
+      <span class="bl">{{ d.label }}</span>
+      {% for v in d['values'] %}
+        <span class="pat-chip {% if d.best and v.value == d.best.value %}best{% elif not v.actionable %}faint{% endif %}">{{ v.label }} {{ v.rate }}%{% if not v.actionable %} · reminder-bump{% endif %} <span class="conf">{{ v.conf }}</span></span>
+      {% endfor %}
+    </div>
+  {% endfor %}
+
+  <div class="pat-caveat">
+    <b>Read this as guidance, not a guarantee.</b> These are <b>associations</b> across all follow-ups, not proof a wording causes replies.
+    {% if not patterns.fresh_mature %}Most positive replies come from leads who'd <b>already shown interest</b> — on fresh/cold outreach we've seen only <b>{{ patterns.fresh.pos }} positive replies so far ({{ patterns.fresh.rate }}%)</b>, not yet enough to prescribe wording for cold leads. Best used for <b>warm follow-ups</b>; it sharpens as data grows.{% endif %}
+    Greyed "reminder-bump" options (no hook / no ask / no personalization) score high mostly because they're bumps to already-warm leads, so they're left out of the suggested structure.
+  </div>
+</div>
+{% endif %}
+
+<h2 id="tpl-form" style="margin-top:8px">Exact templates <span class="muted" style="font-weight:400">(feed the A/B test)</span></h2>
+<p class="muted" style="margin:-2px 0 10px">The saved wording the <a href="{{ url_for('followups_tool') }}">Follow-ups</a> tool sends as the Template option. Use the patterns above to shape these.</p>
+{% if prefill_body %}<div class="callout" style="background:#fffbeb;border-color:#fde68a">
+  <strong>Prefilled from a best reply.</strong> We swapped the lead's name (and company, where it appeared) for
+  <code>{first_name}</code>/<code>{company}</code>. <b>Review it</b> and generalize any remaining specifics — our
+  brand, links, product names — before saving.
+</div>{% endif %}
 <form method="post" action="{{ url_for('followups_templates_save') }}" class="tpl-form">
   <input type="hidden" name="template_id" id="f_id" value="">
   <div class="form-field">
@@ -44,7 +113,7 @@
   <div class="form-field"><label>Subject (optional)</label><input type="text" name="subject" id="f_subject"></div>
   <div class="form-field">
     <label>Body</label>
-    <textarea name="body" id="f_body" rows="6" required placeholder="Hi {first_name}, ..."></textarea>
+    <textarea name="body" id="f_body" rows="6" required placeholder="Hi {first_name}, ...">{{ prefill_body or '' }}</textarea>
     <p class="hint">Use <code>{first_name}</code> and <code>{company}</code> as placeholders.</p>
   </div>
   <button type="submit" class="btn">Save template</button>
@@ -76,17 +145,9 @@
   </div>
 {% endfor %}
 
-<h2 style="margin-top:28px">Suggested from your best replies</h2>
-<p class="lede">Top-performing real follow-ups (each got a positive reply). Click "Use as template" to
-prefill the form above, then edit and save.</p>
-{% if not candidates %}<p class="muted">No candidates yet — they appear once follow-up features have been extracted.</p>{% endif %}
-{% for c in candidates %}
-  <div class="cand-row">
-    <pre class="tpl-body">{{ c.text }}</pre>
-    <div class="muted">{{ c.client or 'unknown client' }}{% if c.booked %} · booked ✓{% endif %}
-      &nbsp;·&nbsp;<button type="button" class="link" onclick='useCandidate({{ c.text|tojson }})'>Use as template →</button></div>
-  </div>
-{% endfor %}
+<p class="muted" style="margin-top:24px">Want to start from a real winning reply? Browse them on the
+  <a href="{{ url_for('followups_best') }}">Best replies</a> page and hit <b>"Add as template →"</b> on any one —
+  it lands here with the lead's name already swapped for a placeholder.</p>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -109,5 +170,21 @@ function useCandidate(text) {
   document.getElementById('f_body').value = text;
   window.scrollTo(0, 0);
 }
+function copyPatExample(btn) {
+  var el = document.getElementById('pat-ex-body');
+  navigator.clipboard.writeText(el.innerText).then(function () {
+    var prev = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(function () { btn.textContent = prev; }, 1200);
+  });
+}
+// Arrived from a Best reply's "Add as template" — jump to the prefilled form.
+{% if prefill_body %}
+document.addEventListener('DOMContentLoaded', function () {
+  var f = document.getElementById('tpl-form');
+  if (f) f.scrollIntoView({behavior: 'smooth'});
+  document.getElementById('f_body').focus();
+});
+{% endif %}
 </script>
 {% endblock %}

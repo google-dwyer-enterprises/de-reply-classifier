@@ -88,19 +88,16 @@ def _lead_info(cur, lead_email: str) -> dict:
 # Variation generation
 # --------------------------------------------------------------------------- #
 def build_static_variations(scenario: str, lead: dict, templates_by_scenario: dict) -> list[dict]:
-    """Pick up to N curated templates for the scenario (fall back to any active),
-    token-filled. Returns [{idx, text, template_id}]."""
+    """Pick up to N curated templates for the scenario (fall back to any active).
+    Kept as placeholder templates ({first_name}/{last_name}/{company}) — NOT
+    filled with the real name — so the suggestion shows placeholders for the user
+    to fill. Returns [{idx, text, template_id}]."""
     pool = templates_by_scenario.get(scenario) or []
     if not pool:  # fall back to whatever's active so the static arm is never empty
         pool = [t for items in templates_by_scenario.values() for t in items]
     out = []
     for i, t in enumerate(pool[:N_VARS]):
-        out.append({
-            "idx": i,
-            "text": ft.fill_tokens(t["body"], first_name=lead.get("first_name"),
-                                   company=lead.get("company")),
-            "template_id": t["id"],
-        })
+        out.append({"idx": i, "text": t["body"], "template_id": t["id"]})
     return out
 
 
@@ -242,8 +239,154 @@ def ensure_experiments(client: str | None, since, cap: int = 20) -> int:
     return created
 
 
+def _attach_threads(cur, rows: list[dict]) -> None:
+    """Attach the full conversation thread + the follow-up number to each row so
+    Jam can see WHICH follow-up a suggestion is and the history behind it.
+
+    Thread = our outbound (sent_messages) + their inbound (replies), merged
+    chronologically per lead. Outbound is numbered: first = 'Initial email',
+    then 'Follow-up #1, #2…'. `next_followup_num` = the number the suggested
+    reply would carry. Best-effort and read-only — reflects only what we've
+    synced (an unsynced send can make the number approximate)."""
+    from followup_analytics import humanize_text  # run-on / glyph repair
+    emails = sorted({(r["lead_email"] or "").lower() for r in rows if r.get("lead_email")})
+    if not emails:
+        return
+    cur.execute("""
+        select lower(lead_email) as le, sent_timestamp as ts, 'out' as dir, subject, body
+          from sent_messages where lower(lead_email) = any(%s)
+        union all
+        select lower(lead_email) as le, reply_timestamp as ts, 'in' as dir, subject, body
+          from replies where lower(lead_email) = any(%s)
+        order by le, ts
+    """, (emails, emails))
+    by_email: dict[str, list] = {}
+    for m in cur.fetchall():
+        by_email.setdefault(m["le"], []).append(m)
+
+    for r in rows:
+        msgs = by_email.get((r["lead_email"] or "").lower(), [])
+        thread, out_i = [], 0
+        for m in msgs:
+            if m["dir"] == "out":
+                out_i += 1
+                label = "Initial email" if out_i == 1 else f"Follow-up #{out_i - 1}"
+            else:
+                label = "Lead replied"
+            thread.append({
+                "dir": m["dir"], "label": label,
+                "date": m["ts"].strftime("%b %d, %Y") if m["ts"] else "",
+                "subject": (m["subject"] or "").strip(),
+                "body": humanize_text((m["body"] or "").replace("�", "").strip())[:2000],
+            })
+        r["thread"] = thread
+        # next outbound = follow-up #out_i (initial isn't a follow-up); >=1 for display
+        r["next_followup_num"] = max(out_i, 1)
+        r["thread_partial"] = out_i == 0  # nothing outbound synced -> number is a guess
+
+
+import datetime as _dt
+_SCORE_TS = _dt.datetime(2026, 1, 1, 12, 0)  # only text features used; send timing ignored
+
+
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        suf = "th"
+    else:
+        suf = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf}"
+
+
+def _suggestion_score(text: str) -> float:
+    """Deterministic (zero-LLM) pattern-fit score — nudges the estimate by traits
+    that historically correlate with replies: a clear ask/booking link (the
+    winning 'direct CTA'), concise length, and a question. Transparent + cheap."""
+    from followup_features import deterministic_features
+    df = deterministic_features(text or "", _SCORE_TS)
+    s = 0.0
+    if df.get("has_calendar_link"):
+        s += 2.0                                                   # real booking link — strongest ask
+    elif re.search(r"\b(book|call|calendar|schedule|meet|chat|time)\b", text or "", re.I):
+        s += 1.0                                                   # at least a clear ask
+    lb = df.get("length_bucket")
+    if lb in ("short", "medium"):
+        s += 1.0                                                   # concise wins
+    elif lb == "long":
+        s -= 1.0
+    if df.get("has_question"):
+        s += 0.5                                                   # a question invites a reply
+    return s
+
+
+def _stage_rates(cur) -> tuple[dict, float]:
+    """Real positive-reply rate (%) per follow-up position, from history. Thin
+    positions (<20 sends) fall back to the overall rate so we don't show noise."""
+    cur.execute("""
+        select case when ffup_position >= 6 then 6 else ffup_position end as stage,
+               count(*) as sends,
+               count(*) filter (where responded_positive) as pos
+          from followup_message_features
+         where extractor_version = 'fx1' and boundary_detected and ffup_position >= 1
+         group by 1
+    """)
+    rows = cur.fetchall()
+    total_sends = sum(r["sends"] for r in rows) or 1
+    overall = 100.0 * sum(r["pos"] for r in rows) / total_sends
+    rates = {r["stage"]: (100.0 * r["pos"] / r["sends"]) if r["sends"] >= 20 else overall
+             for r in rows}
+    return rates, overall
+
+
+def _tokenize_variations(cur, rows: list[dict]) -> None:
+    """Replace the lead's real first/last name + company in every suggested reply
+    with {first_name}/{last_name}/{company} placeholders, so the user fills them
+    deliberately (never a wrong auto-filled name). Covers both arms and existing
+    rows; the static arm is also stored unfilled at generation as a backstop."""
+    from followup_best_replies_data import _tokenize
+    emails = sorted({(r["lead_email"] or "").lower() for r in rows if r.get("lead_email")})
+    if not emails:
+        return
+    cur.execute("""
+        select x.e as le,
+               coalesce(lc.first_name, l.first_name)               as first_name,
+               coalesce(lc.last_name,  l.last_name)                as last_name,
+               coalesce(lc.resolved_company_name, lc.company_name) as company
+          from unnest(%s::text[]) as x(e)
+          left join lead_contacts lc on lower(lc.lead_email) = x.e
+          left join leads l on lower(l.lead_email) = x.e
+    """, (emails,))
+    info = {r["le"]: r for r in cur.fetchall()}
+    for r in rows:
+        i = info.get((r["lead_email"] or "").lower()) or {}
+        for v in (r.get("variations") or []):
+            v["text"], _ = _tokenize(v.get("text", ""), i.get("first_name"),
+                                     i.get("last_name"), i.get("company"))
+
+
+def _attach_estimates(cur, rows: list[dict]) -> None:
+    """Attach a friendly follow-up ordinal, the real stage reply rate, and a
+    per-suggestion ESTIMATED reply chance (stage rate nudged by pattern-fit).
+    Estimate, not a promise — the UI says so."""
+    rates, overall = _stage_rates(cur)
+    for r in rows:
+        n = r.get("next_followup_num") or 1
+        base = rates.get(min(n, 6), overall)
+        r["followup_ordinal"] = _ordinal(n)
+        r["stage_rate"] = round(base)
+        variations = r.get("variations") or []
+        scores = [_suggestion_score(v.get("text", "")) for v in variations]
+        lo, hi = (min(scores), max(scores)) if scores else (0.0, 0.0)
+        rng = hi - lo
+        best_i = scores.index(hi) if scores else -1
+        for i, v in enumerate(variations):
+            norm = ((scores[i] - lo) / rng) if rng else 0.5       # 0..1 (0.5 if all equal)
+            v["est_chance"] = max(1, round(base * (0.8 + 0.4 * norm)))  # 0.8x..1.2x of base
+            v["star"] = (i == best_i)
+
+
 def fetch_for_view(client: str | None, since) -> list[dict]:
-    """Experiments to show on the tool (assigned/sent, newest first)."""
+    """Experiments to show on the tool (assigned/sent, newest first), each with
+    its conversation thread + follow-up number attached."""
     conn = connect()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -259,8 +402,12 @@ def fetch_for_view(client: str | None, since) -> list[dict]:
                and r.reply_timestamp >= %s {clause}
              order by e.status asc, r.reply_timestamp desc
         """, params)
-        return [dict(r) for r in cur.fetchall()
+        rows = [dict(r) for r in cur.fetchall()
                 if not config.is_excluded_sender(r["lead_email"])]
+        _attach_threads(cur, rows)
+        _tokenize_variations(cur, rows)
+        _attach_estimates(cur, rows)
+        return rows
     finally:
         conn.close()
 

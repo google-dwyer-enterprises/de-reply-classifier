@@ -76,9 +76,11 @@ and swap in the lead's details.</p>
     <span class="rank">#{{ r.rank }}</span>
     {% if r.booked %}<span class="badge-booked">Booked a call</span>{% else %}<span class="badge-pos">Got a reply</span>{% endif %}
     <button class="copy-btn" type="button">Copy</button>
+    <a class="copy-btn" style="text-decoration:none;display:inline-block" href="{{ url_for('followups_templates', prefill=r.tokenized) }}">Add as template →</a>
     <span class="rep-client">{{ r.client or '—' }}</span>
   </div>
   <pre>{{ r.text }}</pre>
+  {% if r.swapped %}<p class="muted" style="margin:6px 0 0">Adds with the lead's {{ r.swapped|join(' & ') }} turned into a placeholder — you'll review before saving.</p>{% endif %}
 </div>
 {% endfor %}
 {% else %}
@@ -97,7 +99,7 @@ and swap in the lead's details.</p>
 {% endblock %}
 {% block scripts %}
 <script>
-document.querySelectorAll('.copy-btn').forEach(function (btn) {
+document.querySelectorAll('button.copy-btn').forEach(function (btn) {
   btn.addEventListener('click', function () {
     var txt = btn.closest('.rep').querySelector('pre').innerText;
     navigator.clipboard.writeText(txt).then(function () {
