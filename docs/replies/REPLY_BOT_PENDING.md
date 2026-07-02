@@ -62,14 +62,15 @@ comparison so it can't muddy the figures. First **measure actual monthly searche
 
 Clean win to still act on: **company resolution → GPT-5.4 nano** (more accurate than Haiku + ~7× cheaper).
 
-### Railway cron / scheduling — ⏸ now UNBLOCKED, awaiting user's scheduling decision
-The cost comparison is done, so the provider/cadence inputs exist. Two items to schedule when ready:
-1. **Free daily analytics refresh** — chain `python run.py refresh-followup-patterns` after the existing
-   daily `run.py refresh` cron (`railway.json` `startCommand`) so the `/analytics` dashboard self-updates.
-   No LLM cost (deterministic extract + view rebuild + HTML regen). The one-line change was prepared in
-   PR #34 and **closed at the user's request** to plan scheduling holistically; re-apply when ready.
-2. **Paid `llm-followup-features` re-tagging** — periodically tag NEW follow-ups (provider-dependent cost);
-   cadence + provider decided by the cost comparison.
+### Railway cron / scheduling
+1. **Free daily analytics refresh — ✅ SHIPPED (2026-07-01 verified).** `railway.json` cron `startCommand`
+   chains `run.py refresh-followup-patterns` (commit `2f0354f`) + `attribute-followup-experiments`
+   (`34a6a78`) after the daily `run.py refresh`, so `/analytics` + the A/B scoreboard self-update daily at
+   9 AM, zero LLM cost. Committed to `origin/main` **and** `neworigin/main` (migrated google@); deployed via
+   the migration's `latestCommit:true`. (The earlier "closed PR #34, re-apply when ready" note is obsolete —
+   it landed directly on main on 2026-06-18.)
+2. **Paid `llm-followup-features` re-tagging — ⏸ still manual.** Periodically tag NEW follow-ups
+   (provider-dependent cost); cadence + provider decided by the cost comparison.
 (Note: the daily `run.py refresh` — sync → classify → update-status — already runs and already classifies
 new replies on Haiku; only the two items above are unscheduled.)
 
