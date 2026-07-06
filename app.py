@@ -80,6 +80,7 @@ def _build_users() -> dict[str, tuple[str, str]]:
     for env_user, env_pass, role in (
         ("LEAD_REVIEWER_USERNAME", "LEAD_REVIEWER_PASSWORD", "scraper"),
         ("ANALYST_USERNAME", "ANALYST_PASSWORD", "analyst"),
+        ("ADMIN_USERNAME", "ADMIN_PASSWORD", "admin"),
     ):
         u = (os.environ.get(env_user) or "").strip()
         p = (os.environ.get(env_pass) or "").strip()
@@ -90,7 +91,7 @@ def _build_users() -> dict[str, tuple[str, str]]:
 
 
 USERS = _build_users()
-LANDING = {"scraper": "batches", "analyst": "analytics"}
+LANDING = {"scraper": "batches", "analyst": "analytics", "admin": "admin_panel"}
 
 app = Flask(__name__)
 app.secret_key = (os.environ.get("SECRET_KEY") or "").strip()
@@ -125,6 +126,20 @@ def require_role(*roles):
             return fn(*args, **kwargs)
         return wrapper
     return deco
+
+
+def require_admin(fn):
+    """Admin-only — unlike require_role (unified), this ACTUALLY restricts to the
+    'admin' role. A logged-in scraper/analyst hitting an admin route gets 403."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get("role") or not app.secret_key:
+            return redirect(url_for("login", next=request.path))
+        if session.get("role") != "admin":
+            return render_template("login.html",
+                                   error="Admin access only."), 403
+        return fn(*args, **kwargs)
+    return wrapper
 
 
 @app.context_processor
@@ -343,6 +358,28 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.route("/admin")
+@require_admin
+def admin_panel():
+    import api_events
+    hours = _parse_int_or_none(request.args.get("hours"), 1, 720) or 24
+    # The health page must never itself 500 on a DB blip — degrade to an
+    # error banner + empty data instead.
+    db_error = None
+    summary = {"by_pk": [], "by_kind": {}, "total": 0, "hours": hours}
+    recent, credit_state = [], []
+    try:
+        summary = api_events.summary(hours=hours)
+        recent = api_events.recent(limit=150)
+        credit_state = api_events.credit_alert_state()
+    except Exception as e:
+        db_error = str(e)[:300]
+    return render_template(
+        "admin.html", summary=summary, recent=recent, credit_state=credit_state,
+        hours=hours, kinds=api_events.KINDS, db_error=db_error,
+    )
 
 
 @app.route("/analytics")

@@ -78,16 +78,27 @@ def _rainforest_raw(search_term: str) -> dict | None:
         data = r.json()
         info = data.get("request_info") or {}
         if not info.get("success", True):
-            # suspended / bad key / quota -> fail safe, never a fake verdict. Also
-            # fire a throttled renew-reminder email if it's a credit problem.
+            # suspended / bad key / quota -> fail safe, never a fake verdict. Log it
+            # to the admin feed + fire a throttled renew-reminder if it's credit.
+            msg = str(info.get("message") or "")
+            try:
+                import api_events
+                api_events.record_error("Rainforest", r.status_code, msg, context="rainforest_search")
+            except Exception:
+                pass
             try:
                 import credit_alerts
-                credit_alerts.maybe_alert("Rainforest", str(info.get("message") or ""))
+                credit_alerts.maybe_alert("Rainforest", msg)
             except Exception:
                 pass
             return None
         return data
-    except Exception:
+    except Exception as e:
+        try:
+            import api_events
+            api_events.record_error("Rainforest", None, str(e), context="rainforest_search")
+        except Exception:
+            pass
         return None
 
 

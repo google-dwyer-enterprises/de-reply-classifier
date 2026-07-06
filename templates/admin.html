@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Admin · API health · Dwyer Console{% endblock %}
+{% block head %}
+<style>
+  .adm-tiles { display:flex; gap:12px; flex-wrap:wrap; margin:14px 0 8px; }
+  .adm-tile { border:1px solid #e1e4e8; border-radius:10px; padding:12px 16px; min-width:120px; }
+  .adm-tile .n { font-size:24px; font-weight:800; letter-spacing:-.02em; }
+  .adm-tile .k { color:#6b7280; font-size:12px; margin-top:2px; text-transform:uppercase; letter-spacing:.03em; }
+  .adm-tile.zero .n { color:#9ca3af; }
+  .win { margin:6px 0 4px; }
+  .win a { display:inline-block; padding:3px 11px; border:1px solid #d0d7de; border-radius:6px; margin-right:6px; font-size:12.5px; color:#374151; text-decoration:none; }
+  .win a.on { background:#1d4ed8; color:#fff; border-color:#1d4ed8; }
+  table { border-collapse:collapse; width:100%; font-size:13px; margin:8px 0; }
+  th,td { border:1px solid #e5e7eb; padding:6px 9px; text-align:left; vertical-align:top; }
+  th { background:#f8fafc; }
+  .kind { font-weight:700; font-size:11.5px; border-radius:5px; padding:1px 7px; white-space:nowrap; }
+  .k-rate_limit{background:#fef3c7;color:#92400e} .k-timeout{background:#e0f2fe;color:#075985}
+  .k-overloaded{background:#ede9fe;color:#5b21b6} .k-server_error{background:#fee2e2;color:#991b1b}
+  .k-credit_exhausted{background:#7f1d1d;color:#fff} .k-auth{background:#fee2e2;color:#991b1b}
+  .k-other{background:#f1f5f9;color:#475569}
+  .muted{color:#8c959f;font-size:12.5px} .detail{color:#4b5563;font-size:12px;white-space:pre-wrap;max-width:520px}
+  h2{font-size:16px;margin:22px 0 6px}
+</style>
+{% endblock %}
+{% block content %}
+<h1>Admin — API health</h1>
+<p class="lede">Every rate-limit, timeout, overload, server error, auth failure, and credit-exhaustion from an external API (Anthropic, Rainforest, …) is logged here so problems surface instead of silently breaking the pipeline.</p>
+{% if db_error %}<div class="alert alert-error" style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:10px 12px;margin:10px 0;">Couldn't load the event log (database unreachable): {{ db_error }}. Try again in a moment.</div>{% endif %}
+
+<div class="win">Window:
+  {% for h, lbl in [(24,'24 hours'),(168,'7 days'),(720,'30 days')] %}
+    <a href="{{ url_for('admin_panel', hours=h) }}" class="{{ 'on' if hours == h }}">{{ lbl }}</a>
+  {% endfor %}
+</div>
+
+<div class="adm-tiles">
+  <div class="adm-tile {{ 'zero' if not summary.total }}"><div class="n">{{ summary.total }}</div><div class="k">total (last {{ hours }}h)</div></div>
+  {% for k in kinds %}
+    {% set c = summary.by_kind.get(k, 0) %}
+    <div class="adm-tile {{ 'zero' if not c }}"><div class="n">{{ c }}</div><div class="k">{{ k.replace('_',' ') }}</div></div>
+  {% endfor %}
+</div>
+
+<h2>By provider &amp; problem</h2>
+{% if summary.by_pk %}
+<table>
+  <tr><th>Provider</th><th>Problem</th><th>Count</th><th>Last seen (UTC)</th></tr>
+  {% for r in summary.by_pk %}
+  <tr>
+    <td><strong>{{ r.provider }}</strong></td>
+    <td><span class="kind k-{{ r.kind }}">{{ r.kind.replace('_',' ') }}</span></td>
+    <td>{{ r.n }}</td>
+    <td class="muted">{{ r.last_ts.strftime('%b %d, %H:%M') if r.last_ts else '—' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No API problems in this window — all clear. ✅</p>
+{% endif %}
+
+<h2>Credit-alert reminders sent</h2>
+{% if credit_state %}
+<table>
+  <tr><th>Provider</th><th>Last renew-reminder emailed (UTC)</th></tr>
+  {% for r in credit_state %}
+  <tr><td><strong>{{ r.provider }}</strong></td><td class="muted">{{ r.last_sent_at.strftime('%b %d, %H:%M') if r.last_sent_at else '—' }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No credit-exhaustion reminders sent yet.</p>
+{% endif %}
+
+<h2>Recent events ({{ recent|length }})</h2>
+{% if recent %}
+<table>
+  <tr><th>When (UTC)</th><th>Provider</th><th>Problem</th><th>HTTP</th><th>Where</th><th>Detail</th></tr>
+  {% for e in recent %}
+  <tr>
+    <td class="muted" style="white-space:nowrap">{{ e.ts.strftime('%b %d %H:%M:%S') if e.ts else '—' }}</td>
+    <td>{{ e.provider }}</td>
+    <td><span class="kind k-{{ e.kind }}">{{ e.kind.replace('_',' ') }}</span></td>
+    <td class="muted">{{ e.status_code or '—' }}</td>
+    <td class="muted">{{ e.context or '—' }}</td>
+    <td class="detail">{{ (e.detail or '')[:240] }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No events recorded yet.</p>
+{% endif %}
+{% endblock %}

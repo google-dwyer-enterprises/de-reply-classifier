@@ -356,6 +356,13 @@ def call_haiku(anthropic_client, system_prompt: str, user_message: str, model: s
             return resp.content[0].text
         except Exception as e:
             status = getattr(e, "status_code", None)
+            # Log the failure to the admin panel's event feed (rate_limit /
+            # overloaded / timeout / server_error / auth / credit_exhausted).
+            try:
+                import api_events
+                api_events.record_error("Anthropic", status, str(e), context="call_haiku")
+            except Exception:
+                pass
             if status == 429 or (status is not None and 500 <= status < 600):
                 sleep_s = (2 ** attempt) + random.random()
                 print(f"  API {status}; backoff {sleep_s:.1f}s (attempt {attempt + 1}/{MAX_RETRIES})")
