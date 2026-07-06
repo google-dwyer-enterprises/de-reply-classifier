@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "python run.py refresh && python run.py refresh-followup-patterns && python run.py generate-followup-experiments && python run.py attribute-followup-experiments",
+    "startCommand": "python run.py backfill-tags ; python run.py refresh && python run.py refresh-followup-patterns && python run.py generate-followup-experiments && python run.py attribute-followup-experiments ; python run.py resolve-companies ; python run.py llm-followup-features --yes",
     "restartPolicyType": "NEVER",
     "cronSchedule": "0 9 * * *"
   }

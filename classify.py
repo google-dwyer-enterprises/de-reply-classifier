@@ -361,6 +361,14 @@ def call_haiku(anthropic_client, system_prompt: str, user_message: str, model: s
                 print(f"  API {status}; backoff {sleep_s:.1f}s (attempt {attempt + 1}/{MAX_RETRIES})")
                 time.sleep(sleep_s)
                 continue
+            # Out-of-credit / billing rejection (e.g. "credit balance is too low"):
+            # email a renew reminder before bubbling up, so a dead key doesn't just
+            # silently break the cron. Best-effort, throttled, never masks the error.
+            try:
+                import credit_alerts
+                credit_alerts.maybe_alert("Anthropic", str(e))
+            except Exception:
+                pass
             raise
     raise RuntimeError(f"exhausted {MAX_RETRIES} retries on Anthropic API")
 

@@ -76,8 +76,16 @@ def _rainforest_raw(search_term: str) -> dict | None:
             "search_term": search_term,
         }, timeout=60)
         data = r.json()
-        if not (data.get("request_info") or {}).get("success", True):
-            return None   # suspended / bad key / quota -> fail safe, never a fake verdict
+        info = data.get("request_info") or {}
+        if not info.get("success", True):
+            # suspended / bad key / quota -> fail safe, never a fake verdict. Also
+            # fire a throttled renew-reminder email if it's a credit problem.
+            try:
+                import credit_alerts
+                credit_alerts.maybe_alert("Rainforest", str(info.get("message") or ""))
+            except Exception:
+                pass
+            return None
         return data
     except Exception:
         return None
