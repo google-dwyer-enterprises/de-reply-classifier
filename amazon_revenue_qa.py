@@ -20,14 +20,15 @@ CASCADE (per company) — SmartScout first, Rainforest fallback (2026-07-02 meet
        SmartScout estimate:  >= GREY_HIGH -> KEEP · < GREY_LOW -> DROP ·
                              grey band -> Rainforest confirm.
        Rainforest floor:     0 branded listings -> DROP (not on Amazon) ·
-                             floor >= $500k -> KEEP ·
+                             floor >= floor line -> KEEP ·
                              established (>= MIN_LISTINGS listings and
                              >= RATINGS_ESTABLISHED ratings) but floor below
                              -> REVIEW (floor under-counts; human decides) ·
                              else -> DROP (small presence).
        API failure -> REVIEW. Nothing is ever silently dropped on an error.
 
-Floor = $500k/yr (2026-06-24 meeting). All thresholds configurable below.
+Floor = $300k/yr (Jam 2026-07-07; was $500k from the 2026-06-24 meeting).
+All thresholds configurable below.
 (Helium 10 UI automation was evaluated and shelved — ToS risk; see
 HELIUM10_FEASIBILITY_RESEARCH.md. helium10_revenue.py remains unused.)
 """
@@ -42,9 +43,11 @@ from amazon_presence import rainforest_score
 from db import connect
 from smartscout_upload import normalize_brand
 
-REVENUE_FLOOR_ANNUAL = 500_000      # the keep/drop line
-GREY_LOW = 300_000                  # below -> clear drop (SmartScout trusted)
-GREY_HIGH = 700_000                 # above -> clear keep (SmartScout trusted)
+REVENUE_FLOOR_ANNUAL = 300_000      # the keep/drop line (Jam 2026-07-07: lowered
+                                    # from $500k to $300k "to be safe" — keep a
+                                    # wider net; verdicts are advisory in shadow)
+GREY_LOW = 200_000                  # below -> clear drop (SmartScout trusted)
+GREY_HIGH = 500_000                 # above -> clear keep (SmartScout trusted)
 #  GREY_LOW..GREY_HIGH = escalate to Rainforest (accuracy matters near the line)
 MIN_LISTINGS_ESTABLISHED = 2        # listings needed to call a below-floor brand "established"
 RATINGS_ESTABLISHED = 1_000         # cumulative ratings needed for the same

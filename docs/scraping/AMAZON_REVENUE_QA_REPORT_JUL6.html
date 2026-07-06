@@ -30,19 +30,19 @@
 <body>
 
 <h1>Amazon Revenue QA Bot — Report</h1>
-<p class="sub">July 6 deliverable · built, tested &amp; verified July 1–4 · Hassan</p>
+<p class="sub">July 6 deliverable · built, tested &amp; verified July 1–4 · updated Jul 7 (floor lowered to $300k) · Hassan</p>
 
 <div class="box green">
 <b>TL;DR — the bot works and it's already proven on your real leads.</b> It checks both things you asked for
-(<b>① are they on Amazon</b> · <b>② do they make ≥ $500k/yr</b>), with <b>no CAPTCHA problems</b> and at
-<b>~1/18th the cost</b> of the Helium 10 API. Run against half of the last purchased batch:
-<b>78% of those leads are out of ICP</b> — your "garbage leads" estimate was right, and now it's measured per lead.
+(<b>① are they on Amazon</b> · <b>② do they make ≥ $300k/yr</b>), with <b>no CAPTCHA problems</b> and at
+<b>~1/18th the cost</b> of the Helium 10 API. Run against the last purchased batch:
+<b>~67% of the checked leads are out of ICP</b> — your "garbage leads" estimate was right, and now it's measured per lead.
 </div>
 
 <h2>What it does — your spec, as built</h2>
 <ul>
   <li><b>Check 1 — On Amazon?</b> Searches Amazon for the brand and counts listings that genuinely belong to it (strict matching — "Blue Apple Co." never gets credited with Apple's products).</li>
-  <li><b>Check 2 — Revenue ≥ $500k/yr?</b> Exactly the method you described in the meeting: add up per-listing sales — using Amazon's own <i>"bought in past month"</i> labels × price. It <b>under-counts by design</b>, so when the bot says KEEP, that revenue is real.</li>
+  <li><b>Check 2 — Revenue ≥ $300k/yr?</b> Exactly the method you described in the meeting: add up per-listing sales — using Amazon's own <i>"bought in past month"</i> labels × price. It <b>under-counts by design</b>, so when the bot says KEEP, that revenue is real. <i>(Threshold lowered from $500k to $300k on Jul 7 per Jam.)</i></li>
   <li><b>Verdicts:</b> <span class="ok">KEEP</span> (in ICP) · <span class="bad">DROP</span> (not on Amazon / too small) · <span class="warn">REVIEW</span> (a small human queue — never silently dropped).</li>
   <li><b>The "weird names" problem you predicted</b> ("Anchor" vs "Anchor Electronics Inc") is handled: the bot detects Amazon's own spelling of the brand and re-searches with it. This recovered <b>Scotts Protein Balls ($44M)</b> and <b>Dae Hair ($18M)</b> that a simpler bot would have wrongly dropped.</li>
 </ul>
@@ -56,13 +56,15 @@
 <tr><td>The old CAPTCHA problem that killed the previous attempt</td><td class="ok">Gone — the data provider (Rainforest API) handles Amazon access with US IPs</td></tr>
 </table>
 
-<h2>Applied to your real, already-purchased leads (batch #44, first half)</h2>
+<h2>Applied to your real, already-purchased leads (batch #44, re-scored at $300k)</h2>
 <div class="tiles">
-  <div class="tile green"><div class="n">90</div><div class="k">leads KEEP — confirmed ≥$500k Amazon brands</div></div>
-  <div class="tile red"><div class="n">382</div><div class="k">leads DROP — out of ICP (78% of decided)</div></div>
-  <div class="tile"><div class="n">25</div><div class="k">leads REVIEW — quick human look</div></div>
-  <div class="tile"><div class="n">$41.50</div><div class="k">total cost of this analysis</div></div>
+  <div class="tile green"><div class="n">177</div><div class="k">leads KEEP — confirmed ≥$300k Amazon brands</div></div>
+  <div class="tile red"><div class="n">472</div><div class="k">leads DROP — out of ICP (~67% of checked)</div></div>
+  <div class="tile"><div class="n">53</div><div class="k">leads REVIEW — quick human look</div></div>
+  <div class="tile"><div class="n">350</div><div class="k">leads not checked yet — need credits</div></div>
+  <div class="tile"><div class="n">$41.50</div><div class="k">total cost so far</div></div>
 </div>
+<p class="sub">Lowering the floor $500k→$300k roughly <b>doubled the keepers (90 → 177 leads)</b>. Re-scoring cost <b>$0</b> — every revenue figure was already cached. The 350 un-checked leads need a credit top-up to finish (see below).</p>
 <p><b>Biggest confirmed keeps:</b> Grande Cosmetics <b>$50.9M</b> · Scotts Protein Balls <b>$44.2M</b> ·
 Beauty by Earth <b>$35.7M</b> · The Mayfair Group <b>$35.4M</b> · ForestLeaf <b>$22.5M</b> · Waggin <b>$20.1M</b> · Dae Hair <b>$18.1M</b>.</p>
 <p>Every checked lead now shows its verdict + revenue + reason as columns Jam can see in her review screen. The second half of the batch runs when credits reset (results are cached — nothing is ever paid for twice).</p>

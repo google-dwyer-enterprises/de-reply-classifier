@@ -32,7 +32,7 @@
 <p><b>One Rainforest search call (1 credit) performs BOTH checks at once:</b></p>
 <ul>
   <li><b>On-Amazon check</b> — count listings whose brand/title match the company (strict + space-insensitive). 0 branded listings → <b>DROP</b> (not an Amazon brand).</li>
-  <li><b>$500k revenue check</b> — a <b>revenue floor</b>: Amazon's own "bought in past month" labels × price × 12 across branded listings. Floor ≥ $500k → <b>KEEP</b>. It <i>under-counts by construction</i> (only labeled listings count), so a KEEP is never a false positive.</li>
+  <li><b>$300k revenue check</b> — a <b>revenue floor</b>: Amazon's own "bought in past month" labels × price × 12 across branded listings. Floor ≥ $300k → <b>KEEP</b> <i>(floor lowered from $500k to $300k on 2026-07-07 per Jam; grey band $200k–$500k)</i>. It <i>under-counts by construction</i> (only labeled listings count), so a KEEP is never a false positive.</li>
   <li>Established brand (≥2 listings, ≥1,000 cumulative ratings) but floor below the line → <b>REVIEW</b> (a human decides; the floor may just be under-reading). Small presence → <b>DROP</b>. API failure → <b>REVIEW</b>, never a silent verdict.</li>
 </ul>
 
@@ -75,7 +75,7 @@ The first live check ran as <b>"Deliver to Pakistan"</b> and showed only 4 brand
 <h2>Measured percentages (n=12 — directional, mid-scale run will firm up)</h2>
 <ul>
   <li><b>On Amazon:</b> 3/12 of SmartScout-misses (25%) — consistent with the earlier 35-lead measurement (~14–23%). <b>Most misses genuinely aren't Amazon brands</b> — the filter is doing its job.</li>
-  <li><b>Revenue label present:</b> 2/3 of on-Amazon brands had ≥1 "bought" label → the $500k floor check is <i>measurable</i> for roughly two-thirds of on-Amazon brands; the rest fall to the ratings-based REVIEW/DROP logic.</li>
+  <li><b>Revenue label present:</b> 2/3 of on-Amazon brands had ≥1 "bought" label → the revenue-floor check is <i>measurable</i> for roughly two-thirds of on-Amazon brands; the rest fall to the ratings-based REVIEW/DROP logic.</li>
   <li><b>Floor decisive (KEEP):</b> 1/3 of on-Amazon.</li>
   <li><b>Sampling lesson:</b> alphabetical selection surfaced junk company names ("--", "???usa…"); they correctly DROP, but honest percentages need <b>random sampling</b> — adopted for the mid-scale run.</li>
 </ul>
@@ -153,7 +153,7 @@ The first live check ran as <b>"Deliver to Pakistan"</b> and showed only 4 brand
 </table>
 
 <h2>Addendum (2026-07-04) — retro-QA of batch #44, first half: DONE</h2>
-<p>The verdict columns were stamped onto the EXISTING accepted leads of batch #44 (already-purchased inventory), so sub-ICP leads can be purged before campaigns. First half = 359 of 717 unique companies (deterministic md5 split), hard 250-credit cap.</p>
+<p>The verdict columns were stamped onto the EXISTING accepted leads of batch #44 (already-purchased inventory), so sub-ICP leads can be purged before campaigns. First half = 359 of 717 unique companies (deterministic md5 split), hard 250-credit cap. <b>Note: these figures were scored at the original $500k floor</b> — see the 2026-07-07 re-score below for the current $300k numbers.</p>
 <table>
 <tr><th>Verdict</th><th>Companies</th><th>Leads</th><th>Share (decided)</th></tr>
 <tr><td class="ok">KEEP (in ICP — on Amazon, ≥$500k/yr)</td><td>52</td><td>90</td><td>15.5%</td></tr>
@@ -166,6 +166,24 @@ The first live check ran as <b>"Deliver to Pakistan"</b> and showed only 4 brand
   <li><b>The canonical-name re-query is earning its keep on KEEPs:</b> Scotts Protein Balls ($44.2M) and Dae Hair ($18.1M) were both recovered via <code>rainforest_requery</code> — they'd have been false DROPs before the fix.</li>
   <li><b>Top KEEPs:</b> Grande Cosmetics $50.9M · Scotts Protein Balls $44.2M · Beauty by Earth $35.7M · The Mayfair Group $35.4M · ForestLeaf $22.5M · Cata-Kor $22.1M · Waggin $20.1M · Dae Hair $18.1M.</li>
   <li><b>Credits:</b> 250 spent (cap honored exactly); ≈185 remain on the plan. The second half (358 companies + the 24 pending) needs ~250 more → after the monthly reset or a plan upgrade. Everything decided is cached — nothing gets re-spent.</li>
+</ul>
+
+<h2>Addendum (2026-07-07) — floor lowered to $300k, batch #44 re-scored (free)</h2>
+<p>Jam asked to keep a wider net — the floor was lowered <b>$500k → $300k</b> (grey band
+$200k–$500k). The batch was re-scored using <b>only cached revenue (0 new credits)</b>;
+companies still needing a live Rainforest lookup were left unchecked (they need the
+credit top-up). Verdicts are advisory (shadow mode) — this just relabels.</p>
+<table>
+<tr><th>Verdict @ $300k</th><th>Companies</th><th>Leads</th></tr>
+<tr><td class="ok">KEEP (on Amazon, ≥$300k/yr)</td><td>106</td><td>177</td></tr>
+<tr><td>REVIEW (human decides)</td><td>35</td><td>53</td></tr>
+<tr><td>DROP (out of ICP)</td><td>328</td><td>472</td></tr>
+<tr><td>NOT CHECKED (needs credits)</td><td>248</td><td>350</td></tr>
+</table>
+<ul>
+  <li>Lowering the floor roughly <b>doubled the keepers: 90 → 177 leads</b>; ~67% of the 702 checked leads are still out-of-ICP (the garbage layer).</li>
+  <li>Re-score cost <b>$0</b> — all figures came from cache/SmartScout (budget forced to 0).</li>
+  <li><b>248 companies / 350 leads remain unchecked</b> — finishing needs ~250 Rainforest credits (≈185 left) → credit top-up / tier upgrade.</li>
 </ul>
 
 <h2>Rainforest credit ledger</h2>
@@ -186,6 +204,7 @@ after every run that spends credits.</b></p>
 <tr><td>Jul 4</td><td>Live shadow pipeline batch (100-lead target)</td><td>9</td><td>~451</td><td>8/8 page-verified</td></tr>
 <tr><td>Jul 4</td><td>Retro-QA of batch #44 — first half (359 companies)</td><td>250</td><td>~201</td><td>hit the 250-credit cap; 24 companies left PENDING</td></tr>
 <tr><td>Jul 4</td><td>Misc re-verification</td><td>~16</td><td><b>≈185</b></td><td>running total; confirm on dashboard</td></tr>
+<tr><td>Jul 7</td><td>Re-score batch #44 at the new $300k floor</td><td>0</td><td>≈185</td><td>cache/SmartScout only — no new credits</td></tr>
 </table>
 <div class="box amber">
 <b>Outstanding demand:</b> the retro-QA second half (358 companies + the 24 PENDING)
@@ -198,7 +217,7 @@ is the human-readable ledger on top of that.
 </div>
 
 <div class="box green">
-<b>Bottom line:</b> both checks (on-Amazon + $500k floor) are implemented, tested (37 offline tests), <b>independently verified against the live Amazon page in both directions</b>, hardened by two verification-caught fixes (canonical-name re-query, SmartScout precedence), <b>validated inside the real pipeline</b> (live shadow batch, Playwright-verified 8/8), and <b>applied retroactively to half of batch #44</b> (78% of decided companies out-of-ICP — the garbage layer quantified). Remaining: second half of the retro-QA (post credit reset), the ENFORCE flip decision, and commit/deploy of the wiring.
+<b>Bottom line:</b> both checks (on-Amazon + $300k floor) are implemented, tested (37 offline tests), <b>independently verified against the live Amazon page in both directions</b>, hardened by two verification-caught fixes (canonical-name re-query, SmartScout precedence), <b>validated inside the real pipeline</b> (live shadow batch, Playwright-verified 8/8), and <b>applied to batch #44</b> (re-scored at the new $300k floor — ~67% of checked leads out-of-ICP, 177 keepers). Remaining: check the 248 un-checked companies (needs a credit top-up), the ENFORCE flip decision, and commit/deploy of the wiring.
 </div>
 
 </body>
