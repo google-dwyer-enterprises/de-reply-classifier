@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>Amazon Revenue QA — batch report</title>
+<style>
+ body{font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a1d23;max-width:980px;margin:30px auto;padding:0 20px}
+ h1{font-size:22px;margin:0 0 4px} h2{font-size:16px;margin:24px 0 6px;border-bottom:1px solid #e5e7eb;padding-bottom:4px}
+ table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0} th,td{border:1px solid #e5e7eb;padding:6px 8px;text-align:left}
+ th{background:#f8fafc} .big{font-size:22px;font-weight:800} .muted{color:#6b7280;font-size:12.5px}
+ .tiles{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0} .tile{border:1px solid #e5e7eb;border-radius:10px;padding:12px 16px;min-width:130px}
+ .amber{background:#fffbeb;border:1px solid #fde68a;color:#78350f;border-radius:8px;padding:10px 12px;font-size:13px;margin:12px 0}
+</style></head><body>
+<h1>Amazon Revenue QA — batch cost &amp; quality report</h1>
+<p class="muted">Cascade: SmartScout first (free) → Rainforest fallback (1 credit) · floor $500,000/yr · verdicts KEEP / DROP / REVIEW · nothing silently dropped.</p>
+<div class="tiles">
+ <div class="tile"><div class="big">50</div>leads evaluated</div>
+ <div class="tile"><div class="big">6</div>KEEP (in ICP)</div>
+ <div class="tile"><div class="big">43</div>DROP (out of ICP)</div>
+ <div class="tile"><div class="big">1</div>REVIEW (human)</div>
+ <div class="tile"><div class="big">0</div>pending credits</div>
+ <div class="tile"><div class="big">16</div>credits (≈$2.66)</div>
+ <div class="tile"><div class="big">$0.053</div>cost / decided lead</div>
+</div>
+<h2>Sources</h2>
+<table><tr><th>Decided by</th><th>Leads</th></tr>
+<tr><td>rainforest</td><td>36</td></tr><tr><td>smartscout</td><td>13</td></tr><tr><td>smartscout+rainforest</td><td>1</td></tr>
+</table>
+<h2>KEEP hand-review sheet (6 rows — spot-check each, ~30s/row)</h2>
+<p class="muted">A KEEP's revenue floor is measured from Amazon's own sales labels and only under-counts — but generic-word company names can in theory match someone else's listings. This sheet closes that edge with a human pass.</p>
+<table><tr><th>Company</th><th>Verdict</th><th>Revenue (floor/est.)</th><th>Source</th><th>Reason</th><th>✓ checked</th></tr>
+<tr><td>bowlingball</td><td>KEEP</td><td>$1,195,053</td><td>smartscout+cache</td><td>SmartScout $1,195,053/yr >= $700,000 (clear)</td><td></td></tr><tr><td>Dyson</td><td>KEEP</td><td>$197,485,286</td><td>smartscout</td><td>SmartScout $197,485,286/yr >= $700,000 (clear)</td><td></td></tr><tr><td>World Amenities</td><td>KEEP</td><td>$679,356</td><td>smartscout+rainforest</td><td>borderline SmartScout confirmed: floor $679,356 >= $500,000</td><td></td></tr><tr><td>FLAT WORLD</td><td>KEEP</td><td>$1,840,379</td><td>smartscout</td><td>SmartScout $1,840,379/yr >= $700,000 (clear)</td><td></td></tr><tr><td>Filthy Food</td><td>KEEP</td><td>$2,494,500</td><td>smartscout</td><td>SmartScout $2,494,500/yr >= $700,000 (clear)</td><td></td></tr><tr><td>Sea Foam</td><td>KEEP</td><td>$7,081,004</td><td>smartscout</td><td>SmartScout $7,081,004/yr >= $700,000 (clear)</td><td></td></tr>
+</table>
+<h2>REVIEW queue (1 rows)</h2>
+<table><tr><th>Company</th><th>Verdict</th><th>Revenue</th><th>Source</th><th>Reason</th><th></th></tr>
+<tr><td>MAS Epoxies</td><td>REVIEW</td><td>$160,170</td><td>rainforest+cache</td><td>no SmartScout match; established on Amazon (15 listings, 20,582 ratings) but measurable floor $160,170 < $500,</td><td></td></tr>
+</table>
+
+<h2>Scale economics</h2>
+<p>Observed Rainforest need: <b>16</b> credits for <b>50</b> decided leads
+(≈0.32 credits/lead after SmartScout &amp; cache).
+At 20,000 leads/month that projects to ≈<b>6,400 credits/month</b> —
+use this to size the Rainforest plan (cache + SmartScout refreshes reduce it over time).</p>
+</body></html>

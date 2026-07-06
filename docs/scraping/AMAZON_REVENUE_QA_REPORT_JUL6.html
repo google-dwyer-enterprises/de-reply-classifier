@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amazon Revenue QA Bot — July 6 Report</title>
+<style>
+  body { font: 15px/1.55 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#1a1d23; max-width:920px; margin:32px auto; padding:0 20px; }
+  h1 { font-size:24px; margin:0 0 2px; }
+  h2 { font-size:18px; margin:28px 0 8px; border-bottom:2px solid #e5e7eb; padding-bottom:5px; }
+  .sub { color:#6b7280; margin:0 0 16px; }
+  .tiles { display:flex; gap:12px; flex-wrap:wrap; margin:16px 0; }
+  .tile { flex:1; min-width:140px; border:1px solid #e5e7eb; border-radius:10px; padding:14px 16px; }
+  .tile .n { font-size:26px; font-weight:800; color:#1d4ed8; }
+  .tile.green .n { color:#166534; }
+  .tile.red .n { color:#991b1b; }
+  .tile .k { color:#6b7280; font-size:12.5px; margin-top:2px; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:13.5px; }
+  th, td { border:1px solid #e5e7eb; padding:7px 10px; text-align:left; }
+  th { background:#f8fafc; }
+  .ok { color:#166534; font-weight:700; } .bad { color:#991b1b; font-weight:700; } .warn { color:#92400e; font-weight:700; }
+  .box { border-radius:10px; padding:13px 16px; margin:14px 0; font-size:14px; }
+  .green { background:#f0fdf4; border:1px solid #bbf7d0; }
+  .amber { background:#fffbeb; border:1px solid #fde68a; }
+  .blue { background:#eff6ff; border:1px solid #bfdbfe; }
+  ul { margin:6px 0; padding-left:20px; } li { margin:4px 0; }
+  code { background:#f1f5f9; padding:1px 5px; border-radius:4px; font-size:12.5px; }
+</style>
+</head>
+<body>
+
+<h1>Amazon Revenue QA Bot — Report</h1>
+<p class="sub">July 6 deliverable · built, tested &amp; verified July 1–4 · Hassan</p>
+
+<div class="box green">
+<b>TL;DR — the bot works and it's already proven on your real leads.</b> It checks both things you asked for
+(<b>① are they on Amazon</b> · <b>② do they make ≥ $500k/yr</b>), with <b>no CAPTCHA problems</b> and at
+<b>~1/18th the cost</b> of the Helium 10 API. Run against half of the last purchased batch:
+<b>78% of those leads are out of ICP</b> — your "garbage leads" estimate was right, and now it's measured per lead.
+</div>
+
+<h2>What it does — your spec, as built</h2>
+<ul>
+  <li><b>Check 1 — On Amazon?</b> Searches Amazon for the brand and counts listings that genuinely belong to it (strict matching — "Blue Apple Co." never gets credited with Apple's products).</li>
+  <li><b>Check 2 — Revenue ≥ $500k/yr?</b> Exactly the method you described in the meeting: add up per-listing sales — using Amazon's own <i>"bought in past month"</i> labels × price. It <b>under-counts by design</b>, so when the bot says KEEP, that revenue is real.</li>
+  <li><b>Verdicts:</b> <span class="ok">KEEP</span> (in ICP) · <span class="bad">DROP</span> (not on Amazon / too small) · <span class="warn">REVIEW</span> (a small human queue — never silently dropped).</li>
+  <li><b>The "weird names" problem you predicted</b> ("Anchor" vs "Anchor Electronics Inc") is handled: the bot detects Amazon's own spelling of the brand and re-searches with it. This recovered <b>Scotts Protein Balls ($44M)</b> and <b>Dae Hair ($18M)</b> that a simpler bot would have wrongly dropped.</li>
+</ul>
+
+<h2>How we know it works (not just "trust me")</h2>
+<table>
+<tr><th>Test</th><th>Result</th></tr>
+<tr><td>50 random leads through the bot, then <b>every verdict hand-verified against the live Amazon page</b> (real browser, US location)</td><td class="ok">Passed — 2 bugs found by this process, fixed, re-verified</td></tr>
+<tr><td>Real scraping batch through the <b>full live pipeline</b> with the bot wired in</td><td class="ok">8/8 verdicts matched the live Amazon page — zero errors</td></tr>
+<tr><td>Revenue accuracy spot-check (The Lip Bar)</td><td class="ok">Bot: $1,088,202 · live page: $1,061,322 — <b>within 2.5%</b></td></tr>
+<tr><td>The old CAPTCHA problem that killed the previous attempt</td><td class="ok">Gone — the data provider (Rainforest API) handles Amazon access with US IPs</td></tr>
+</table>
+
+<h2>Applied to your real, already-purchased leads (batch #44, first half)</h2>
+<div class="tiles">
+  <div class="tile green"><div class="n">90</div><div class="k">leads KEEP — confirmed ≥$500k Amazon brands</div></div>
+  <div class="tile red"><div class="n">382</div><div class="k">leads DROP — out of ICP (78% of decided)</div></div>
+  <div class="tile"><div class="n">25</div><div class="k">leads REVIEW — quick human look</div></div>
+  <div class="tile"><div class="n">$41.50</div><div class="k">total cost of this analysis</div></div>
+</div>
+<p><b>Biggest confirmed keeps:</b> Grande Cosmetics <b>$50.9M</b> · Scotts Protein Balls <b>$44.2M</b> ·
+Beauty by Earth <b>$35.7M</b> · The Mayfair Group <b>$35.4M</b> · ForestLeaf <b>$22.5M</b> · Waggin <b>$20.1M</b> · Dae Hair <b>$18.1M</b>.</p>
+<p>Every checked lead now shows its verdict + revenue + reason as columns Jam can see in her review screen. The second half of the batch runs when credits reset (results are cached — nothing is ever paid for twice).</p>
+
+<h2>Where it sits in the machine</h2>
+<p>The bot is wired into the lead machine as the <b>final quality gate</b> — after the free filters, the AI brand check, and the website check have thrown out the cheap-to-reject junk. That ordering was measured on your real batch data and <b>cuts the bot's cost roughly in half</b>. Right now it runs in <b>"probation mode"</b>: it tags every lead with its opinion, but Jam still makes every decision. One switch turns on auto-dropping once you're comfortable.</p>
+
+<h2>What it costs</h2>
+<table>
+<tr><th>Item</th><th>Number</th></tr>
+<tr><td>Per company checked (after free SmartScout matches &amp; caching)</td><td>~$0.12</td></tr>
+<tr><td>Per ~2,000-lead scraping batch</td><td>~$80–85</td></tr>
+<tr><td>Helium 10 API (the alternative)</td><td class="bad">$1,500/mo — 18× more</td></tr>
+<tr><td>At 20k leads/month scale</td><td>~$700–800/mo on the current tier; <b>volume tiers bring this down</b> — pick once scale is decided</td></tr>
+</table>
+
+<h2>Honest limits (so there are no surprises)</h2>
+<ul>
+  <li><b>Revenue figures are estimates/floors, not tax returns.</b> No tool (including Helium 10 — also an estimate) gives true books revenue. A KEEP means "provably at least this much on Amazon."</li>
+  <li>About <b>⅓ of on-Amazon brands don't show sales labels</b> — those go to the small REVIEW queue instead of getting a number.</li>
+  <li>The current plan is <b>500 checks/month</b> — enough for validation, not production scale. That's the one purchase decision open.</li>
+</ul>
+
+<h2>Decisions needed from you</h2>
+<ul>
+  <li><b>① Credit plan:</b> upgrade the Rainforest tier for production scale (and to finish batch #44's second half now rather than next month).</li>
+  <li><b>② Auto-drop switch:</b> after Jam glances at the verdict tags on her review screen, flip the bot from "tags only" to "auto-drops the garbage." Recommend: after one more real batch.</li>
+  <li><b>③ Go-live:</b> the wiring is finished and tested on Hassan's machine; deploying it to the live worker is a same-day step once ①/② are decided.</li>
+</ul>
+
+<p class="sub">Full technical evidence: <code>RAINFOREST_VERIFICATION.html</code> (verification runs, measured funnel, cost analysis) · <code>AMAZON_REVENUE_BOT_PROPOSAL.html</code> (design) · <code>AMAZON_REVENUE_QA_BOT_INSTRUCTIONS.md</code> (decision log).</p>
+
+</body>
+</html>

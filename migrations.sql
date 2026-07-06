@@ -586,6 +586,15 @@ create index if not exists lead_contacts_scrape_request_id_idx
 alter table domain_brand_verdicts add column if not exists amazon_presence text;
 alter table prospeo_new_leads add column if not exists amazon_presence text;
 
+-- Amazon Revenue QA (7/4): cascade SmartScout → Rainforest floor → cache.
+-- Stamped by amazon_revenue_qa.qa_companies() on every accepted lead (shadow
+-- mode; AMAZON_QA_ENFORCE in bettercontact_sync.py gates auto-drop). Idempotent
+-- via ensure_lead_columns(). Revenue floor $500k/yr; grey band $300k–$700k.
+alter table prospeo_new_leads add column if not exists amazon_verdict text;
+alter table prospeo_new_leads add column if not exists amazon_revenue_annual numeric;
+alter table prospeo_new_leads add column if not exists amazon_revenue_source text;
+alter table prospeo_new_leads add column if not exists amazon_reason text;
+
 -- =========================================================================
 -- Follow-up effectiveness (descriptive cross-lead analysis) — FOLLOWUP_EFFECTIVENESS_PLAN.
 -- One row per unibox_manual follow-up. Features computed over the quoted-thread-

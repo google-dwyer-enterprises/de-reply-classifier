@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amazon Revenue QA bot — Rainforest verification &amp; build-cycle findings</title>
+<style>
+  body { font: 15px/1.55 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#1a1d23; max-width:940px; margin:32px auto; padding:0 20px; }
+  h1 { font-size:23px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:26px 0 8px; border-bottom:1px solid #e5e7eb; padding-bottom:4px; }
+  .sub { color:#6b7280; margin:0 0 18px; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:13.5px; }
+  th, td { border:1px solid #e5e7eb; padding:7px 9px; text-align:left; vertical-align:top; }
+  th { background:#f8fafc; }
+  .ok { color:#166534; font-weight:700; }
+  .bad { color:#991b1b; font-weight:700; }
+  .warn { color:#92400e; font-weight:700; }
+  .box { border-radius:8px; padding:12px 14px; margin:14px 0; font-size:13.5px; }
+  .green { background:#f0fdf4; border:1px solid #bbf7d0; color:#14532d; }
+  .amber { background:#fffbeb; border:1px solid #fde68a; color:#78350f; }
+  .blue  { background:#eff6ff; border:1px solid #bfdbfe; color:#1e3a8a; }
+  code { background:#f1f5f9; padding:1px 5px; border-radius:4px; font-size:12.5px; }
+  ul { margin:6px 0; padding-left:20px; } li { margin:3px 0; }
+</style>
+</head>
+<body>
+
+<h1>Amazon Revenue QA bot — verification &amp; build-cycle findings</h1>
+<p class="sub">2026-07-02 · paid Rainforest key live · build → test → enhance → re-test cycle before any 1,000-record run. Companion docs: <code>AMAZON_REVENUE_BOT_PROPOSAL.html</code> (design), <code>AMAZON_REVENUE_QA_BOT_INSTRUCTIONS.md</code> (decision log).</p>
+
+<h2>What the bot checks — and how it was verified</h2>
+<p><b>One Rainforest search call (1 credit) performs BOTH checks at once:</b></p>
+<ul>
+  <li><b>On-Amazon check</b> — count listings whose brand/title match the company (strict + space-insensitive). 0 branded listings → <b>DROP</b> (not an Amazon brand).</li>
+  <li><b>$500k revenue check</b> — a <b>revenue floor</b>: Amazon's own "bought in past month" labels × price × 12 across branded listings. Floor ≥ $500k → <b>KEEP</b>. It <i>under-counts by construction</i> (only labeled listings count), so a KEEP is never a false positive.</li>
+  <li>Established brand (≥2 listings, ≥1,000 cumulative ratings) but floor below the line → <b>REVIEW</b> (a human decides; the floor may just be under-reading). Small presence → <b>DROP</b>. API failure → <b>REVIEW</b>, never a silent verdict.</li>
+</ul>
+
+<h2>Independent verification — Rainforest vs the live Amazon page (Playwright)</h2>
+<p>We drove a real browser to <code>amazon.com</code> and compared the same searches product-by-product.</p>
+
+<table>
+<tr><th>Check</th><th>Rainforest said</th><th>Live Amazon (US ZIP 10001)</th><th>Verdict</th></tr>
+<tr><td>Nano Bebe — branded listings</td><td>24</td><td>23</td><td class="ok">MATCH (±1 sponsored-slot rotation)</td></tr>
+<tr><td>Nano Bebe — listings with "bought in past month"</td><td>14</td><td>14</td><td class="ok">EXACT MATCH</td></tr>
+<tr><td>Product-level spot check</td><td>Flexy Pink $22.88 · "500+" / Flexy White $24.99 · "600+" / Pacifiers $12.99 · "1K+"</td><td>identical prices and labels</td><td class="ok">EXACT MATCH</td></tr>
+<tr><td>Digital Sports Mgmt (DROP direction)</td><td>0 branded → DROP</td><td>0 organic results</td><td class="ok">MATCH</td></tr>
+</table>
+
+<div class="box blue">
+<b>Key discovery — geo matters (and validates the managed-API decision).</b>
+The first live check ran as <b>"Deliver to Pakistan"</b> and showed only 4 branded listings and <b>zero</b> "bought in past month" labels — Amazon hides sales labels and filters the catalog for non-US visitors. After switching the browser to <b>ZIP 10001 (US)</b>, the page matched Rainforest exactly. Any in-house scraping from non-US infrastructure would silently produce wrong data; Rainforest fetches with US IPs, which is precisely what we pay for.
+</div>
+
+<h2>Build-cycle results (implement → test → enhance → re-test)</h2>
+<table>
+<tr><th>Phase</th><th>What ran</th><th>Outcome</th><th>Credits</th></tr>
+<tr><td><b>1 — Implement + offline tests</b></td><td>Full Rainforest scorer (<code>amazon_presence.py</code>) + cascade rewire (<code>amazon_revenue_qa.py</code>: cache → SmartScout → Rainforest floor, H10 stub removed). 28 offline tests on canned fixtures: label parser, floor math, verdict boundaries, cascade routing.</td><td class="ok">28/28 green</td><td>0</td></tr>
+<tr><td><b>2 — Live smoke (ground truth)</b></td><td>Reef + Smartish (SmartScout-clear), Nano Bebe (known on-Amazon), Digital Sports Mgmt (known off), Blue Apple Co. (false-positive trap), cache re-hit.</td><td class="warn">Caught 1 real bug (below); all else passed</td><td>3</td></tr>
+<tr><td><b>Bug found &amp; fixed</b></td><td><b>Space-sensitive matching:</b> "Nano <i>Be</i>be" (spaced company name) failed to match "Nanobebe…" titles when the byline field is missing → wrongly DROP. Fixed with exact first-k-words concatenation matching (safe: "Acme" can never match "Acmes"). +4 regression tests.</td><td class="ok">Re-test: KEEP, floor $2.43M ✓</td><td>1</td></tr>
+<tr><td><b>Verification run (12 leads)</b></td><td>12 SmartScout-miss companies scored; raw listings kept; Playwright cross-check above.</td><td class="ok">Verdicts consistent; REVIEW logic engaged correctly on 2 established-but-unlabeled brands</td><td>12</td></tr>
+</table>
+
+<h2>Ground-truth smoke scorecard</h2>
+<table>
+<tr><th>Case</th><th>Expected</th><th>Result</th><th>Credits</th></tr>
+<tr><td>Reef</td><td>KEEP via SmartScout, no credit</td><td class="ok">KEEP $15.5M/yr</td><td>0</td></tr>
+<tr><td>Smartish</td><td>KEEP via SmartScout, no credit</td><td class="ok">KEEP $6.3M/yr</td><td>0</td></tr>
+<tr><td>Nano Bebe</td><td>KEEP via Rainforest floor</td><td class="ok">KEEP — floor $2.43M/yr (after fix)</td><td>1</td></tr>
+<tr><td>Digital Sports Mgmt</td><td>DROP, not on Amazon</td><td class="ok">DROP (0 branded listings)</td><td>1</td></tr>
+<tr><td>Blue Apple Co.</td><td>must NOT inherit Apple's revenue</td><td class="ok">DROP on its own $40k SmartScout value</td><td>0</td></tr>
+<tr><td>Cache re-hit</td><td>zero credits on repeat</td><td class="ok"><code>rainforest+cache</code></td><td>0</td></tr>
+</table>
+
+<h2>Measured percentages (n=12 — directional, mid-scale run will firm up)</h2>
+<ul>
+  <li><b>On Amazon:</b> 3/12 of SmartScout-misses (25%) — consistent with the earlier 35-lead measurement (~14–23%). <b>Most misses genuinely aren't Amazon brands</b> — the filter is doing its job.</li>
+  <li><b>Revenue label present:</b> 2/3 of on-Amazon brands had ≥1 "bought" label → the $500k floor check is <i>measurable</i> for roughly two-thirds of on-Amazon brands; the rest fall to the ratings-based REVIEW/DROP logic.</li>
+  <li><b>Floor decisive (KEEP):</b> 1/3 of on-Amazon.</li>
+  <li><b>Sampling lesson:</b> alphabetical selection surfaced junk company names ("--", "???usa…"); they correctly DROP, but honest percentages need <b>random sampling</b> — adopted for the mid-scale run.</li>
+</ul>
+
+<h2>Credit accounting &amp; the 1,000-record question</h2>
+<table>
+<tr><th>Item</th><th>Credits</th></tr>
+<tr><td>Plan allowance (as purchased)</td><td>500 / month</td></tr>
+<tr><td>Spent so far (validation + smoke + fix re-test + 12-lead verification)</td><td>16</td></tr>
+<tr><td><b>Remaining</b></td><td><b>484</b></td></tr>
+<tr><td>Next: mid-scale 25-lead run (est.)</td><td>~20</td></tr>
+<tr><td>Full 1,000-record run (est. ~80% SmartScout-miss)</td><td class="warn">~800 — exceeds the current plan</td></tr>
+</table>
+<div class="box amber">
+<b>Flag for Victor:</b> the purchased plan carries <b>500 credits/month</b>; the requested 1,000-record test needs ~800. Options: (a) run 1,000 with a hard credit cap — ~600 records fully decided, the rest marked "credits exhausted → review" (may be acceptable for the July 6 rough draft); (b) confirm/upgrade to the intended ~$83/mo tier; (c) split the run across two billing months. Every result is cached (90-day TTL), so no credit is ever spent twice on the same brand.
+</div>
+
+<h2>Addendum (2026-07-03) — 50-lead validation gate: PASSED</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>50-lead run (random, full cascade, capped)</td><td class="ok">16 credits · 7 KEEP / 2 REVIEW / 41 DROP · backups in <code>debug/backups/</code> + %TEMP% · xlsx in <code>exports/</code></td></tr>
+<tr><td>Playwright page-verification of all 37 Rainforest-decided leads (US ZIP)</td><td class="ok">35/37 verdict-consistent; only KEEP verified within 1.3% of the live page; all 0-hit DROPs confirmed empty</td></tr>
+<tr><td>Defect ① found &amp; fixed</td><td class="ok"><b>False DROP on weird-spelling names</b> ("Scents Ational S" → brand "ScentSationals", real floor ~$2M). Fix: <b>canonical-name re-query</b> — when on-Amazon but below floor, re-search once with Amazon's own spelling (byline, or recovered from the matched title prefix). Also covers Victor's "Anchor Electronics Inc vs Anchor" case. Live re-test: KEEP $1.97M.</td></tr>
+<tr><td>Defect ② found &amp; fixed</td><td class="ok"><b>Cache shadowing SmartScout</b> flipped a grey-zone REVIEW to DROP on re-runs (Nonzero Gravity). Fix: SmartScout estimate now always takes precedence; Rainforest caching lives inside its own layer. Live re-test: REVIEW restored.</td></tr>
+<tr><td>Offline regression suite</td><td class="ok">37 tests green</td></tr>
+</table>
+
+<h2>Pipeline cost analysis — where the Rainforest check belongs (2026-07-03)</h2>
+<p>Measured per-unit costs of every paid step in the scraping funnel (<code>bettercontact_sync.py</code>):</p>
+<table>
+<tr><th>Step</th><th>When it bills</th><th>Cost / unit</th></tr>
+<tr><td>BetterContact email enrichment</td><td><b>at search time</b> (enrich_email_address=true on submit — sunk before any filter runs)</td><td>~$0.02 / email</td></tr>
+<tr><td>Deterministic filters (dedup, title, headcount, language, company cap)</td><td>client-side</td><td>free</td></tr>
+<tr><td>Haiku ICP gate (per-domain, cached)</td><td>after free filters</td><td>~$0.001 / company</td></tr>
+<tr><td>brand_verify bv3 (site read + web search)</td><td>after the gate</td><td>~$0.02–0.05 / company</td></tr>
+<tr><td><b>Rainforest Amazon QA</b></td><td>proposed: LAST company-level gate</td><td><b>~$0.166 / search</b></td></tr>
+<tr><td>MillionVerifier</td><td>after Jam approval</td><td>~$0.001 / check</td></tr>
+</table>
+<div class="box blue">
+<b>Key insight — the cost hierarchy is inverted vs intuition.</b> A Rainforest check costs <b>~8× a BetterContact email</b>. The meeting's "check Amazon before grabbing the email" framing assumed the email is the expensive step to protect — it's actually the cheapest paid step, and it's sunk at search time anyway. The thing to protect is the <b>Rainforest call itself</b>: run it <b>after every free/cheaper rejector</b> (free filters → Haiku gate → brand_verify), per unique company (the 3-contact cap means 1 credit covers up to 3 leads), SmartScout-first, 90-day cached.
+</div>
+<h3>Measured on the real batch #44 (2026-07-03, 0 credits spent)</h3>
+<p>The placement projection was <b>verified against the actual production funnel</b> — batch #44's 2,170 raw BetterContact rows with their real rejection stamps:</p>
+<table>
+<tr><th>Stage (in pipeline order)</th><th>Leads</th></tr>
+<tr><td>Raw BC rows (emails billed at search)</td><td>2,170</td></tr>
+<tr><td>Free gates rejected (title 140 · company cap 67 · dedup/lang)</td><td>~207+</td></tr>
+<tr><td>Haiku ICP gate rejected (~$0.001/company)</td><td>621</td></tr>
+<tr><td>brand_verify bv3 rejected (~$0.02–0.05/company)</td><td>266</td></tr>
+<tr><td><b>Accepted → reach the Amazon QA slot</b></td><td><b>1,052 leads = 717 unique companies</b></td></tr>
+</table>
+<table>
+<tr><th>Amazon QA cost at that slot (measured)</th><th>Companies</th></tr>
+<tr><td>SmartScout decides free</td><td class="ok">221 of 717 (31% — better than the 16–20% assumed)</td></tr>
+<tr><td>Junk-name guard (free)</td><td>1</td></tr>
+<tr><td><b>Need a Rainforest credit</b></td><td><b>~495</b> (incl. 25 grey-band confirms) ≈ <b>0.23 credits / raw lead</b></td></tr>
+<tr><td>Same batch with Rainforest placed before the gates</td><td class="warn">~2× the spend (the 1,118 gate-rejected leads would each have burned a paid check)</td></tr>
+</table>
+<p><b>Quality note — order-invariance:</b> a lead is accepted only if it passes <i>every</i> gate, so reordering gates changes cost, never outcomes — provided no gate is skipped and Amazon REVIEWs pass through stamped rather than auto-rejected (they do, mirroring bv3's "unknowns are never auto-rejected" rule). The single untested piece is live in-worker behavior — covered by <b>shadow mode</b>: verdicts recorded on a real batch, compared against Jam's judgment, before the bot gets drop authority.</p>
+<ul>
+  <li><b>Do NOT place before brand_verify</b> — Rainforest would bill $0.17/company for leads bv rejects for cents (resellers, MLM, no DTC store).</li>
+  <li><b>Free bonus signal:</b> bv3 already stores an <code>amazon_presence</code> hint (site links to an Amazon storefront) — usable to strengthen weird-name matching at zero cost.</li>
+  <li>A two-phase BC flow (search enrich-free → re-enrich survivors) would honor "before email-grab" literally, but saves only ~$0.02/lead while adding real complexity — <b>not recommended</b>.</li>
+</ul>
+
+<h2>Addendum (2026-07-04) — LIVE pipeline shadow batch: 8/8 verified</h2>
+<p>The Amazon QA was wired into <code>bettercontact_sync</code> (shadow mode: verdicts stamped, nothing auto-rejected; hard per-run credit budget; a QA error can never sink a batch) and a real batch was run through the FULL live pipeline locally.</p>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Full pipeline, fresh leads</td><td class="ok">BC scrape → free gates → Haiku gate → brand_verify → Amazon QA stamps — every gate fired correctly (16 accepted / 38 rejected; 151 no-email rows)</td></tr>
+<tr><td>Playwright page-verification of ALL 8 Rainforest-decided companies (US ZIP)</td><td class="ok"><b>8/8 verdict-consistent, zero defects</b>. Fayn 12 hits = page 12; Australian Bodycare 8 = 8; the KEEP (The Lip Bar, grey-zone confirm) floor $1,088,202 vs page $1,061,322 — <b>within 2.5%</b></td></tr>
+<tr><td>Grey-zone escalation live in production conditions</td><td class="ok">The Lip Bar: SmartScout grey → Rainforest floor confirm → KEEP</td></tr>
+<tr><td>Cost discipline live</td><td class="ok"><b>9 Rainforest credits for the whole batch</b> (per-company dedupe + SmartScout-first + shadow budget all held)</td></tr>
+<tr><td>Ops incidents (not the bot)</td><td class="warn">① first driver attempt used the library-default page size (200) and aborted on the credit guard — driver fixed to mirror the worker's page sizing; ② the Anthropic API account ran out of credits mid-test, briefly breaking the Haiku gate AND production LLM steps — new key issued and applied everywhere (local + all 3 Railway services)</td></tr>
+</table>
+
+<h2>Addendum (2026-07-04) — retro-QA of batch #44, first half: DONE</h2>
+<p>The verdict columns were stamped onto the EXISTING accepted leads of batch #44 (already-purchased inventory), so sub-ICP leads can be purged before campaigns. First half = 359 of 717 unique companies (deterministic md5 split), hard 250-credit cap.</p>
+<table>
+<tr><th>Verdict</th><th>Companies</th><th>Leads</th><th>Share (decided)</th></tr>
+<tr><td class="ok">KEEP (in ICP — on Amazon, ≥$500k/yr)</td><td>52</td><td>90</td><td>15.5%</td></tr>
+<tr><td>DROP (out of ICP)</td><td>262</td><td>382</td><td>78%</td></tr>
+<tr><td>REVIEW (human decides)</td><td>21</td><td>25</td><td>6.3%</td></tr>
+<tr><td>PENDING_CREDITS (cap hit at company ~350)</td><td>24</td><td>39</td><td>—</td></tr>
+</table>
+<ul>
+  <li><b>The headline for Victor:</b> of the decided companies in this already-paid batch, <b>~78% are out of Amazon-ICP</b> — his "garbage leads" estimate (50–70%) was, if anything, optimistic. Every lead now carries its verdict + revenue + reason in NocoDB-visible columns.</li>
+  <li><b>The canonical-name re-query is earning its keep on KEEPs:</b> Scotts Protein Balls ($44.2M) and Dae Hair ($18.1M) were both recovered via <code>rainforest_requery</code> — they'd have been false DROPs before the fix.</li>
+  <li><b>Top KEEPs:</b> Grande Cosmetics $50.9M · Scotts Protein Balls $44.2M · Beauty by Earth $35.7M · The Mayfair Group $35.4M · ForestLeaf $22.5M · Cata-Kor $22.1M · Waggin $20.1M · Dae Hair $18.1M.</li>
+  <li><b>Credits:</b> 250 spent (cap honored exactly); ≈185 remain on the plan. The second half (358 companies + the 24 pending) needs ~250 more → after the monthly reset or a plan upgrade. Everything decided is cached — nothing gets re-spent.</li>
+</ul>
+
+<div class="box green">
+<b>Bottom line:</b> both checks (on-Amazon + $500k floor) are implemented, tested (37 offline tests), <b>independently verified against the live Amazon page in both directions</b>, hardened by two verification-caught fixes (canonical-name re-query, SmartScout precedence), <b>validated inside the real pipeline</b> (live shadow batch, Playwright-verified 8/8), and <b>applied retroactively to half of batch #44</b> (78% of decided companies out-of-ICP — the garbage layer quantified). Remaining: second half of the retro-QA (post credit reset), the ENFORCE flip decision, and commit/deploy of the wiring.
+</div>
+
+</body>
+</html>

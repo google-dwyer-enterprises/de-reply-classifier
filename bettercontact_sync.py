@@ -84,6 +84,15 @@ from prospeo_sync import (
 )
 from db import connect
 import brand_verify
+import amazon_revenue_qa
+
+# Amazon Revenue QA (Rainforest) — SHADOW mode: verdicts are stamped on every
+# accepted lead (amazon_verdict / amazon_revenue_annual / ...) but do NOT
+# reject until AMAZON_QA_ENFORCE is flipped. Cost-optimal slot = last
+# company-level gate, after brand_verify (measured on batch #44 — see
+# docs/scraping/RAINFOREST_VERIFICATION.html). Hard per-RUN credit budget.
+AMAZON_QA_ENFORCE = False
+AMAZON_QA_MAX_CREDITS = 150
 
 
 # ---------------------------------------------------------------------------
@@ -785,7 +794,9 @@ def _insert_leads(conn, leads: list[dict],
             "agency_filter_result", "agency_filter_method",
             "agency_filter_reason", "rejected",
             "brand_verify_result", "brand_verify_method",
-            "brand_verify_evidence", "amazon_presence", "bettercontact_raw",
+            "brand_verify_evidence", "amazon_presence",
+            "amazon_verdict", "amazon_revenue_annual",
+            "amazon_revenue_source", "amazon_reason", "bettercontact_raw",
             "scrape_request_id", "lead_approval"]
 
     def _approval_for(lead: dict) -> str | None:
@@ -878,6 +889,8 @@ def _run_category(conn, api_key: str, *,
                    dry_run: bool, max_credits: int | None,
                    skip_llm: bool = False,
                    skip_brand_verify: bool = False,
+                   skip_amazon_qa: bool = False,
+                   amazon_qa_max_credits: int = AMAZON_QA_MAX_CREDITS,
                    enrichment: str = "email",
                    scrape_request_id: int | None = None) -> dict:
     """Round-robin over BC_INDUSTRIES, advancing each industry's offset by
@@ -977,6 +990,8 @@ def _run_category(conn, api_key: str, *,
     accepted: list[dict] = []
     rejected: list[dict] = []
     rejected_counts: dict[str, int] = {}
+    # one Rainforest budget for the WHOLE run (not per page)
+    amazon_qa_budget = {"max": amazon_qa_max_credits, "spent": 0}
     # P3: lazy LLM brand-gate client (only created on first grey lead). Mirrors
     # Prospeo — leads that clear the rule layer are run through the
     # brand/agency/reseller/marketplace classifier; only "brand" is kept.
@@ -1246,6 +1261,33 @@ def _run_category(conn, api_key: str, *,
                         survivors.append(lead)
                 batch_accepted = survivors
 
+            # Amazon Revenue QA — LAST company-level gate (cheapest-first
+            # ordering: this is the priciest check, so everything above has
+            # already rejected for free/cheaper). Shadow mode stamps verdicts
+            # for Jam; enforce mode also rejects DROPs. REVIEW / PENDING /
+            # API-failure NEVER reject (mirrors bv3's unknowns-pass rule).
+            if batch_accepted and not skip_amazon_qa:
+                try:
+                    amazon_revenue_qa.qa_companies(
+                        conn, batch_accepted, budget=amazon_qa_budget)
+                    if AMAZON_QA_ENFORCE:
+                        survivors = []
+                        for lead in batch_accepted:
+                            if lead.get("amazon_verdict") == "DROP":
+                                lead["agency_filter_result"] = "amazon_qa_drop"
+                                lead["agency_filter_reason"] = (
+                                    f"amazon_qa: {lead.get('amazon_reason', '')}"[:500])
+                                lead["rejected"] = True
+                                batch_rejected.append(lead)
+                                rejected_counts["amazon_qa"] = (
+                                    rejected_counts.get("amazon_qa", 0) + 1)
+                            else:
+                                survivors.append(lead)
+                        batch_accepted = survivors
+                except Exception as e:
+                    # QA must never sink a batch — leads pass unstamped.
+                    print(f"    amazon-qa error (leads pass unstamped): {e}")
+
             if batch_accepted or batch_rejected:
                 _insert_leads(conn, batch_accepted + batch_rejected,
                               scrape_request_id=scrape_request_id)
@@ -1338,6 +1380,8 @@ def _run_category(conn, api_key: str, *,
         for reason, n in sorted(rejected_counts.items(), key=lambda x: -x[1])[:10]:
             print(f"    {reason}: {n}")
 
+    print(f"  amazon-qa: {amazon_qa_budget['spent']}/{amazon_qa_budget['max']} "
+          f"Rainforest credits this run (shadow={'off' if AMAZON_QA_ENFORCE else 'on'})")
     return {
         "accepted": len(accepted),
         "rejected": len(rejected),
@@ -1346,6 +1390,7 @@ def _run_category(conn, api_key: str, *,
         "xlsx_path": xlsx_path,
         "aborted_reason": aborted_reason,
         "rejected_counts": dict(rejected_counts),
+        "amazon_qa_credits": amazon_qa_budget["spent"],
     }
 
 
@@ -1359,6 +1404,8 @@ def main(*, mode: str = "category", target_leads: int | None = None,
          page_limit: int = BC_PAGE_LIMIT,
          dry_run: bool = False, max_credits: int | None = None,
          skip_llm: bool = False, skip_brand_verify: bool = False,
+         skip_amazon_qa: bool = False,
+         amazon_qa_max_credits: int = AMAZON_QA_MAX_CREDITS,
          enrichment: str = "email",
          scrape_request_id: int | None = None) -> dict:
     """Entry point for `run.py scrape-leads --provider bettercontact`.
@@ -1402,6 +1449,8 @@ def main(*, mode: str = "category", target_leads: int | None = None,
                              dry_run=dry_run, max_credits=max_credits,
                              skip_llm=skip_llm,
                              skip_brand_verify=skip_brand_verify,
+                             skip_amazon_qa=skip_amazon_qa,
+                             amazon_qa_max_credits=amazon_qa_max_credits,
                              enrichment=enrichment,
                              scrape_request_id=scrape_request_id)
     finally:
