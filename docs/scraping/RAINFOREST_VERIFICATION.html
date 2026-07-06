@@ -168,6 +168,35 @@ The first live check ran as <b>"Deliver to Pakistan"</b> and showed only 4 brand
   <li><b>Credits:</b> 250 spent (cap honored exactly); ≈185 remain on the plan. The second half (358 companies + the 24 pending) needs ~250 more → after the monthly reset or a plan upgrade. Everything decided is cached — nothing gets re-spent.</li>
 </ul>
 
+<h2>Rainforest credit ledger</h2>
+<p>Running record of Rainforest credit spend. Plan = <b>500 credits / month</b>
+(~$83/mo tier). 1 search = 1 credit <b>whether or not it's on Amazon</b> — a DROP
+("not on Amazon", 0 listings) costs the same as a KEEP, since Rainforest bills per
+search, not per hit. SmartScout matches + the 90-day cache spend 0; a canonical-name
+re-query is +1. Figures are the recorded per-run spends —
+confirm the live balance at app.rainforestapi.com. <b>Append a row to this table
+after every run that spends credits.</b></p>
+<table>
+<tr><th>Date</th><th>Activity</th><th>Credits</th><th>Remaining credits</th><th>Notes</th></tr>
+<tr><td>—</td><td>Plan credits (monthly)</td><td>+500</td><td>500</td><td>resets monthly</td></tr>
+<tr><td>Jul 3</td><td>Key validation + ground-truth smoke (nanobebe / Reef / Digital Sports / Blue Apple)</td><td>4</td><td>496</td><td>proved the engine</td></tr>
+<tr><td>Jul 3</td><td>12-lead Rainforest verification (SmartScout-miss sample)</td><td>12</td><td>484</td><td>Playwright-cross-checked</td></tr>
+<tr><td>Jul 3</td><td>Bug-fix re-tests (space-match, SmartScout precedence, canonical re-query)</td><td>~8</td><td>~476</td><td>caught 2 real bugs</td></tr>
+<tr><td>Jul 3</td><td>50-lead validation batch</td><td>16</td><td>~460</td><td>7 KEEP / 2 REVIEW / 41 DROP</td></tr>
+<tr><td>Jul 4</td><td>Live shadow pipeline batch (100-lead target)</td><td>9</td><td>~451</td><td>8/8 page-verified</td></tr>
+<tr><td>Jul 4</td><td>Retro-QA of batch #44 — first half (359 companies)</td><td>250</td><td>~201</td><td>hit the 250-credit cap; 24 companies left PENDING</td></tr>
+<tr><td>Jul 4</td><td>Misc re-verification</td><td>~16</td><td><b>≈185</b></td><td>running total; confirm on dashboard</td></tr>
+</table>
+<div class="box amber">
+<b>Outstanding demand:</b> the retro-QA second half (358 companies + the 24 PENDING)
+needs <b>~250 credits</b> — more than the ≈185 left this cycle. Options: wait for the
+monthly reset, or upgrade the tier. Cached results are never re-charged, so the
+second half only pays for companies not yet seen. <b>Going forward</b>, each production
+scrape logs its Rainforest spend in the worker run summary (<code>amazon_qa_credits</code>),
+and API errors/credit-exhaustion show on the admin <b>API-health</b> panel — this table
+is the human-readable ledger on top of that.
+</div>
+
 <div class="box green">
 <b>Bottom line:</b> both checks (on-Amazon + $500k floor) are implemented, tested (37 offline tests), <b>independently verified against the live Amazon page in both directions</b>, hardened by two verification-caught fixes (canonical-name re-query, SmartScout precedence), <b>validated inside the real pipeline</b> (live shadow batch, Playwright-verified 8/8), and <b>applied retroactively to half of batch #44</b> (78% of decided companies out-of-ICP — the garbage layer quantified). Remaining: second half of the retro-QA (post credit reset), the ENFORCE flip decision, and commit/deploy of the wiring.
 </div>

@@ -79,6 +79,21 @@ Beauty by Earth <b>$35.7M</b> · The Mayfair Group <b>$35.4M</b> · ForestLeaf <
 <tr><td>At 20k leads/month scale</td><td>~$700–800/mo on the current tier; <b>volume tiers bring this down</b> — pick once scale is decided</td></tr>
 </table>
 
+<h2>Rainforest credit usage — record</h2>
+<p class="sub">Plan = <b>500 credits/month</b> (~$83). 1 check = 1 credit; SmartScout matches + the 90-day cache cost 0. Recorded spend to date (confirm live balance on the Rainforest dashboard):</p>
+<table>
+<tr><th>Activity</th><th>Credits</th><th>Remaining credits</th></tr>
+<tr><td>Monthly plan credits</td><td>+500</td><td>500</td></tr>
+<tr><td>Build + verification testing (smoke, 12-lead check, bug-fix re-tests)</td><td>~40</td><td>~460</td></tr>
+<tr><td>50-lead validation batch</td><td>16</td><td>~444</td></tr>
+<tr><td>Live shadow pipeline batch</td><td>9</td><td>~435</td></tr>
+<tr><td>Retro-QA of batch #44 (first half, 359 companies)</td><td>250</td><td class="warn"><b>≈185 left</b></td></tr>
+</table>
+<div class="box amber">
+<b>Credit decision:</b> the retro-QA <b>second half needs ~250 credits</b> — more than the ≈185 left this cycle. Wait for the monthly reset, or upgrade the tier (also the call for 20k-leads/month production scale). Nothing already checked is ever re-charged — results are cached 90 days. Going forward, every scrape batch logs its credit spend, and the new admin <b>API-health</b> page flags credit-exhaustion the moment it happens.
+<br><br><b>Note — a search costs 1 credit whether or not there's a match.</b> Rainforest bills per <i>search</i>, not per hit: a company that turns out to be <b>DROP ("not on Amazon", 0 listings)</b> costs the same 1 credit as a <b>KEEP</b>. You're paying to <i>ask the question</i>, not for a positive answer — which is why the free filters (SmartScout, the cache, and the upstream QA gates) run first, so we only spend a credit on companies worth asking about.
+</div>
+
 <h2>Honest limits (so there are no surprises)</h2>
 <ul>
   <li><b>Revenue figures are estimates/floors, not tax returns.</b> No tool (including Helium 10 — also an estimate) gives true books revenue. A KEEP means "provably at least this much on Amazon."</li>
