@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amazon Revenue QA Bot — Requirements, Options & Recommendation</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#1a1d23;
+       max-width:900px;margin:0 auto;padding:32px 24px 80px;line-height:1.55;background:#fafafa;font-size:15px;}
+  h1{font-size:26px;margin:0 0 4px;} h2{font-size:20px;margin:34px 0 10px;border-bottom:2px solid #e1e4e8;padding-bottom:5px;}
+  h3{font-size:15.5px;margin:16px 0 4px;}
+  .sub{color:#5e6470;margin:0 0 20px;}
+  .card{background:#fff;border:1px solid #e1e4e8;border-radius:12px;padding:16px 20px;margin:14px 0;}
+  ul{margin:6px 0;padding-left:20px;} li{margin:5px 0;}
+  .pill{display:inline-block;font-size:11px;font-weight:700;border-radius:5px;padding:1px 8px;vertical-align:middle;}
+  .rec{background:#d1fae5;color:#166534;} .avoid{background:#fee2e2;color:#991b1b;} .maybe{background:#fef3c7;color:#92400e;} .done{background:#e0f2fe;color:#075985;}
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e1e4e8;border-radius:10px;overflow:hidden;margin:12px 0;font-size:13.5px;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid #f0f1f3;vertical-align:top;}
+  th{background:#f9fafb;color:#5e6470;font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+  tr:last-child td{border-bottom:none;}
+  .pro{color:#166534;} .con{color:#991b1b;}
+  .box{border-radius:10px;padding:14px 18px;margin:16px 0;}
+  .box.green{background:#f3fbf6;border:1px solid #bbf7d0;} .box.blue{background:#eef4ff;border:1px solid #c7d7fe;} .box.amber{background:#fffdf7;border:1px solid #fde68a;}
+  .box h3{margin:0 0 8px;}
+  .muted{color:#8c959f;font-size:13px;} code{background:#eef2f7;padding:1px 5px;border-radius:4px;font-size:13px;}
+  .flow{background:#fff;border:1px solid #e1e4e8;border-radius:10px;padding:12px 16px;font-size:13.5px;line-height:1.9;}
+  .flow b{background:#1c2433;color:#fff;border-radius:6px;padding:2px 8px;font-size:12.5px;}
+</style></head><body>
+
+<h1>Amazon Revenue QA Bot</h1>
+<p class="sub">What it needs to do, the options we researched (with trade-offs), and the recommended path — with reasons. Prepared 2026-06-30.</p>
+
+<h2>1. Why we're building this</h2>
+<div class="card">
+Right now ~50–70% of the leads we scrape are <b>below our ideal customer</b> — small brands that won't convert. Before we spend money enriching and emailing them, we want a <b>quality gate</b> that keeps only brands that are (a) <b>actually selling on Amazon</b> and (b) <b>making at least $500,000/year</b> there. Think of it as the Amazon version of the e-commerce checker we already run.
+</div>
+
+<h2>2. Requirements — what the feature must do</h2>
+<div class="card"><ul>
+  <li><b>Sit inside the existing flow</b>, after the e-commerce check and <b>before</b> we grab emails (so we don't pay to enrich bad leads):
+    <div class="flow" style="margin-top:8px"><b>Scrape</b> → <b>E-commerce QA</b> → <b>Amazon Revenue QA (this)</b> → <b>Grab email</b> → <b>MillionVerifier</b> → <b>Jam approves</b> → <b>200k DB</b></div>
+  </li>
+  <li><b>Check Amazon presence</b> — is this brand actually selling on Amazon?</li>
+  <li><b>Get the brand's Amazon revenue</b> and keep only those ≥ <b>$500k/year</b> (the number must be easy to change).</li>
+  <li><b>Match the company to the right Amazon brand accurately</b> — e.g. "Blue Apple Co." must NOT be mistaken for the giant brand "Apple".</li>
+  <li><b>Output the revenue as its own column</b> in the results.</li>
+  <li><b>Never silently drop a lead</b> — if revenue is unknown, send it to Jam for review.</li>
+  <li>Be <b>reliable, low-maintenance, and safe</b> — no account bans or terms-of-service violations.</li>
+</ul></div>
+
+<h2>3. The three pieces (and where the real decision is)</h2>
+<table>
+  <tr><th>Piece</th><th>Status</th><th>Notes</th></tr>
+  <tr><td><b>Brand matching</b> (accuracy)</td><td><span class="pill done">Built</span></td><td>Strict matcher done — the old loose match wrongly tagged "Blue Apple Co.", "NAF NAF" as "Apple" ($2.9B). Fixed.</td></tr>
+  <tr><td><b>Revenue source</b></td><td><span class="pill maybe">The decision</span></td><td>Where do we get each brand's Amazon revenue? — options in §4.</td></tr>
+  <tr><td><b>Amazon presence check</b></td><td><span class="pill maybe">Decide</span></td><td>For brands our revenue source doesn't cover — options in §5.</td></tr>
+</table>
+
+<h2>4. Revenue source — options, pros &amp; cons</h2>
+
+<div class="card">
+<h3>Option A — SmartScout, manual refresh <span class="pill rec">Recommended (now)</span></h3>
+<p class="muted">We already have SmartScout data loaded. Periodically re-export from SmartScout and re-upload (<code>run.py upload-smartscout</code>).</p>
+<ul>
+  <li class="pro">✔ Already integrated; gives <b>brand revenue directly</b> (no extra assembly).</li>
+  <li class="pro">✔ Uses our existing plan — near-zero extra cost.</li>
+  <li class="pro">✔ Legitimate — <b>no terms-of-service / ban risk</b>.</li>
+  <li class="pro">✔ Accurate enough for a coarse $500k line (~80–90% vendor-claimed).</li>
+  <li class="con">✘ Our copy is a <b>static snapshot</b> (currently ~May 8) — goes stale unless we re-upload.</li>
+  <li class="con">✘ <b>Low coverage of our leads: only ~14–20% name-match</b> (measured — see the Coverage box below); fuller data barely helps. Refresh is manual.</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>Option B — SmartScout API <span class="pill maybe">Recommended (if we want it automated)</span></h3>
+<p class="muted">SmartScout's paid API returns brand revenue on demand.</p>
+<ul>
+  <li class="pro">✔ <b>Fresh, automated, direct brand revenue</b> — solves the staleness problem cleanly.</li>
+  <li class="pro">✔ Legitimate API — no ToS/ban risk; data updated daily.</li>
+  <li class="con">✘ <b>Enterprise add-on, ~$399+/mo, custom pricing</b> (must contact sales).</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>Option C — Keepa API <span class="pill maybe">Cheap fallback</span></h3>
+<ul>
+  <li class="pro">✔ Cheap (~$54/mo); legitimate API; can filter by brand; uses Amazon's real "bought past month" number.</li>
+  <li class="con">✘ <b>No brand revenue directly</b> — it's per-product, so we'd build the "list the brand's products → sum revenue" logic ourselves.</li>
+  <li class="con">✘ The sold-count is missing for low-volume products.</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>Option D — Rainforest API <span class="pill maybe">Weaker fit</span></h3>
+<ul>
+  <li class="pro">✔ Real-time public Amazon data; legitimate.</li>
+  <li class="con">✘ Returns <b>units only, not revenue</b>; no brand aggregation; pricier entry (~$83+/mo).</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>Option E — Helium 10 via browser automation <span class="pill avoid">Avoid</span></h3>
+<p class="muted">Log into Helium 10 on a VM and scrape its tools with Playwright.</p>
+<ul>
+  <li class="pro">✔ Fresh, broad coverage.</li>
+  <li class="con">✘ <b>Directly violates Helium 10's Terms of Service</b> (no automated access) → account can be suspended without notice.</li>
+  <li class="con">✘ <b>Google blocks automated logins</b>; needs periodic <b>manual re-login</b> — not truly unattended.</li>
+  <li class="con">✘ Revenue accuracy for gating is <b>unverified</b>; fragile + high-maintenance (the team already failed at Amazon scraping before).</li>
+</ul>
+</div>
+
+<h2>5. Amazon presence check — options</h2>
+<div class="card">
+<p>Most covered brands are confirmed "on Amazon" simply by matching SmartScout. For the rest:</p>
+<ul>
+  <li><b><span class="pill rec">Recommended</span> Managed Amazon-data API</b> (e.g. Rainforest) — reliable, ~$25–75/mo, they handle proxies/CAPTCHAs. <span class="pro">✔ low-maintenance</span></li>
+  <li><b><span class="pill avoid">Avoid</span> DIY Playwright + proxies + CAPTCHA solver</b> — ~$100–290/mo <b>plus heavy maintenance</b>, fragile; Amazon's CAPTCHAs already defeated the team once.</li>
+</ul>
+</div>
+
+<h2>6. Recommendation &amp; reasons</h2>
+<div class="box green">
+<h3>✅ Recommended path (realistic — a filter + review queue, not a hands-off gate)</h3>
+<ul>
+  <li><b>Brand matching:</b> keep the strict matcher (built) + add space-insensitive normalization to recover name-variant brands. <span class="muted">— loose matching produced $2.9B false positives; better normalization lifted coverage 14%→18%.</span></li>
+  <li><b>Revenue for the ~20% clean Amazon brands:</b> gate on <b>SmartScout</b> (manual re-upload now; API later). <span class="muted">— only safe, direct brand-revenue source; no ban risk; accurate enough for a coarse line.</span></li>
+  <li><b>Amazon presence — the higher-leverage next piece:</b> a <b>managed API</b> to sort the other ~80% into "on Amazon → fetch revenue" vs "not on Amazon → out of ICP / drop." <span class="muted">— for most leads, "are they even on Amazon?" is more decisive than the exact revenue; a managed API avoids the CAPTCHA war the team lost before.</span></li>
+  <li><b>Live revenue for the "on-Amazon-but-unmatched" slice:</b> only if needed, <b>Keepa</b> (~$54/mo, legitimate API).</li>
+  <li><b>Unknown → Jam review</b>, never a silent drop. <span class="muted">— a review tail is unavoidable; the goal is to shrink it, not eliminate it.</span></li>
+</ul>
+</div>
+<div class="box amber">
+<h3>⚠️ What we explicitly ruled out — and why</h3>
+<b>Helium 10 browser automation.</b> It's a Terms-of-Service violation (ban risk), Google blocks the automated login (so it needs constant manual re-logins — not unattended), and its gate-accuracy is unverified. For a <i>coarse</i> $500k threshold the payoff doesn't justify the legal + reliability risk — especially when SmartScout already gives us brand revenue safely.
+</div>
+
+<div class="box amber">
+<h3>⚠️ Coverage — MEASURED, and it's the crux (not assumed)</h3>
+We tested this against a 1,500-company sample of our real leads:
+<table style="margin:8px 0">
+  <tr><th>Match approach</th><th>Coverage of our leads</th></tr>
+  <tr><td>Exact match vs our 275k snapshot</td><td>13%</td></tr>
+  <tr><td>Exact match vs the <b>fuller 513k SmartScout file</b></td><td>14%</td></tr>
+  <tr><td>+ better (space-insensitive) matching</td><td>18%</td></tr>
+  <tr><td>+ fuzzy (estimated ceiling)</td><td>~20–25%</td></tr>
+</table>
+<ul>
+  <li><b>More/fresher SmartScout data does NOT fix this</b> — going from 275k → 513k moved coverage 13% → 14%. Completeness was never the bottleneck; SmartScout tops out at ~20% of our leads.</li>
+  <li>The ~80% that don't match split roughly in half: <b>real Amazon brands whose names just differ</b> (Nano Bebe→"nanobebe", Linjer, Rainier Arms — recoverable only via a <b>live per-brand lookup</b>), and <b>resellers / agencies / multi-brand sellers / services</b> (Digital Sports Mgmt, Best Priced Products, Ohio Power Tool — not a single Amazon brand, largely <b>out of ICP</b>).</li>
+  <li><b>Implication:</b> there is <b>no cheap, safe, high-coverage revenue auto-gate</b> — matching arbitrary company names to Amazon brand revenue is a hard entity-resolution problem (which is why past attempts struggled). This feature is realistically a <b>high-confidence filter + a review queue, not a 100% auto-gate.</b></li>
+  <li>The low match rate is also a <b>lead-sourcing signal</b>: a large share of scraped leads aren't identifiable Amazon consumer brands in the first place.</li>
+</ul>
+</div>
+
+<div class="box blue">
+<h3>In one sentence</h3>
+This is a <b>filter + review queue</b>: <b>SmartScout</b> auto-decides the ~20% of leads that are clean, matchable Amazon brands (safely, no ban risk); a <b>managed presence API</b> sorts the rest into on-Amazon vs out-of-ICP; anything uncertain goes to <b>Jam</b> — with Helium 10 UI automation avoided entirely. A revenue number for <i>every</i> lead isn't achievable cheaply or safely, and the low match rate itself flags that much of the lead pool isn't Amazon-brand ICP.
+</div>
+
+<h2>Final validated design</h2>
+<div class="card">
+<b>Per lead, a cheap cascade → KEEP / DROP / REVIEW:</b>
+<div class="flow" style="margin:8px 0">
+<b>1</b> strict brand-match → in <b>SmartScout?</b> → yes: revenue ≥ $500k → <b>KEEP</b>, else <b>DROP</b>  <span class="muted">(~20% of leads, free)</span><br>
+<b>2</b> else → <b>Rainforest search</b> (1 credit): &lt;2 branded listings → <b>DROP</b> (not on Amazon) · "bought past month"×price ≥ $500k/yr → <b>KEEP</b> · established (has sales label or ≥1,000 ratings) but below → <b>REVIEW</b> · otherwise <b>DROP</b> (small)<br>
+<b>3</b> anything unknown/low-signal → <b>Jam review</b> (never a silent drop)
+</div>
+<b>Why it's sound:</b> the KEEP is a <b>revenue floor</b> from Amazon's own "bought past month" counts — we only under-read, so <b>a KEEP is never a false positive.</b> DROP = not-on-Amazon or demonstrably tiny. REVIEW = a small, bounded human queue.<br>
+<b>Provider-agnostic:</b> the scorer only needs <code>{title, price, bought-past-month, ratings}</code> per result → Rainforest is proven, but the fetch layer swaps to DataForSEO/Oxylabs without touching the logic.
+</div>
+
+<div class="box green">
+<h3>✅ Validated on real data (before the free trial lapsed)</h3>
+<ul>
+  <li><b>Strict matcher</b> kills the false positives ("Blue Apple Co." ≠ brand "Apple").</li>
+  <li><b>Revenue floor works:</b> Nano Bebe → <b>$2.36M/yr → KEEP</b> (from 25 labeled products), no Helium 10.</li>
+  <li><b>Coverage measured:</b> SmartScout name-matches ~20% of leads; of the rest, ≥14% are on Amazon (recoverable) and ~77% are <b>not on Amazon</b> (out of ICP — the "garbage leads" the bot is meant to filter).</li>
+  <li><b>Presence check</b> cleanly separates real brands (nanobebe) from non-brands (Digital Sports Mgmt).</li>
+</ul>
+Built + local: <code>amazon_brand_match.py</code> (strict matcher), <code>amazon_revenue_qa.py</code> (cascade + $500k gate + cache), <code>amazon_presence.py</code> (presence + floor scorer), <code>brand_revenue_cache</code> table.
+</div>
+
+<div class="box amber">
+<h3>⚠️ Outcome / blocker (2026-07-01)</h3>
+The <b>Rainforest free trial is exhausted</b> — they allow <b>one free trial per organisation</b> and suspended a second account. The method is proven; running it at scale now needs <b>paid credits</b>. This is a small spend decision, not a technical blocker:
+<ul>
+  <li><b>Rainforest paid</b> ~$83/mo — cleanest (integration already built + proven).</li>
+  <li><b>DataForSEO</b> pay-as-you-go (~cents/request, $50 min) — likely cheaper; verify it returns "bought past month" first, then swap the fetch layer.</li>
+</ul>
+</div>
+
+<h2>Implementation plan</h2>
+<div class="card"><ul>
+  <li><b>Phase 0 — build (DONE, local):</b> strict matcher, cascade, $500k gate, cache table, SmartScout provider, Rainforest floor-scorer — all built and validated on real data.</li>
+  <li><b>Phase 1 — fund a provider:</b> pick Rainforest (paid) or verify+choose DataForSEO; put the API key in the worker's env. <span class="muted">(This is the one gating decision.)</span></li>
+  <li><b>Phase 2 — wire into the pipeline:</b> run the cascade in the worker <b>after</b> the e-commerce QA (<code>brand_verify</code>) and <b>before</b> email-grab; write <b>revenue + verdict</b> as columns on <code>prospeo_new_leads</code>; cache results in <code>brand_revenue_cache</code>.</li>
+  <li><b>Phase 3 — surface to Jam:</b> show KEEP/DROP/REVIEW on the <code>/batches</code> review; the <b>REVIEW</b> queue is handled by a human (optionally Claude-Chrome + your Helium 10 login for spot revenue).</li>
+  <li><b>Phase 4 — schedule, tune, monitor:</b> periodic SmartScout re-export/upload for freshness; calibrate thresholds (ratings floor, grey band) on a labeled sample; MillionVerifier + Jam approval → 200k DB (existing path).</li>
+  <li><b>Ongoing:</b> keep the fetch layer swappable; revisit Keepa / Helium 10 only if a gap demands it.</li>
+</ul></div>
+
+<p class="muted">Full cited research: <code>HELIUM10_FEASIBILITY_RESEARCH.md</code> · Build spec + decision log: <code>AMAZON_REVENUE_QA_BOT_INSTRUCTIONS.md</code>. Built (local, uncommitted): <code>amazon_brand_match.py</code>, <code>amazon_revenue_qa.py</code>, <code>amazon_presence.py</code>, <code>brand_revenue_cache</code> table.</p>
+
+</body></html>

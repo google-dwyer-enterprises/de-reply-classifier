@@ -71,7 +71,7 @@
       <th>Company</th>
       <th>Industry</th>
       <th title="Automated brand-vs-reseller check. Hover a value for the evidence.">Brand check</th>
-      <th title="Matched against the SmartScout registry of Amazon-selling brands (same identity guards as the brand check).">On Amazon</th>
+      <th title="Amazon Revenue QA: on Amazon + estimated/measured revenue vs the $500k/yr floor (SmartScout first, Rainforest fallback). Hover a verdict for the reason. Advisory for now — you still decide.">Amazon QA</th>
       <th title="MillionVerifier email verification. Runs automatically before approved leads enter the pool.">Email verified</th>
       <th>Status</th>
     </tr>
@@ -95,7 +95,18 @@
         {% endif %}
       </td>
       <td>
-        {% if ld.amazon_presence == 'yes' %}
+        {% if ld.amazon_verdict %}
+          {% set amz_rev = ('$%s/yr' % ('{:,.0f}'.format(ld.amazon_revenue_annual)) if ld.amazon_revenue_annual else 'no revenue signal') %}
+          {% if ld.amazon_verdict == 'KEEP' %}
+            <span class="badge badge-approved" title="{{ ld.amazon_reason or '' }} ({{ ld.amazon_revenue_source or '' }})">✓ {{ amz_rev }}</span>
+          {% elif ld.amazon_verdict == 'REVIEW' %}
+            <span class="badge badge-pending" title="{{ ld.amazon_reason or '' }} ({{ ld.amazon_revenue_source or '' }})">? review · {{ amz_rev }}</span>
+          {% elif ld.amazon_verdict == 'DROP' %}
+            <span class="badge badge-rejected" title="{{ ld.amazon_reason or '' }} ({{ ld.amazon_revenue_source or '' }})">✗ {{ 'not on Amazon' if not ld.amazon_revenue_annual else amz_rev }}</span>
+          {% else %}
+            <span class="badge badge-pending" title="{{ ld.amazon_reason or '' }}">… pending</span>
+          {% endif %}
+        {% elif ld.amazon_presence == 'yes' %}
           <span class="badge badge-approved">Yes</span>
         {% elif ld.amazon_presence == 'no' %}
           <span class="badge badge-pending">No</span>

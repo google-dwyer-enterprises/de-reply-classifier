@@ -255,6 +255,14 @@ def main() -> None:
     sl.add_argument("--skip-brand-verify", action="store_true",
                     help="[bettercontact] Skip the reseller-detection layer "
                          "(domain cache + Shopify probe + SmartScout confirm)")
+    sl.add_argument("--skip-amazon-qa", action="store_true",
+                    help="[bettercontact] Skip the Amazon Revenue QA gate (Rainforest). "
+                         "Useful for smoke tests or when Rainforest credits are exhausted.")
+    sl.add_argument("--amazon-qa-max-credits", type=int, default=150,
+                    help="[bettercontact] Hard Rainforest credit cap for the Amazon QA gate "
+                         "across the whole run (default 150). One credit = one new company "
+                         "search; cache hits are free. Shadow mode only stamps the verdict; "
+                         "set AMAZON_QA_ENFORCE=True in bettercontact_sync.py to auto-drop.")
     sl.add_argument("--with-mobile", action="store_true",
                     help="[prospeo] Enrich accepted leads with mobile (10 credits each)")
     sl.add_argument("--enrichment", choices=["email", "both"], default="email",
@@ -381,7 +389,10 @@ def main() -> None:
                                page_limit=args.page_limit,
                                dry_run=args.dry_run,
                                max_credits=args.max_credits,
+                               skip_llm=args.skip_llm,
                                skip_brand_verify=args.skip_brand_verify,
+                               skip_amazon_qa=args.skip_amazon_qa,
+                               amazon_qa_max_credits=args.amazon_qa_max_credits,
                                enrichment=args.enrichment)
         else:
             prospeo_main(mode=args.mode,

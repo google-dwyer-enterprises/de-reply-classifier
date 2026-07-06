@@ -213,7 +213,9 @@ def fetch_leads_for_batch(scrape_request_id: int) -> list[dict]:
                 select id, email, first_name, last_name, title, company_name,
                        source_industry, lead_approval, lead_moved_at, rejected,
                        brand_verify_result, brand_verify_method,
-                       brand_verify_evidence, mv_result, amazon_presence
+                       brand_verify_evidence, mv_result, amazon_presence,
+                       amazon_verdict, amazon_revenue_annual,
+                       amazon_revenue_source, amazon_reason
                   from prospeo_new_leads
                  where scrape_request_id = %s
                  order by id
