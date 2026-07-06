@@ -148,15 +148,54 @@ def get_env(name: str) -> str:
     return val
 
 
-def verify_supabase(client, email_type: str = "received") -> None:
-    """Reachability check for the destination table for this sync's email_type."""
+def verify_supabase(client, email_type: str = "received", retries: int = 4) -> bool:
+    """Cheap, resilient reachability check for this sync's destination table.
+
+    Root-cause history (2026-07-06 cron failure): this used
+    `select("*", count="exact", head=True)`. An EXACT count(*) on a large table
+    (sent_messages ~430k rows) periodically exceeds Supabase's statement timeout
+    and PostgREST returns `500 "JSON could not be generated"` (empty details) —
+    which sys.exit()'d and, via the `&&` cron chain, aborted the ENTIRE daily
+    refresh (sync + classify + follow-up steps).
+
+    Fix (layered):
+      1. Reachability is a `limit(1)` read — it cannot time out like a full
+         count scan. The rowcount is fetched separately as an ESTIMATE
+         (pg_class reltuples, O(1)), best-effort and purely informational.
+      2. Transient errors are retried with backoff.
+      3. The RECEIVED table is the critical path -> sys.exit() on exhaustion.
+         The SENT table only feeds the follow-up tracker and is idempotent, so
+         a transient blip returns False (caller skips this run's sent pass and
+         the pipeline continues) instead of killing the whole cron.
+
+    Returns True if reachable, False if a non-critical (sent) check gave up.
+    """
     table = TABLE_BY_TYPE[email_type]
-    try:
-        resp = client.table(table).select("*", count="exact", head=True).execute()
-    except Exception as e:
-        sys.exit(f"FATAL: cannot access Supabase '{table}' table: {e}")
-    count = resp.count if resp.count is not None else "?"
-    print(f"Supabase OK — {table} table reachable (current rowcount={count})")
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            client.table(table).select("*").limit(1).execute()   # can't time out
+            try:
+                r = client.table(table).select("*", count="estimated", head=True).execute()
+                cnt = r.count if r.count is not None else "?"
+            except Exception:
+                cnt = "?"   # estimate is optional; reachability already proven
+            print(f"Supabase OK — {table} table reachable (est. rowcount={cnt})")
+            return True
+        except Exception as e:
+            last_err = e
+            if attempt < retries:
+                wait = min(30, 2 ** attempt)
+                print(f"  Supabase check on {table} failed (attempt {attempt}/{retries}): "
+                      f"{str(e)[:140]} — retrying in {wait}s")
+                time.sleep(wait)
+    if email_type == "received":
+        sys.exit(f"FATAL: cannot access Supabase '{table}' table after {retries} "
+                 f"attempts: {last_err}")
+    print(f"WARNING: skipping the '{table}' sync this run — reachability check failed "
+          f"after {retries} attempts: {last_err}. Non-critical (feeds the follow-up "
+          f"tracker, catches up next run); the pipeline continues.")
+    return False
 
 
 def make_session(api_key: str) -> requests.Session:
@@ -491,7 +530,10 @@ def main() -> None:
     supabase_key = get_env("SUPABASE_KEY")
 
     supabase = create_client(supabase_url, supabase_key)
-    verify_supabase(supabase, args.email_type)
+    if not verify_supabase(supabase, args.email_type):
+        # Non-critical (sent) table transiently unreachable — skip this run's
+        # sent pass cleanly (exit 0) so the daily cron chain continues.
+        return
 
     session = make_session(instantly_key)
     limiter = RateLimiter(DEFAULT_MIN_INTERVAL_S)
