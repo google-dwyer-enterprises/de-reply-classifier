@@ -23,13 +23,35 @@ from instantly_sync import (
 TABLES = ("replies", "sent_messages")
 
 
+def _pg_array_literal(tags: list[str]) -> str:
+    """Render a text[] as a Postgres array literal for a PostgREST filter.
+
+    Each element is double-quoted with `"`/`\\` escaped, e.g.
+    ["Booked", "a,b"] -> '{"Booked","a,b"}'. Empty list -> '{}'.
+    """
+    parts = []
+    for t in tags:
+        esc = str(t).replace("\\", "\\\\").replace('"', '\\"')
+        parts.append(f'"{esc}"')
+    return "{" + ",".join(parts) + "}"
+
+
 def backfill_table(supabase, table: str, tags_map: dict[str, list[str]]) -> int:
+    """Backfill campaign tags, touching only rows whose tags actually differ.
+
+    New rows are already tagged at insert time (instantly_sync.parse_email), so
+    the `neq` guard makes the daily run a near-zero-write no-op while still
+    propagating genuine campaign→tag mapping changes to existing rows. Combined
+    with the campaign_id index this keeps each UPDATE fast — the previous
+    unguarded, unindexed full-table rewrite timed out on sent_messages (~445k rows).
+    """
     total_updated = 0
     for cid, tags in tags_map.items():
         resp = (
             supabase.table(table)
             .update({"tags": tags})
             .eq("campaign_id", cid)
+            .neq("tags", _pg_array_literal(tags))
             .execute()
         )
         n = len(resp.data or [])

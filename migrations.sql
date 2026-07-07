@@ -233,6 +233,12 @@ alter table sent_messages add column if not exists thread_id text;
 create index if not exists sent_messages_send_kind_idx on sent_messages (send_kind);
 create index if not exists sent_messages_thread_id_idx on sent_messages (thread_id);
 
+-- campaign_id index for backfill_tags' per-campaign UPDATE ... WHERE campaign_id = X.
+-- Without it, each of ~411 per-campaign updates full-scanned sent_messages (~445k
+-- rows), timing out the daily cron (statement_timeout 57014). See backfill_tags.py.
+create index if not exists replies_campaign_id_idx on replies (campaign_id);
+create index if not exists sent_messages_campaign_id_idx on sent_messages (campaign_id);
+
 -- 1.2 — lead_outcomes table for fields the API can't give us.
 -- Holds Status, Qualified, NOTE (JOYCE), Call ffup, Leadlist Source — the
 -- columns that come from Jam's manual tracker CSV. Phase 3 ingests
