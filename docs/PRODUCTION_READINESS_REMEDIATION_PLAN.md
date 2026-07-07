@@ -43,10 +43,12 @@ Status legend: **[DONE]** shipped · **[TODO]** planned.
   (`app.py`); over-annualization guard now also flags the **0-ratings** case →
   REVIEW (`amazon_revenue_qa.py`, +test); removed the `if moved or True:`
   dead condition (`worker.py`).
-- **[TODO] A3 — pin dependencies + unify Python.** `requirements.txt` all `>=`
-  (no lockfile); cron on 3.11 vs web/worker on 3.12. Pin `==` for the key libs;
-  unify all Dockerfiles to 3.12-slim. Own PR — rebuild all three services + smoke
-  test, because a pin can surface an incompatibility.
+- **[PARTIAL] A3 — pin dependencies + unify Python.** Cron Dockerfile unified
+  **3.11 → 3.12-slim** (DONE) — all three services now on the same interpreter,
+  removing the drift. **Still TODO — exact `==` pins:** must be generated in a
+  **3.12** environment (`docker run python:3.12-slim pip install -r
+  requirements.txt && pip freeze`), NOT from the local venv (local is 3.14; its
+  resolved versions may not match 3.12). Requirements stay `>=` until then.
 
 ---
 
@@ -71,10 +73,10 @@ Status legend: **[DONE]** shipped · **[TODO]** planned.
 
 ## Phase C — remaining minor hardening
 
-- **[TODO] C1 — `brand_verify` domain-cache TTL.** `domain_brand_verdicts` reads
-  (`brand_verify.py:175`) have no TTL (unlike the 90-day Amazon cache); a
-  brand→reseller pivot is never re-caught. Add a `fetched_at` TTL read filter
-  (add the column if absent).
+- **[DONE] C1 — `brand_verify` domain-cache TTL.** `_cache_lookup` now filters
+  `decided_at > now() - 90 days` (`CACHE_TTL_DAYS`), so a stale brand→reseller
+  pivot is re-judged instead of trusted forever. (`decided_at` already exists
+  with `default now()`, NOT NULL — verified 939/939 rows populated.)
 - **[TODO / decision] C2 — batch share-link write auth.**
   `/batch/<token>/mass-approve|mass-reject|bulk-update` (`app.py:615`) are
   token-only yet write approvals. Decide: accept + document (NocoDB share-link

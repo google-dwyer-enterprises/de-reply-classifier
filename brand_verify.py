@@ -172,6 +172,11 @@ def norm_domain(d: str | None) -> str | None:
 # Stage 0 — cache
 # ---------------------------------------------------------------------------
 
+CACHE_TTL_DAYS = 90   # re-judge a cached domain verdict after this — catches a
+                      # brand->reseller (or ownership) pivot instead of trusting
+                      # a stale verdict forever (parity with the Amazon cache TTL).
+
+
 def _cache_lookup(conn, domains: list[str]) -> dict[str, dict]:
     if not domains:
         return {}
@@ -179,8 +184,10 @@ def _cache_lookup(conn, domains: list[str]) -> dict[str, dict]:
         cur.execute(
             """select domain, verdict, method, confidence, evidence,
                       amazon_presence
-               from domain_brand_verdicts where domain = any(%s)""",
-            (domains,),
+               from domain_brand_verdicts
+              where domain = any(%s)
+                and decided_at > now() - make_interval(days => %s)""",
+            (domains, CACHE_TTL_DAYS),
         )
         return {r[0]: {"verdict": r[1], "method": f"cache:{r[2]}",
                        "confidence": r[3], "evidence": r[4],
