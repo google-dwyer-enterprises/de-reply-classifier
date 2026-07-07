@@ -417,6 +417,13 @@ def _dispatch(args) -> None:
                                amazon_qa_max_credits=args.amazon_qa_max_credits,
                                enrichment=args.enrichment)
         else:
+            # Mobile enrichment bills 10 credits per lead; without a cap the
+            # per-lead spend is unbounded. Parity with the BetterContact phones
+            # guard above — refuse an uncapped mobile run.
+            if args.with_mobile and args.max_credits is None:
+                sys.exit("--with-mobile requires an explicit --max-credits "
+                         "(mobile enrichment costs 10 credits per lead; an "
+                         "uncapped run has no spend ceiling)")
             prospeo_main(mode=args.mode,
                          domains_csv=args.domains, limit=args.limit,
                          target_leads=args.target_leads, country=country_list,

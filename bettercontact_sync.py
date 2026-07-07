@@ -1217,8 +1217,11 @@ def _run_category(conn, api_key: str, *,
                 survivors = []
                 for lead in batch_accepted:
                     dom = _norm_dom(lead.get("company_domain"))
+                    # Fail CLOSED: a missing verdict key must NOT default to
+                    # "brand" (accept) — an unexpected gap should reject the
+                    # paid lead for review, never silently pass it as in-ICP.
                     result, reason = verdicts.get(
-                        dom or f"lead:{lead['email']}", ("brand", "no verdict"))
+                        dom or f"lead:{lead['email']}", ("unknown", "no verdict — fail-closed"))
                     lead["agency_filter_method"] = "llm"
                     lead["agency_filter_result"] = result
                     if result == "brand":

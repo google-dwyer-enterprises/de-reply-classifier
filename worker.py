@@ -25,6 +25,7 @@ steps and env-var checklist.
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import time
 import traceback
@@ -485,14 +486,19 @@ def find_requests_with_pending_moves(conn) -> list[int]:
     cheap even though prospeo_new_leads has tens of thousands of rows.
     """
     with conn.cursor() as cur:
+        # The real gate is the LEAD state (approved + not yet moved), NOT the
+        # request status. Previously this required r.status='ready', so approved
+        # leads stranded on a request that later became 'failed' or 'moved' (e.g.
+        # an MV-retry straggler resolved after finalize, or a mid-batch redeploy
+        # that sweep_stuck_running failed) were never auto-moved — recoverable
+        # only via manual export-leads. The move itself is idempotent + row-locked,
+        # so it's safe to move them whatever the request's current status.
         cur.execute(
             """
             select distinct p.scrape_request_id
               from prospeo_new_leads p
-              join scrape_requests r on r.id = p.scrape_request_id
              where p.lead_approval = 'approved'
                and p.lead_moved_at is null
-               and r.status = 'ready'
              order by p.scrape_request_id
             """
         )
@@ -586,6 +592,16 @@ def move_approved_leads_for_request(conn, request_id: int) -> int:
             emails = movable
             if not emails:
                 return 0
+        elif (os.environ.get("MILLIONVERIFIER_REQUIRED", "").strip().lower()
+              in ("1", "true", "yes", "on")):
+            # Mandatory-verification mode: refuse to move unverified leads into
+            # the client pool (bounces would hit the client's sending domain).
+            # Hold them approved-unmoved; a later poll moves them once a key is
+            # configured. Default (flag unset) keeps the optional no-op behavior.
+            log(f"req #{request_id}: MILLIONVERIFIER_REQUIRED set but no API key — "
+                f"HOLDING {len(emails)} approved lead(s) unmoved (refusing to move "
+                f"unverified). Set MILLIONVERIFIER_API_KEY to release them.")
+            return 0
         else:
             log(f"req #{request_id}: MillionVerifier DISABLED (no API key) — moving "
                 f"{len(emails)} approved lead(s) WITHOUT email verification")
@@ -856,12 +872,27 @@ def log(msg: str) -> None:
     print(f"[{ts}] {msg}", flush=True)
 
 
+_shutdown = False
+
+
+def _handle_shutdown(signum, _frame) -> None:
+    """On SIGTERM/SIGINT (e.g. a Railway redeploy), stop cleanly after the
+    current poll iteration instead of dying mid-work. A scrape in flight is
+    per-page resumable, so worst case it resumes at the last committed page on
+    the next start; between cycles this gives a clean connection close."""
+    global _shutdown
+    _shutdown = True
+    log(f"received signal {signum} — will exit after the current poll iteration")
+
+
 def main() -> None:
     log(f"worker starting (poll interval = {POLL_INTERVAL_S}s)")
+    signal.signal(signal.SIGTERM, _handle_shutdown)
+    signal.signal(signal.SIGINT, _handle_shutdown)
     conn = connect()
     sweep_stuck_running(conn)
     log("entering poll loop")
-    while True:
+    while not _shutdown:
         try:
             did_work = process_one_pending_request(conn)
             # Mass-approve runs before the move so leads flipped this poll
@@ -891,7 +922,18 @@ def main() -> None:
             time.sleep(5)
             conn = connect()
             continue
-        time.sleep(POLL_INTERVAL_S)
+        # Interruptible idle wait: wake immediately on a shutdown signal instead
+        # of blocking a full POLL_INTERVAL_S (so we exit within Railway's grace
+        # window rather than getting SIGKILLed mid-sleep).
+        for _ in range(POLL_INTERVAL_S):
+            if _shutdown:
+                break
+            time.sleep(1)
+    log("poll loop exited — closing DB connection")
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

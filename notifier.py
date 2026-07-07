@@ -34,6 +34,18 @@ import requests
 
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 DEFAULT_FROM = "Dwyer Lead Scraper <noreply@dwyer-enterprises.com>"
+# Resend's universal sender needs no verified domain — the right fallback so a
+# mis-set NOTIFY_FROM (a bare name) or an unverified sending domain can't be the
+# reason Jam's batch email fails to send. Mirrors credit_alerts._resolve_sender.
+RESEND_FALLBACK_FROM = "Dwyer Lead Scraper <onboarding@resend.dev>"
+
+
+def _resolve_sender() -> str:
+    """A sender Resend will accept. NOTIFY_FROM must contain '@' (a bare name
+    like 'Hassan Mehmood' is rejected 422); if it doesn't, fall back to the
+    always-valid resend.dev sender rather than failing the send."""
+    nf = (os.environ.get("NOTIFY_FROM") or "").strip()
+    return nf if "@" in nf else RESEND_FALLBACK_FROM
 
 
 def _build_link(req_id: int, review_token: str | None = None) -> str | None:
@@ -152,7 +164,7 @@ def send_batch_ready_email(req: dict[str, Any]) -> bool:
     """
     api_key = (os.environ.get("RESEND_API_KEY") or "").strip()
     to = (os.environ.get("NOTIFY_EMAIL") or "").strip()
-    sender = os.environ.get("NOTIFY_FROM", DEFAULT_FROM).strip()
+    sender = _resolve_sender()
 
     if not to:
         print("notifier: NOTIFY_EMAIL not set — skipping send", file=sys.stderr)
@@ -197,7 +209,7 @@ def send_no_leads_email(req_id: int, reason: str) -> bool:
     reason (e.g. budget too low). Not a crash — no 'engineer notified' wording."""
     api_key = (os.environ.get("RESEND_API_KEY") or "").strip()
     to = (os.environ.get("NOTIFY_EMAIL") or "").strip()
-    sender = os.environ.get("NOTIFY_FROM", DEFAULT_FROM).strip()
+    sender = _resolve_sender()
     if not (api_key and to):
         return False
 
@@ -237,7 +249,7 @@ def send_failure_email(req_id: int, error: str) -> bool:
     """Optional: tell Jam a job failed. Used by worker on terminal errors."""
     api_key = (os.environ.get("RESEND_API_KEY") or "").strip()
     to = (os.environ.get("NOTIFY_EMAIL") or "").strip()
-    sender = os.environ.get("NOTIFY_FROM", DEFAULT_FROM).strip()
+    sender = _resolve_sender()
     if not (api_key and to):
         return False
 

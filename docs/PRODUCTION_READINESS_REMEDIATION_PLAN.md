@@ -16,19 +16,18 @@ Status legend: **[DONE]** shipped · **[TODO]** planned.
   (~small plan) can't sustain 20k accepted leads/month (~7k Rainforest + ~83k BC
   credits). Provisioning decision (Victor): upgrade Rainforest → Starter and BC →
   a volume/Enterprise plan. No code change.
-- **[TODO] Alerting reaches no one.** Cron service appears to lack
-  `RESEND_API_KEY`/`NOTIFY_EMAIL`, and `notifier.py` has no resend.dev fallback
-  (unlike `credit_alerts`/`job_monitor`). Fix: give `notifier.py` the same
-  `_resolve_sender` fallback + `@`-validation; set Resend env on the cron service.
-- **[TODO] MillionVerifier no-key silently moves UNVERIFIED leads** into
-  `lead_contacts` (`worker.py:589`). Fix: when a key was expected but the gate is
-  disabled, hold leads unmoved (or fail loud) rather than move unverified.
-- **[TODO] Prospeo `--with-mobile` has no credit cap** (`run.py:420`,
-  `prospeo_sync.py:1316`). Fix: refuse `--with-mobile` without `--max-credits`
-  (parity with the BC phones guard).
-- **[TODO] LLM ICP gate fail-OPEN default** (`bettercontact_sync.py:1217`) —
-  missing domain key defaults to "brand"/accept. Fix: default to
-  "unknown"/reject (fail-closed).
+- **[PARTIAL] Alerting reaches no one.** `notifier.py` now has the `_resolve_sender`
+  resend.dev fallback + `@`-validation (DONE). **Still TODO:** set
+  `RESEND_API_KEY`/`NOTIFY_EMAIL` on the **cron** service in Railway (env change,
+  not code) so `job_monitor`/`credit_alerts` emails actually send.
+- **[DONE] MillionVerifier no-key move.** New `MILLIONVERIFIER_REQUIRED` env flag
+  (`worker.py`): when set and no key, HOLD approved leads unmoved instead of
+  moving unverified. Default (unset) preserves the optional no-op behavior.
+- **[DONE] Prospeo `--with-mobile` cap** (`run.py`) — refuses without
+  `--max-credits` (parity with the BC phones guard).
+- **[DONE] LLM ICP gate fail-CLOSED** (`bettercontact_sync.py`) — a missing verdict
+  now defaults to "unknown"/reject, not "brand"/accept. (prospeo_sync already
+  failed closed.)
 
 ---
 
@@ -53,13 +52,13 @@ Status legend: **[DONE]** shipped · **[TODO]** planned.
 
 ## Phase B — worker robustness (higher care; touches worker.py)
 
-- **[TODO] B1 — stranded leads on non-`ready` requests.**
-  `find_requests_with_pending_moves` (`worker.py:490`) requires `r.status='ready'`,
-  so approved-but-unmoved leads on a `failed`/`moved` request never move
-  (manual `export-leads` only). Fix: (1) relax the status filter (the real gate is
-  `lead_approval='approved' AND lead_moved_at IS NULL`; the move is already
-  idempotent + row-locked); (2) add a SIGTERM graceful-shutdown handler so a
-  worker redeploy finishes + commits the current unit instead of orphaning it.
+- **[DONE] B1 — stranded leads on non-`ready` requests.**
+  `find_requests_with_pending_moves` (`worker.py`) no longer filters on
+  `r.status='ready'` — approved-but-unmoved leads move regardless of request
+  status (move is idempotent + row-locked). Added SIGTERM/SIGINT graceful
+  shutdown: the worker exits cleanly after the current poll iteration (sleep is
+  now interruptible) and closes the DB connection; an in-flight scrape remains
+  per-page resumable.
 - **[TODO] B2 — single-threaded worker stalls approvals during long scrapes.**
   The poll loop runs `process_one_pending_request` synchronously (`worker.py:864`);
   a multi-hour scrape blocks approve/move/finalize for already-ready batches.
