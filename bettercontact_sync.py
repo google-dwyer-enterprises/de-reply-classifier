@@ -364,8 +364,15 @@ def min_credits_for(requested_leads: int, enrichment: str = "email") -> int:
 
 def _submit_search(filters: dict, limit: int, offset: int, api_key: str,
                    enrich_phones: bool = False,
-                   ambiguous_attempts: list | None = None) -> str:
+                   ambiguous_attempts: list | None = None,
+                   enrich_email_address: bool = True) -> str:
     """POST a Lead Finder search; returns the async request_id.
+
+    enrich_email_address (default True = classic behavior): set False for
+    EMAIL-FREE discovery — probe-verified 2026-07-08 that BC returns the person
+    + full company firmographics with `credits_consumed: 0.0` when email
+    enrichment is off. This is the discovery step of the revenue-first flow
+    (enrich only survivors via the standalone /api/v2/async endpoint).
 
     enrich_phones (probe-verified 2026-06-12): the Lead Finder accepts
     enrich_phone_number and bills 10 credits per delivered phone on top of
@@ -384,7 +391,7 @@ def _submit_search(filters: dict, limit: int, offset: int, api_key: str,
         "filters": filters,
         "limit": limit,
         "offset": offset,
-        "enrich_email_address": True,
+        "enrich_email_address": bool(enrich_email_address),
         "enrich_phone_number": bool(enrich_phones),
     }
     headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
@@ -471,6 +478,59 @@ def _poll_for_result(request_id: str, api_key: str,
             return data
 
     raise RuntimeError(f"BC poll {request_id} timeout after {timeout_s}s")
+
+
+def enrich_contacts(leads: list[dict], api_key: str,
+                    enrich_phones: bool = False,
+                    timeout_s: int = BC_POLL_TIMEOUT_S) -> dict | None:
+    """Standalone enrichment (POST /api/v2/async): name+company -> email.
+
+    The "enrich only survivors" step of the revenue-first flow. Bills 1 credit
+    per FOUND email (0 if not found). `leads` = dicts with first_name/last_name
+    + company and/or company_domain. Returns the BC result dict (keys
+    `data` [rows with contact_email_address + contact_email_address_status],
+    `credits_consumed`, ...) or None on failure.
+
+    Round-trip probe-verified 2026-07-08: submit -> {id}; poll GET /async/{id}
+    until terminated; result carries data[] + credits_consumed (1 for a found
+    email). Distinct from _submit_search, which is the Lead Finder SEARCH."""
+    if not leads:
+        return {"data": [], "credits_consumed": 0}
+    payload = [{
+        "first_name": l.get("first_name") or l.get("contact_first_name"),
+        "last_name": l.get("last_name") or l.get("contact_last_name"),
+        "company": l.get("company_name") or l.get("company"),
+        "company_domain": l.get("company_domain"),
+        "linkedin_url": l.get("contact_linkedin_profile_url") or l.get("linkedin_url"),
+    } for l in leads]
+    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
+    body = {"data": payload, "enrich_email_address": True,
+            "enrich_phone_number": bool(enrich_phones)}
+    r = requests.post(f"{BC_BASE}/async", json=body, headers=headers,
+                      timeout=BC_REQUEST_TIMEOUT_S)
+    if r.status_code == 402:
+        raise InsufficientCreditsError(f"BC enrich insufficient credits: {r.text[:200]}")
+    if r.status_code not in (200, 201, 202):
+        raise RuntimeError(f"BC enrich submit {r.status_code}: {r.text[:200]}")
+    eid = (r.json() or {}).get("id")
+    if not eid:
+        raise RuntimeError(f"BC enrich returned no id: {r.text[:200]}")
+    url = f"{BC_BASE}/async/{eid}"
+    start = time.time()
+    while time.time() - start < timeout_s:
+        time.sleep(BC_POLL_INTERVAL_S)
+        try:
+            g = requests.get(url, headers={"X-API-Key": api_key},
+                             timeout=BC_REQUEST_TIMEOUT_S)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout,
+                requests.exceptions.ChunkedEncodingError):
+            continue
+        if g.status_code not in (200, 202):
+            continue
+        d = g.json() or {}
+        if (d.get("status") or "").lower() in ("terminated", "completed", "done", "finished"):
+            return d
+    raise RuntimeError(f"BC enrich poll {eid} timeout after {timeout_s}s")
 
 
 def _industry_filters(industry: str, countries: list[str] | None,

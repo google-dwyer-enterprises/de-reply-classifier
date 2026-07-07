@@ -149,10 +149,17 @@ independently re-verified:
 - Billing (documented): 1 credit per verified deliverable email; 0 when
   nothing found; catch-all validation free; **phone = 10 credits** (→ task
   #1, phones, must NOT be enabled at scrape time; see §4 R6).
-- **No preview / search-without-enrichment mode exists** (confirmed) — BC
-  cannot do QA-before-payment. But BC's separate **enrichment API**
-  (`/api/v2/async`: name+company → email, 1 cr per found email, 0 if not
-  found) can serve as the *enricher* in a hybrid pipeline (§3.2).
+- **CORRECTION (2026-07-08, API-probed): Lead Finder DOES have an email-free
+  mode.** An earlier version of this line claimed "no search-without-enrichment
+  mode exists (confirmed)" — that was WRONG. A live probe (`enrich_email_address:
+  false`, limit 2) returned **2 people with full company firmographics +
+  contact name/title/seniority/LinkedIn, `credits_consumed: 0.0`** — only
+  `contact_email_address` is empty. So BC CAN do QA-before-payment on its own:
+  discover email-free (free) → gate on company revenue/ICP → enrich only
+  survivors. The **standalone enrichment endpoint** (`/api/v2/async`: name+company
+  → email, 1 cr per found email, 0 if not found) is the enricher for the
+  survivors. This means the revenue-first pipeline is buildable on BetterContact
+  alone — no Prospeo required. See docs/cost/REVENUE_FIRST_PIPELINE_PLAN.md.
 
 ### 3.2 Prospeo — a documented QA-before-payment pipeline (meeting task #5: FEASIBLE)
 
