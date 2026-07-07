@@ -770,8 +770,13 @@ def _post_filter(lead: dict) -> tuple[bool, str | None]:
     if not bc_language_ok(raw):
         return False, "non_english_site"
 
-    # Work email only — no shared/role mailboxes (info@, sales@…)
-    if is_generic_email(lead.get("email")):
+    # Work email only — no shared/role mailboxes (info@, sales@…).
+    # Guard on presence: the revenue-first flow gates BEFORE enrichment, so
+    # `email` is None here — an empty email must NOT read as "generic" (that
+    # wrongly rejected ~84% in the first validation). The check is re-applied on
+    # the real email post-enrichment in _run_category_revenue_first; the classic
+    # path always has an email so its behavior is unchanged.
+    if lead.get("email") and is_generic_email(lead.get("email")):
         return False, f"generic_email:{_local_part(lead.get('email'))}"
 
     # Must have a company name
@@ -1661,6 +1666,11 @@ def _run_category_revenue_first(conn, api_key: str, *,
                     row = idx.get(k) or {}
                     email = (row.get("contact_email_address") or "").lower().strip()
                     if not email or row.get("contact_email_address_status") != "deliverable":
+                        continue
+                    # Now that we have the real email, apply the generic/role
+                    # mailbox check that _post_filter deferred pre-enrichment.
+                    if is_generic_email(email):
+                        rejected_counts["generic_email"] = rejected_counts.get("generic_email", 0) + 1
                         continue
                     if email in existing_emails:
                         continue
