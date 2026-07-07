@@ -52,3 +52,11 @@ SESSION_HANDOFF.*
 # Claude/Playwright local artifacts — never commit
 .playwright-mcp/
 /*.png
+
+# Status reports (weekly/EOD) — generated locally under ~/.claude/reports/ and
+# NEVER committed or pushed. These patterns also block any that land in the repo.
+*weekly_report*
+*_weekly.html
+*WEEKLY_STATUS*
+*_eod.md
+reports/
