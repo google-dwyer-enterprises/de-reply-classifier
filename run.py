@@ -352,7 +352,11 @@ def _dispatch(args) -> None:
     elif args.command == "generate-followup-experiments":
         import followup_experiments_data as fxd
         from datetime import datetime, timedelta, timezone
-        since = datetime.now(timezone.utc) - timedelta(days=14)
+        # 30-day lookback (not 14): only interest replies with NO experiment yet
+        # are processed (cap-bounded), so a wider window is cheap and lets the
+        # daily run self-heal a cron outage of up to ~30 days instead of leaving a
+        # permanent gap for replies that aged past the window while the cron was down.
+        since = datetime.now(timezone.utc) - timedelta(days=30)
         print(">>> generate-followup-experiments")
         print("created:", fxd.ensure_experiments(None, since, cap=500))
     elif args.command == "attribute-followup-experiments":
