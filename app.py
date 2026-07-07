@@ -364,21 +364,26 @@ def logout():
 @require_admin
 def admin_panel():
     import api_events
+    import job_monitor
     hours = _parse_int_or_none(request.args.get("hours"), 1, 720) or 24
     # The health page must never itself 500 on a DB blip — degrade to an
     # error banner + empty data instead.
     db_error = None
     summary = {"by_pk": [], "by_kind": {}, "total": 0, "hours": hours}
     recent, credit_state = [], []
+    job_health, job_runs = [], []
     try:
         summary = api_events.summary(hours=hours)
         recent = api_events.recent(limit=150)
         credit_state = api_events.credit_alert_state()
+        job_health = job_monitor.daily_health()
+        job_runs = job_monitor.recent_runs(limit=60)
     except Exception as e:
         db_error = str(e)[:300]
     return render_template(
         "admin.html", summary=summary, recent=recent, credit_state=credit_state,
         hours=hours, kinds=api_events.KINDS, db_error=db_error,
+        job_health=job_health, job_runs=job_runs,
     )
 
 

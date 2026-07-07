@@ -20,6 +20,10 @@
   .k-other{background:#f1f5f9;color:#475569}
   .muted{color:#8c959f;font-size:12.5px} .detail{color:#4b5563;font-size:12px;white-space:pre-wrap;max-width:520px}
   h2{font-size:16px;margin:22px 0 6px}
+  .st{font-weight:700;font-size:11.5px;border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .st-success{background:#dcfce7;color:#166534} .st-failure{background:#fee2e2;color:#991b1b}
+  .st-running{background:#e0f2fe;color:#075985} .st-stale{background:#fef3c7;color:#92400e}
+  tr.bad td{background:#fef2f2}
 </style>
 {% endblock %}
 {% block content %}
@@ -40,6 +44,29 @@
     <div class="adm-tile {{ 'zero' if not c }}"><div class="n">{{ c }}</div><div class="k">{{ k.replace('_',' ') }}</div></div>
   {% endfor %}
 </div>
+
+<h2>Daily cron health</h2>
+<p class="muted">Each step the daily cron runs, with its last outcome. <span class="st st-stale">stale</span> = no successful run in the last 26h (a job that <em>didn't run</em> shows here too, not just one that failed).</p>
+{% if job_health %}
+<table>
+  <tr><th>Job</th><th>Last outcome</th><th>Last run (UTC)</th><th>Last success (UTC)</th><th>Took</th><th>Detail</th></tr>
+  {% for j in job_health %}
+  <tr class="{{ 'bad' if not j.ok }}">
+    <td><strong>{{ j.job }}</strong></td>
+    <td>
+      <span class="st st-{{ j.last_status if j.last_status in ('success','failure','running') else 'stale' }}">{{ j.last_status }}</span>
+      {% if j.stale %}<span class="st st-stale">stale</span>{% endif %}
+    </td>
+    <td class="muted">{{ j.last_started.strftime('%b %d, %H:%M') if j.last_started else '—' }}</td>
+    <td class="muted">{{ j.last_success.strftime('%b %d, %H:%M') if j.last_success else 'never' }}</td>
+    <td class="muted">{{ '%.0f s'|format(j.last_duration_ms/1000) if j.last_duration_ms else '—' }}</td>
+    <td class="detail">{{ (j.last_detail or '')[-240:] if j.last_status == 'failure' else '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% elif not db_error %}
+<p class="muted">No cron runs recorded yet — the table populates after the next daily run (or a manual <code>run.py</code> invocation).</p>
+{% endif %}
 
 <h2>By provider &amp; problem</h2>
 {% if summary.by_pk %}
@@ -87,5 +114,23 @@
 </table>
 {% else %}
 <p class="muted">No events recorded yet.</p>
+{% endif %}
+
+<h2>Recent job runs ({{ job_runs|length }})</h2>
+{% if job_runs %}
+<table>
+  <tr><th>Job</th><th>Status</th><th>Started (UTC)</th><th>Took</th><th>Detail</th></tr>
+  {% for r in job_runs %}
+  <tr class="{{ 'bad' if r.status == 'failure' }}">
+    <td><strong>{{ r.job }}</strong></td>
+    <td><span class="st st-{{ r.status }}">{{ r.status }}</span></td>
+    <td class="muted" style="white-space:nowrap">{{ r.started_at.strftime('%b %d %H:%M:%S') if r.started_at else '—' }}</td>
+    <td class="muted">{{ '%.0f s'|format(r.duration_ms/1000) if r.duration_ms else '—' }}</td>
+    <td class="detail">{{ (r.detail or '')[-240:] if r.status == 'failure' else '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No job runs recorded yet.</p>
 {% endif %}
 {% endblock %}

@@ -317,6 +317,24 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Wrap dispatch so every `run.py <cmd>` (each daily-cron step is one) records
+    # a job_run_log row; daily-job failures also escalate to the admin panel +
+    # an email. Fail-safe: if the monitor can't import, fall back to a no-op so
+    # it can never be the reason a command doesn't run.
+    try:
+        from job_monitor import job_run
+    except Exception:
+        from contextlib import contextmanager as _cm
+
+        @_cm
+        def job_run(_job):  # type: ignore[misc]
+            yield
+
+    with job_run(args.command):
+        _dispatch(args)
+
+
+def _dispatch(args) -> None:
     if args.command == "export":
         cmd_export(args)
     elif args.command == "upload-leads":
