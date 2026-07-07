@@ -126,6 +126,12 @@ class TestVerdictAnnualizationGuard(unittest.TestCase):
                               "ratings_total": 5_000})
         self.assertEqual(v, "KEEP")
 
+    def test_zero_ratings_big_floor_goes_review(self):
+        # a KEEP-level floor with NO review base is unverifiable -> REVIEW
+        v, _ = floor_verdict({"branded_hits": 3, "annual_revenue": 2_000_000,
+                              "ratings_total": 0, "annual_units": 40_000})
+        self.assertEqual(v, "REVIEW")
+
 
 class TestRequeryRespellingGuard(unittest.TestCase):
     def test_legit_respellings_allowed(self):

@@ -27,6 +27,7 @@ from __future__ import annotations
 import hmac
 import os
 import sys
+from datetime import timedelta
 from functools import wraps
 from pathlib import Path
 
@@ -95,6 +96,13 @@ LANDING = {"scraper": "batches", "analyst": "analytics", "admin": "admin_panel"}
 
 app = Flask(__name__)
 app.secret_key = (os.environ.get("SECRET_KEY") or "").strip()
+# Cookie hardening — the app is served over HTTPS on Railway. HttpOnly is on by
+# default; add Secure + SameSite and a session lifetime.
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7),
+)
 
 
 # ---------------------------------------------------------------------------

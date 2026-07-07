@@ -216,7 +216,11 @@ def floor_verdict(rev: dict) -> tuple[str, str]:
         # sanity: a KEEP-level floor whose implied annual units wildly exceed the
         # review base is likely over-annualized ("bought last month" x 12 on a
         # spiky/new listing) -> REVIEW for a human, don't auto-KEEP.
-        if ratings > 0 and units > SUSPECT_UNITS_PER_RATING * ratings:
+        if ratings == 0:
+            # no review base at all to corroborate the sales labels -> unverifiable
+            return "REVIEW", (f"floor ${floor:,.0f}/yr but 0 ratings — no review base to "
+                              f"corroborate the sales labels, verify (likely over-annualized)")
+        if units > SUSPECT_UNITS_PER_RATING * ratings:
             return "REVIEW", (f"floor ${floor:,.0f}/yr but implied {units:,} units/yr vs only "
                               f"{ratings:,} ratings ({units/ratings:.0f}x) — verify, likely over-annualized")
         return "KEEP", f"revenue floor ${floor:,.0f}/yr >= ${REVENUE_FLOOR_ANNUAL:,} (measured, under-counted)"

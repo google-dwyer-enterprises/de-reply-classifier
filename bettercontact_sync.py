@@ -91,7 +91,10 @@ import amazon_revenue_qa
 # reject until AMAZON_QA_ENFORCE is flipped. Cost-optimal slot = last
 # company-level gate, after brand_verify (measured on batch #44 — see
 # docs/scraping/RAINFOREST_VERIFICATION.html). Hard per-RUN credit budget.
-AMAZON_QA_ENFORCE = False
+# Env-toggleable (default OFF/shadow): set AMAZON_QA_ENFORCE=true on the worker
+# to auto-drop DROP-verdict leads — no code change/redeploy needed to flip.
+AMAZON_QA_ENFORCE = (os.environ.get("AMAZON_QA_ENFORCE", "").strip().lower()
+                     in ("1", "true", "yes", "on"))
 AMAZON_QA_MAX_CREDITS = 150
 
 

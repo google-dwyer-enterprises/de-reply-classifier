@@ -747,9 +747,11 @@ def process_pending_lead_moves(conn) -> bool:
             mark_failed(conn, rid, "move-to-lead_contacts failed:\n" + tb)
             log(f"req #{rid}: MOVE FAILED — {e}")
             continue
-        if moved or True:  # always check finalize, even when ON CONFLICT skipped everything
+        # Always fall through to finalize, even when ON CONFLICT skipped every
+        # row (moved == 0) — the batch can still be fully decided.
+        if moved:
             log(f"req #{rid}: moved {moved} approved lead(s) into lead_contacts")
-            any_work = True
+        any_work = True
         if finalize_request_if_done(conn, rid):
             log(f"req #{rid}: all leads decided — status=moved")
             compute_qa_metrics(conn, rid)
