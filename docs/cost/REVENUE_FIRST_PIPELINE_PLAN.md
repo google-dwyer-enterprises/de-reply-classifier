@@ -49,7 +49,15 @@ deliverable/movable emails → write → review → MillionVerifier → pool.
   `_gate_per_domain` → `brand_verify` → `amazon_revenue_qa` (reject DROP) →
   `enrich_contacts` survivors only → `_insert_leads`. Requires `--max-credits`.
   Offline-validated (syntax/import/flag-guard/dry-run/tests). NOT deployed.
-- [IN PROGRESS] **Phase 4 validation** — small live run: measure cr/accepted, email
+- [MEASURED 2026-07-08] **Phase 4 — first live validation (bounded caps):**
+  175 discovered (free) → 140 gated out unpaid → **15 enriched + accepted**;
+  **26 BC credits, 25 Rainforest**. → **~1.73 BC cr/accepted vs 4.16 classic
+  (~58% fewer BC credits)** — in the projected 1.3–1.7 band. Amazon revenue gate
+  dropped 34 companies pre-enrichment (the intended "don't pay for sub-floor"
+  saving). Flow ran clean end-to-end; the generic-email over-rejection bug was
+  found + fixed on the first (0-credit) run. Small sample — a larger run + Victor
+  sign-off on the BC→revenue-first switch are the gates before defaulting.
+- [SUPERSEDED by the line above] Phase 4 validation — small live run: cr/accepted, email
   match rate (BC ~52% deliverable / ~94% MV-ok measured), quality via the
   standard audit; A/B vs classic `_run_category`; then default + set
   `AMAZON_QA_ENFORCE`.
