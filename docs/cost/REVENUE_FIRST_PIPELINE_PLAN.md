@@ -43,13 +43,13 @@ deliverable/movable emails → write → review → MillionVerifier → pool.
   (default True = classic; False = free email-free discovery). Backward-compatible.
 - [DONE] **Primitive 2** — `enrich_contacts(leads, api_key)` — standalone
   `/api/v2/async` enricher (name+company → email, 1 cr per found), probe-verified.
-- [TODO] **Orchestration** — `_run_category_revenue_first` behind `--revenue-first`
-  (opt-in). Design below. Needs a *no-email* parse variant (today `_parse_bc_lead`
-  requires an email and returns None without one) + assembly of the verified
-  pieces. Kept out of this commit deliberately: it's a ~150-line reuse-heavy path
-  on the most complex file and **spends money on live runs, so it needs a
-  supervised validation pass** — not shippable blind at the tail of a big session.
-- [TODO] **Phase 4 validation** — small live run: measure cr/accepted, email
+- [DONE] **Orchestration** — `_run_category_revenue_first` + `_parse_bc_person`
+  (email-free parse), behind `--revenue-first` (opt-in, default off). Discover
+  (enrich_email_address=false, free) → `_post_filter` → per-company cap →
+  `_gate_per_domain` → `brand_verify` → `amazon_revenue_qa` (reject DROP) →
+  `enrich_contacts` survivors only → `_insert_leads`. Requires `--max-credits`.
+  Offline-validated (syntax/import/flag-guard/dry-run/tests). NOT deployed.
+- [IN PROGRESS] **Phase 4 validation** — small live run: measure cr/accepted, email
   match rate (BC ~52% deliverable / ~94% MV-ok measured), quality via the
   standard audit; A/B vs classic `_run_category`; then default + set
   `AMAZON_QA_ENFORCE`.

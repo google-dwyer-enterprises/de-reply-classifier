@@ -696,6 +696,46 @@ def _parse_bc_lead(bc: dict, industry: str) -> dict | None:
     }
 
 
+def _parse_bc_person(bc: dict, industry: str) -> dict | None:
+    """Email-FREE variant of _parse_bc_lead for the revenue-first flow.
+
+    Same row shape but WITHOUT requiring an email (discovery ran with
+    enrich_email_address=false, so contact_email_address is empty). Returns a
+    lead dict with email=None for the company/ICP/revenue gates to run on; the
+    email is filled later by enrich_contacts for survivors only. Returns None
+    only if the person/company is structurally unusable (no name or no domain)."""
+    domain = bc.get("company_domain")
+    first = bc.get("contact_first_name")
+    last = bc.get("contact_last_name")
+    if not domain or not (first or last):
+        return None
+    website = bc.get("company_website") or (f"https://{domain}" if domain else None)
+    return {
+        "email": None,
+        "mobile": None,
+        "first_name": first,
+        "last_name": last,
+        "title": bc.get("contact_job_title"),
+        "company_name": bc.get("company_name"),
+        "company_website": website,
+        "company_domain": domain,
+        "company_description": bc.get("company_description"),
+        "company_keywords": bc.get("company_keywords") or [],
+        "company_size_start": bc.get("company_employees_range_start"),
+        "company_size_end": bc.get("company_employees_range_end"),
+        "source_domain": domain,
+        "source_industry": industry,
+        "scrape_mode": "category",
+        "provider": "bettercontact",
+        "mobile_status": None,
+        "contact_linkedin_profile_url": bc.get("contact_linkedin_profile_url"),
+        "agency_filter_result": "accepted",
+        "agency_filter_method": "bettercontact_title_substring",
+        "agency_filter_reason": None,
+        "bettercontact_raw": bc,
+    }
+
+
 def _post_filter(lead: dict) -> tuple[bool, str | None]:
     """Deterministic ICP gates on top of BC's filtering (the LLM brand/category
     gate runs afterward in _run_category). Order is cheapest-reject-first.
@@ -1464,6 +1504,219 @@ def _run_category(conn, api_key: str, *,
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _run_category_revenue_first(conn, api_key: str, *,
+                                target_leads: int | None,
+                                country: list[str] | None,
+                                skip_industries: list[str] | None = None,
+                                page_limit: int = BC_PAGE_LIMIT,
+                                dry_run: bool, max_credits: int | None,
+                                skip_llm: bool = False,
+                                skip_brand_verify: bool = False,
+                                skip_amazon_qa: bool = False,
+                                amazon_qa_max_credits: int = AMAZON_QA_MAX_CREDITS,
+                                scrape_request_id: int | None = None) -> dict:
+    """REVENUE-FIRST category scrape (opt-in, experimental).
+
+    Discover email-free (credits_consumed=0) -> ICP/brand/revenue-gate the
+    company (no email needed) -> enrich ONLY survivors via the standalone
+    endpoint (1 cr/found email). Shifts spend from BetterContact emails to
+    (cheap) Rainforest. Pre-enrich rejects are never paid for or written; their
+    verdicts live in the brand/revenue caches. Needs a Phase-4 live validation
+    before it defaults — see docs/cost/REVENUE_FIRST_PIPELINE_PLAN.md."""
+    countries = country
+    skip_set = set(skip_industries or [])
+    state = _load_state(conn)
+    existing_emails = _load_existing_emails(conn)
+    company_counts = _load_company_counts(conn)
+    amazon_qa_budget = {"max": amazon_qa_max_credits, "spent": 0}
+
+    queue = [ind for ind in BC_INDUSTRIES
+             if ind not in skip_set and not state.get(ind, {}).get("exhausted")]
+    print(f"\ncategory REVENUE-FIRST — countries={countries or '(any)'}, "
+          f"target={target_leads or '(all)'}, BC-enrich cap={max_credits}, "
+          f"Rainforest cap={amazon_qa_max_credits}")
+    zero = {"accepted": 0, "rejected": 0, "credits_spent": 0.0, "csv_path": None,
+            "xlsx_path": None, "rejected_counts": {}, "amazon_qa_credits": 0}
+    if not queue:
+        return {**zero, "aborted_reason": "all_industries_exhausted"}
+    if dry_run:
+        print("--dry-run: no paid calls, no writes.")
+        return {**zero, "aborted_reason": "dry_run"}
+
+    llm_client = llm_system = None
+    accepted: list[dict] = []
+    rejected_counts: dict[str, int] = {}
+    credits_spent = 0.0            # BC ENRICH credits only — discovery is free
+    n_discovered = n_gated_out = 0
+    aborted_reason = None
+
+    for ind in queue:
+        if target_leads and len(accepted) >= target_leads:
+            break
+        offset = state.get(ind, {}).get("last_offset_consumed", 0)
+        filters = _industry_filters(ind, countries)
+        # 1. email-free discovery (0 credits)
+        try:
+            rid = _submit_search(filters, page_limit, offset, api_key,
+                                 enrich_email_address=False)
+            result = _poll_for_result(rid, api_key)
+        except Exception as e:
+            print(f"  ! {ind!r} discovery failed: {e}", file=sys.stderr)
+            continue
+        leads_found = ((result.get("summary") or {}).get("leads_found") or 0)
+        bc_leads = result.get("leads") or []
+        n_discovered += len(bc_leads)
+
+        # 2. parse (no email) + deterministic ICP gates
+        survivors: list[dict] = []
+        for bc in bc_leads:
+            lead = _parse_bc_person(bc, ind)
+            if not lead:
+                continue
+            ok, reason = _post_filter(lead)
+            if not ok:
+                rejected_counts[reason] = rejected_counts.get(reason, 0) + 1
+                continue
+            survivors.append(lead)
+        # 3. per-company cap (free, deterministic — before the paid/LLM steps)
+        capped = []
+        for lead in sorted(survivors, key=lambda l: bc_title_rank(l.get("title")) or 99):
+            dom = (lead.get("company_domain") or "").lower()
+            if dom and company_counts.get(dom, 0) >= BC_MAX_CONTACTS_PER_COMPANY:
+                rejected_counts["company_cap"] = rejected_counts.get("company_cap", 0) + 1
+            else:
+                if dom:
+                    company_counts[dom] = company_counts.get(dom, 0) + 1
+                capped.append(lead)
+        survivors = capped
+        # 4. ICP LLM gate (per-domain, cached)
+        if survivors and not skip_llm:
+            if llm_client is None:
+                llm_client = anthropic.Anthropic()
+                llm_system = BC_ICP_PROMPT.read_text(encoding="utf-8")
+            verdicts = _gate_per_domain(conn, llm_client, llm_system, survivors)
+            kept = []
+            for lead in survivors:
+                dom = _norm_dom(lead.get("company_domain"))
+                res, rsn = verdicts.get(dom or "", ("unknown", "no verdict — fail-closed"))
+                if res == "brand":
+                    lead["agency_filter_method"] = "llm"
+                    lead["agency_filter_result"] = "brand"
+                    lead["agency_filter_reason"] = rsn
+                    kept.append(lead)
+                else:
+                    rejected_counts[f"llm_{res}"] = rejected_counts.get(f"llm_{res}", 0) + 1
+            survivors = kept
+        # 5. brand_verify (domain)
+        if survivors and not skip_brand_verify:
+            vd = brand_verify.verify_domains(conn, survivors)
+            kept = []
+            for lead in survivors:
+                v = vd.get(brand_verify.norm_domain(lead.get("company_domain")) or "")
+                if v and brand_verify.REJECT_VERDICTS.get(v["verdict"]):
+                    rejected_counts[v["verdict"]] = rejected_counts.get(v["verdict"], 0) + 1
+                    continue
+                if v:
+                    lead["brand_verify_result"] = v["verdict"]
+                    lead["brand_verify_method"] = v["method"]
+                    lead["brand_verify_evidence"] = (v.get("evidence") or "")[:1000]
+                    lead["amazon_presence"] = v.get("amazon_presence")
+                kept.append(lead)
+            survivors = kept
+        # 6. Amazon revenue QA — the revenue gate (reject DROP; REVIEW/PENDING pass)
+        if survivors and not skip_amazon_qa:
+            try:
+                amazon_revenue_qa.qa_companies(conn, survivors, budget=amazon_qa_budget)
+                kept = []
+                for lead in survivors:
+                    if lead.get("amazon_verdict") == "DROP":
+                        rejected_counts["amazon_qa"] = rejected_counts.get("amazon_qa", 0) + 1
+                    else:
+                        kept.append(lead)
+                survivors = kept
+            except Exception as e:
+                print(f"    amazon-qa error (leads pass unstamped): {e}")
+        n_gated_out += len(bc_leads) - len(survivors)
+
+        # 7. enrich ONLY survivors (paid; respect BC budget)
+        page_accepted: list[dict] = []
+        if survivors and (max_credits is None or credits_spent < max_credits):
+            try:
+                enr = enrich_contacts(survivors, api_key)
+            except InsufficientCreditsError as e:
+                aborted_reason = str(e)
+                enr = None
+            if enr:
+                credits_spent += float(enr.get("credits_consumed") or 0)
+                idx = {}
+                for row in (enr.get("data") or []):
+                    k = ((row.get("contact_first_name") or "").lower(),
+                         (row.get("contact_last_name") or "").lower(),
+                         (row.get("company_domain") or "").lower())
+                    idx[k] = row
+                for lead in survivors:
+                    k = ((lead.get("first_name") or "").lower(),
+                         (lead.get("last_name") or "").lower(),
+                         (lead.get("company_domain") or "").lower())
+                    row = idx.get(k) or {}
+                    email = (row.get("contact_email_address") or "").lower().strip()
+                    if not email or row.get("contact_email_address_status") != "deliverable":
+                        continue
+                    if email in existing_emails:
+                        continue
+                    existing_emails.add(email)
+                    lead["email"] = email
+                    lead["mobile"] = row.get("contact_phone_number")
+                    lead["rejected"] = False
+                    page_accepted.append(lead)
+        elif survivors:
+            aborted_reason = f"BC enrich budget cap hit ({credits_spent}/{max_credits})"
+
+        # 8. write accepted survivors (they now have a deliverable email)
+        if page_accepted:
+            _insert_leads(conn, page_accepted, scrape_request_id=scrape_request_id)
+            conn.commit()
+            accepted.extend(page_accepted)
+
+        new_offset = offset + page_limit
+        est = state.get(ind, {}).get("total_leads_estimated") or leads_found or 0
+        exhausted = bool(est) and new_offset >= est
+        _update_state(conn, ind, new_offset=new_offset, leads_found=leads_found,
+                      credits_spent_delta=0.0, exhausted=exhausted,
+                      countries=countries or [], accepted_delta=len(page_accepted))
+        conn.commit()
+        state.setdefault(ind, {})["last_offset_consumed"] = new_offset
+        print(f"  [{ind}] discovered {len(bc_leads)} | survived gates {len(survivors)} | "
+              f"accepted {len(page_accepted)} | BC-cr {credits_spent:.0f}"
+              f"{f'/{max_credits}' if max_credits else ''} | RF-cr {amazon_qa_budget['spent']}")
+        if aborted_reason:
+            break
+
+    os.makedirs("exports", exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    csv_path = f"exports/bettercontact_revfirst_{stamp}.csv"
+    xlsx_path = f"exports/bettercontact_revfirst_{stamp}.xlsx"
+    write_csv(accepted, csv_path)
+    write_xlsx(accepted, [], xlsx_path)
+
+    print(f"\n=== revenue-first summary ===")
+    if aborted_reason:
+        print(f"  ABORTED:              {aborted_reason}")
+    print(f"  discovered (free):    {n_discovered}")
+    print(f"  gated out (unpaid):   {n_gated_out}  <- would have been enriched in the classic flow")
+    print(f"  enriched + accepted:  {len(accepted)}")
+    print(f"  BC enrich credits:    {credits_spent:.0f}")
+    print(f"  Rainforest credits:   {amazon_qa_budget['spent']}")
+    print(f"  CSV (accepted):       {csv_path}")
+    for r, n in sorted(rejected_counts.items(), key=lambda x: -x[1])[:10]:
+        print(f"    {r}: {n}")
+    return {"accepted": len(accepted), "rejected": n_gated_out,
+            "credits_spent": float(credits_spent), "csv_path": csv_path,
+            "xlsx_path": xlsx_path, "aborted_reason": aborted_reason,
+            "rejected_counts": dict(rejected_counts),
+            "amazon_qa_credits": amazon_qa_budget["spent"]}
+
+
 def main(*, mode: str = "category", target_leads: int | None = None,
          country: list[str] | None = None,
          skip_industries: list[str] | None = None,
@@ -1473,7 +1726,8 @@ def main(*, mode: str = "category", target_leads: int | None = None,
          skip_amazon_qa: bool = False,
          amazon_qa_max_credits: int = AMAZON_QA_MAX_CREDITS,
          enrichment: str = "email",
-         scrape_request_id: int | None = None) -> dict:
+         scrape_request_id: int | None = None,
+         revenue_first: bool = False) -> dict:
     """Entry point for `run.py scrape-leads --provider bettercontact`.
 
     Domain mode is NOT supported — BetterContact's Lead Finder is criteria-
@@ -1508,17 +1762,16 @@ def main(*, mode: str = "category", target_leads: int | None = None,
 
     conn = connect()
     try:
-        return _run_category(conn, api_key,
-                             target_leads=target_leads, country=country,
-                             skip_industries=skip_industries,
-                             page_limit=page_limit,
-                             dry_run=dry_run, max_credits=max_credits,
-                             skip_llm=skip_llm,
-                             skip_brand_verify=skip_brand_verify,
-                             skip_amazon_qa=skip_amazon_qa,
-                             amazon_qa_max_credits=amazon_qa_max_credits,
-                             enrichment=enrichment,
-                             scrape_request_id=scrape_request_id)
+        runner = (_run_category_revenue_first if revenue_first else _run_category)
+        kwargs = dict(target_leads=target_leads, country=country,
+                      skip_industries=skip_industries, page_limit=page_limit,
+                      dry_run=dry_run, max_credits=max_credits, skip_llm=skip_llm,
+                      skip_brand_verify=skip_brand_verify, skip_amazon_qa=skip_amazon_qa,
+                      amazon_qa_max_credits=amazon_qa_max_credits,
+                      scrape_request_id=scrape_request_id)
+        if not revenue_first:
+            kwargs["enrichment"] = enrichment   # revenue-first is email-only by design
+        return runner(conn, api_key, **kwargs)
     finally:
         conn.close()
 

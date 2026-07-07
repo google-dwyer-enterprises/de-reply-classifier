@@ -269,6 +269,11 @@ def main() -> None:
                     help="[bettercontact] What to enrich: email (default) or both "
                          "(emails + phones; phones cost 10 credits each, so the "
                          "per-page credit reservation scales 11x)")
+    sl.add_argument("--revenue-first", action="store_true",
+                    help="[bettercontact] EXPERIMENTAL: discover email-free (free) -> "
+                         "ICP/brand/Amazon-revenue gate the company -> enrich only "
+                         "survivors. Shifts spend to (cheap) Rainforest. Opt-in; needs "
+                         "a supervised validation before it's the default.")
     sl.add_argument("--max-credits", type=int, default=None,
                     help="Hard budget cap. Aborts run before spending past this.")
     sl.add_argument("--page-limit", type=int, default=200,
@@ -404,7 +409,11 @@ def _dispatch(args) -> None:
                 sys.exit("--enrichment both requires an explicit --max-credits "
                          "(phones cost 10 credits each; an uncapped phones run "
                          "can burn 11x per page)")
+            if args.revenue_first and args.max_credits is None:
+                sys.exit("--revenue-first requires an explicit --max-credits "
+                         "(it spends BetterContact enrich + Rainforest credits)")
             bettercontact_main(mode=args.mode,
+                               revenue_first=args.revenue_first,
                                target_leads=args.target_leads,
                                country=country_list,
                                skip_industries=skip_list,
