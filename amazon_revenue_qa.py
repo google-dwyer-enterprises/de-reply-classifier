@@ -37,11 +37,32 @@ from __future__ import annotations
 import argparse
 
 import psycopg2.extras
+from rapidfuzz import fuzz
 
 from amazon_brand_match import match_brand
 from amazon_presence import rainforest_score
 from db import connect
 from smartscout_upload import normalize_brand
+
+REQUERY_SIM_MIN = 85    # a requery byline must be a SPELLING VARIANT of the search
+                        # name (spaceless char similarity), not a truncation to a
+                        # shorter/generic/common term — see _is_respelling.
+
+
+def _is_respelling(search_name: str, byline: str) -> bool:
+    """Is `byline` a plausible re-SPELLING of `search_name` (so a canonical-name
+    requery is safe), rather than a truncation to a generic/common word?
+
+    Compare the SPACELESS normalized forms char-for-char. 'Scents Ational S' vs
+    byline 'ScentSationals' -> ~identical spaceless -> True (the legit case the
+    requery exists for). 'Scott's Protein Balls' vs byline 'Scott's' (common) or
+    'Protein Balls' (category) -> low ratio -> False, so we DON'T requery into a
+    term that would sweep in every 'Scott's'/'Protein Balls' listing on Amazon."""
+    a = normalize_brand(search_name).replace(" ", "")
+    b = normalize_brand(byline).replace(" ", "")
+    if not a or not b:
+        return False
+    return fuzz.ratio(a, b) >= REQUERY_SIM_MIN
 
 REVENUE_FLOOR_ANNUAL = 300_000      # the keep/drop line (Jam 2026-07-07: lowered
                                     # from $500k to $300k "to be safe" — keep a
@@ -147,7 +168,8 @@ def rainforest_floor(cur, search_name: str, budget: dict | None = None) -> dict 
     source = "rainforest"
     byline = (s.get("top_byline") or "").strip()
     if (s["on_amazon"] and s["revenue_floor_annual"] < REVENUE_FLOOR_ANNUAL
-            and byline and byline.lower() != (search_name or "").strip().lower()):
+            and byline and byline.lower() != (search_name or "").strip().lower()
+            and _is_respelling(search_name, byline)):
         s2 = _budget_score(byline, budget)
         if s2 is not None and (s2["revenue_floor_annual"] > s["revenue_floor_annual"]
                                or s2["branded_hits"] > s["branded_hits"]):

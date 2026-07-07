@@ -31,19 +31,53 @@ BRAND_MATCH_MIN = 85   # a result's brand byline must score >= this vs the targe
 AMAZON_DOMAIN = "amazon.com"
 
 
-def _is_branded(nb: str, byline: str | None, title: str | None) -> bool:
-    """Does one search result belong to brand `nb` (normalized)? Strict, but
-    SPACE-INSENSITIVE: 'Nano Bebe' must match listings titled 'Nanobebe ...'
-    (bylines are often missing, and brands concatenate their own name). Safety:
-    the spaceless compare is EXACT against the title's first-k-words
-    concatenations, so 'Acme' can never match 'Acmes'."""
+def _byline_matches(nb: str, byline: str | None) -> bool:
+    """Does a PRESENT byline identify brand `nb`? Space-insensitive."""
     rb = normalize_brand(byline or "")
+    if not rb:
+        return False
+    return (rb == nb or rb.replace(" ", "") == nb.replace(" ", "")
+            or fuzz.token_sort_ratio(rb, nb) >= BRAND_MATCH_MIN)
+
+
+def _byline_is_subform(nb: str, rb: str) -> bool:
+    """Is byline `rb` a shorter form of OUR brand `nb` (both normalized)? e.g.
+    byline 'Scott's' (-> 'scotts') for company 'Scott's Protein Balls'. Brands
+    routinely byline themselves with just the core name, so such a listing is
+    still ours — unlike a foreign byline ('Orgain') that must be rejected."""
+    nbs, rbs = nb.replace(" ", ""), rb.replace(" ", "")
+    if not rbs:
+        return False
+    if nbs.startswith(rbs) or rbs.startswith(nbs):
+        return True
+    rbt, nbt = set(rb.split()), set(nb.split())
+    return bool(rbt) and rbt.issubset(nbt)
+
+
+def _is_branded(nb: str, byline: str | None, title: str | None) -> bool:
+    """Does one search result belong to brand `nb` (normalized)?
+
+    The BYLINE is authoritative when present. A listing whose byline names a
+    DIFFERENT, FOREIGN brand is a competitor ranking for the search term — never
+    ours, no matter what its title says. This is the fix for the category-term
+    over-attribution that credited "Scott's Protein Balls" with other brands'
+    listings (e.g. "Protein Balls by Orgain", byline 'Orgain' -> excluded).
+
+    Exceptions where we still trust the title:
+      * byline matches our brand (incl. a short sub-form like 'Scott's' for
+        'Scott's Protein Balls'), or
+      * byline is MISSING (common in Rainforest results) — then fall back to the
+        title SPACE-INSENSITIVELY to recover a brand that concatenates its own
+        name ('Nano Bebe' -> 'Nanobebe ...'). The spaceless compare is EXACT
+        against the title's first-k-words concatenations, so 'Acme' never
+        matches 'Acmes'."""
+    rb = normalize_brand(byline or "")
+    if rb and not _byline_matches(nb, byline) and not _byline_is_subform(nb, rb):
+        return False   # present, foreign byline -> competitor, not ours
+    if _byline_matches(nb, byline):
+        return True
     rt = normalize_brand(title or "")
     nbs = nb.replace(" ", "")
-    if rb:
-        rbs = rb.replace(" ", "")
-        if rb == nb or rbs == nbs or fuzz.token_sort_ratio(rb, nb) >= BRAND_MATCH_MIN:
-            return True
     if rt.startswith(nb + " ") or rt == nb:
         return True
     words = rt.split()
