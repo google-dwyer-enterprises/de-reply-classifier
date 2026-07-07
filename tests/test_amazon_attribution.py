@@ -18,7 +18,7 @@ These guard the two fixes, both pure (no network/DB):
 import unittest
 
 import amazon_presence as ap
-from amazon_revenue_qa import _is_respelling
+from amazon_revenue_qa import _is_respelling, floor_verdict, SUSPECT_UNITS_PER_RATING
 
 
 class TestIsBranded(unittest.TestCase):
@@ -77,6 +77,54 @@ class TestScoreExcludesCompetitors(unittest.TestCase):
         self.assertEqual(s["branded_hits"], 1)
         self.assertEqual(s["ratings_total"], 5)
         self.assertLess(s["revenue_floor_annual"], 50_000)
+
+
+class TestDedupeByAsin(unittest.TestCase):
+    def test_same_asin_counted_once(self):
+        # Rainforest returns the same product twice (sponsored + organic)
+        res = [
+            {"asin": "A1", "brand": "Cata-Kor", "title": "NAD+", "price": 40,
+             "recent_sales": "20K+ bought in past month", "ratings_total": 4858},
+            {"asin": "A1", "brand": "Cata-Kor", "title": "NAD+", "price": 40,
+             "recent_sales": "20K+ bought in past month", "ratings_total": 4858},
+            {"asin": "A2", "brand": "Cata-Kor", "title": "NMN", "price": 35,
+             "recent_sales": "10K+ bought in past month", "ratings_total": 1088},
+        ]
+        s = ap.score_search_results("Cata-Kor", res)
+        self.assertEqual(s["branded_hits"], 2)                 # not 3
+        self.assertEqual(s["revenue_floor_annual"], (20000*40 + 10000*35) * 12)
+        self.assertEqual(s["annual_units"], (20000 + 10000) * 12)
+
+    def test_missing_asin_distinct_titles_not_collapsed(self):
+        res = [
+            {"brand": "X", "title": "Product One", "price": 10,
+             "recent_sales": "100+ bought in past month", "ratings_total": 5},
+            {"brand": "X", "title": "Product Two", "price": 10,
+             "recent_sales": "100+ bought in past month", "ratings_total": 5},
+        ]
+        # byline 'X' won't match brand 'X Brand'? use exact brand so both count
+        s = ap.score_search_results("X", res)
+        self.assertEqual(s["branded_hits"], 2)
+
+
+class TestVerdictAnnualizationGuard(unittest.TestCase):
+    def test_big_floor_implausible_units_goes_review(self):
+        # Cata-Kor: $19M floor but 26x units-per-rating -> REVIEW, not KEEP
+        v, _ = floor_verdict({"branded_hits": 14, "annual_revenue": 19_255_608,
+                              "ratings_total": 20_470, "annual_units": 534_000})
+        self.assertEqual(v, "REVIEW")
+
+    def test_big_floor_proportionate_units_keeps(self):
+        # Waggin' Train: $8M floor, 7x -> KEEP
+        v, _ = floor_verdict({"branded_hits": 21, "annual_revenue": 7_966_410,
+                              "ratings_total": 67_855, "annual_units": 453_600})
+        self.assertEqual(v, "KEEP")
+
+    def test_no_units_data_does_not_downgrade(self):
+        # old cache rows without annual_units must still KEEP on a real floor
+        v, _ = floor_verdict({"branded_hits": 5, "annual_revenue": 1_000_000,
+                              "ratings_total": 5_000})
+        self.assertEqual(v, "KEEP")
 
 
 class TestRequeryRespellingGuard(unittest.TestCase):

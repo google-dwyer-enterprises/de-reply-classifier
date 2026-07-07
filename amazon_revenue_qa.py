@@ -73,6 +73,11 @@ GREY_HIGH = 500_000                 # above -> clear keep (SmartScout trusted)
 MIN_LISTINGS_ESTABLISHED = 2        # listings needed to call a below-floor brand "established"
 RATINGS_ESTABLISHED = 1_000         # cumulative ratings needed for the same
 CACHE_TTL_DAYS = 90                 # re-fetch a cached Rainforest verdict after this
+SUSPECT_UNITS_PER_RATING = 15       # a KEEP-level floor whose implied annual units exceed
+                                    # this multiple of total ratings is likely
+                                    # over-annualized ("bought last month" x 12 on a spiky
+                                    # item) -> REVIEW, not auto-KEEP. (Cata-Kor: 26x -> REVIEW;
+                                    # Waggin' Train: 7x -> KEEP.)
 
 
 # --------------------------------------------------------------------------- #
@@ -103,13 +108,14 @@ def ensure_cache_schema(cur) -> None:
     cur.execute("""
         alter table brand_revenue_cache
           add column if not exists branded_hits int,
-          add column if not exists ratings_total int
+          add column if not exists ratings_total int,
+          add column if not exists annual_units bigint
     """)
 
 
 def _cache_get(cur, brand_norm: str) -> dict | None:
     cur.execute("""select annual_revenue, dominant_seller_country, on_amazon, source,
-                          branded_hits, ratings_total
+                          branded_hits, ratings_total, annual_units
                      from brand_revenue_cache
                     where brand_norm = %s
                       and fetched_at > now() - make_interval(days => %s)""",
@@ -119,20 +125,23 @@ def _cache_get(cur, brand_norm: str) -> dict | None:
         return None
     return {"annual_revenue": float(r[0]) if r[0] is not None else None,
             "country": r[1], "on_amazon": r[2], "source": (r[3] or "") + "+cache",
-            "branded_hits": r[4], "ratings_total": r[5]}
+            "branded_hits": r[4], "ratings_total": r[5], "annual_units": r[6]}
 
 
 def _cache_put(cur, brand_norm: str, rev: dict) -> None:
     cur.execute("""
         insert into brand_revenue_cache (brand_norm, annual_revenue, dominant_seller_country,
-                                         on_amazon, source, branded_hits, ratings_total, fetched_at)
-        values (%s,%s,%s,%s,%s,%s,%s, now())
+                                         on_amazon, source, branded_hits, ratings_total,
+                                         annual_units, fetched_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s, now())
         on conflict (brand_norm) do update set
           annual_revenue=excluded.annual_revenue, dominant_seller_country=excluded.dominant_seller_country,
           on_amazon=excluded.on_amazon, source=excluded.source,
-          branded_hits=excluded.branded_hits, ratings_total=excluded.ratings_total, fetched_at=now()
+          branded_hits=excluded.branded_hits, ratings_total=excluded.ratings_total,
+          annual_units=excluded.annual_units, fetched_at=now()
     """, (brand_norm, rev.get("annual_revenue"), rev.get("country"), rev.get("on_amazon"),
-          rev.get("source"), rev.get("branded_hits"), rev.get("ratings_total")))
+          rev.get("source"), rev.get("branded_hits"), rev.get("ratings_total"),
+          rev.get("annual_units")))
 
 
 def _budget_score(search_name: str, budget: dict | None):
@@ -166,6 +175,18 @@ def rainforest_floor(cur, search_name: str, budget: dict | None = None) -> dict 
     if s is None:
         return None   # API failure / budget exhausted -> caller REVIEWs; never cached
     source = "rainforest"
+
+    # Spaceless retry: a garbled/mis-spaced source name ("Scents Ational S")
+    # returns unrelated products, so nothing branded matches; the real brand is
+    # usually the spaceless form ("scentsationals"). If the direct search found
+    # 0 branded listings and the name has spaces, retry the concatenated form.
+    nbn = normalize_brand(search_name)
+    spaceless = nbn.replace(" ", "")
+    if s["branded_hits"] == 0 and " " in nbn and spaceless and spaceless != nbn:
+        s2 = _budget_score(spaceless, budget)
+        if s2 is not None and s2["branded_hits"] > 0:
+            s, source = s2, "rainforest_spaceless"
+
     byline = (s.get("top_byline") or "").strip()
     if (s["on_amazon"] and s["revenue_floor_annual"] < REVENUE_FLOOR_ANNUAL
             and byline and byline.lower() != (search_name or "").strip().lower()
@@ -176,7 +197,8 @@ def rainforest_floor(cur, search_name: str, budget: dict | None = None) -> dict 
             s, source = s2, "rainforest_requery"
     rev = {"annual_revenue": s["revenue_floor_annual"], "country": None,
            "on_amazon": s["on_amazon"], "source": source,
-           "branded_hits": s["branded_hits"], "ratings_total": s["ratings_total"]}
+           "branded_hits": s["branded_hits"], "ratings_total": s["ratings_total"],
+           "annual_units": s.get("annual_units")}
     _cache_put(cur, key, rev)
     return rev
 
@@ -187,9 +209,16 @@ def floor_verdict(rev: dict) -> tuple[str, str]:
     hits = rev.get("branded_hits") or 0
     floor = rev.get("annual_revenue") or 0
     ratings = rev.get("ratings_total") or 0
+    units = rev.get("annual_units") or 0
     if hits == 0:
         return "DROP", "not on Amazon (0 branded listings)"
     if floor >= REVENUE_FLOOR_ANNUAL:
+        # sanity: a KEEP-level floor whose implied annual units wildly exceed the
+        # review base is likely over-annualized ("bought last month" x 12 on a
+        # spiky/new listing) -> REVIEW for a human, don't auto-KEEP.
+        if ratings > 0 and units > SUSPECT_UNITS_PER_RATING * ratings:
+            return "REVIEW", (f"floor ${floor:,.0f}/yr but implied {units:,} units/yr vs only "
+                              f"{ratings:,} ratings ({units/ratings:.0f}x) — verify, likely over-annualized")
         return "KEEP", f"revenue floor ${floor:,.0f}/yr >= ${REVENUE_FLOOR_ANNUAL:,} (measured, under-counted)"
     if hits >= MIN_LISTINGS_ESTABLISHED and ratings >= RATINGS_ESTABLISHED:
         return "REVIEW", (f"established on Amazon ({hits} listings, {ratings:,} ratings) "

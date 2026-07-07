@@ -160,29 +160,53 @@ def parse_recent_sales(label: str | None) -> int:
     return int(n * mult)
 
 
+def _price_of(x: dict) -> float:
+    p = ((x.get("price") or {}).get("value")
+         if isinstance(x.get("price"), dict) else x.get("price")) or 0
+    return float(p or 0)
+
+
+def _dedupe_key(x: dict):
+    """Identify one product so the same listing appearing twice (sponsored +
+    organic placement, a real Rainforest behaviour) is counted once. Prefer the
+    ASIN; fall back to (title, price) when ASIN is absent (e.g. the Playwright
+    path or hand-built test data — distinct products keep distinct keys)."""
+    return x.get("asin") or (x.get("title"), _price_of(x))
+
+
 def score_search_results(brand: str, results: list[dict]) -> dict:
     """The scorer (provider-agnostic — needs {brand,title,price,recent_sales,
-    ratings_total} per result). From one page of search results compute:
-      * branded_hits          — listings whose byline/title match the brand
-                                (strict, same rule as brand_present)
-      * revenue_floor_annual  — sum over branded listings of bought-past-month
-                                x price x 12. A FLOOR: only listings Amazon
-                                labels are counted, so we only ever under-count
-                                => a KEEP made on it is never a false positive.
+    ratings_total,asin} per result). From one page of search results compute:
+      * branded_hits          — UNIQUE listings whose byline/title match the
+                                brand (strict, same rule as brand_present),
+                                deduped by ASIN so a product listed twice
+                                (sponsored + organic) isn't double-counted.
+      * revenue_floor_annual  — sum over UNIQUE branded listings of
+                                bought-past-month x price x 12. A FLOOR: only
+                                listings Amazon labels are counted, so we only
+                                ever under-count => a KEEP on it is never a
+                                false positive.
+      * annual_units          — sum of bought-past-month x 12 over the same
+                                listings (sanity signal vs ratings_total).
       * ratings_total         — cumulative ratings on branded listings (size
                                 proxy when the sales label is absent).
     """
     nb = normalize_brand(brand)
-    hits, monthly_rev, ratings = 0, 0.0, 0
+    hits, monthly_rev, monthly_units, ratings = 0, 0.0, 0, 0
     bylines: dict[str, int] = {}
+    seen: set = set()
     for x in results or []:
         if not nb or not _is_branded(nb, x.get("brand"), x.get("title")):
             continue
+        key = _dedupe_key(x)
+        if key in seen:
+            continue   # same product listed twice (sponsored + organic) -> count once
+        seen.add(key)
         hits += 1
         units = parse_recent_sales(x.get("recent_sales"))
-        price = ((x.get("price") or {}).get("value")
-                 if isinstance(x.get("price"), dict) else x.get("price")) or 0
-        monthly_rev += units * float(price or 0)
+        price = _price_of(x)
+        monthly_rev += units * price
+        monthly_units += units
         ratings += int(x.get("ratings_total") or 0)
         bl = (x.get("brand") or "").strip()
         if not bl:
@@ -203,6 +227,7 @@ def score_search_results(brand: str, results: list[dict]) -> dict:
         "on_amazon": hits >= 1,
         "branded_hits": hits,
         "revenue_floor_annual": round(monthly_rev * 12),
+        "annual_units": monthly_units * 12,
         "ratings_total": ratings,
         "total_results": len(results or []),
         # Amazon's own spelling of the brand (most common byline among branded
@@ -211,6 +236,37 @@ def score_search_results(brand: str, results: list[dict]) -> dict:
         # "ScentSationals", "Anchor Electronics Inc" vs "Anchor").
         "top_byline": max(bylines, key=bylines.get) if bylines else None,
     }
+
+
+def audit_listings(brand: str, results: list[dict]) -> list[dict]:
+    """Transparency for the audit tool: per-listing match decision + revenue
+    contribution, so a human can see EXACTLY which listings were counted toward
+    the floor (and which competitors were excluded) and cross-check them."""
+    nb = normalize_brand(brand)
+    rows = []
+    seen: set = set()
+    for x in results or []:
+        matched = bool(nb) and _is_branded(nb, x.get("brand"), x.get("title"))
+        # a matched product listed twice counts once (mirror score_search_results);
+        # mark the duplicate so the audit report shows why it wasn't summed.
+        dup = False
+        if matched:
+            key = _dedupe_key(x)
+            dup = key in seen
+            seen.add(key)
+        units = parse_recent_sales(x.get("recent_sales"))
+        price = _price_of(x)
+        rows.append({
+            "matched": matched and not dup,
+            "duplicate": dup,
+            "byline": (x.get("brand") or "").strip() or None,
+            "title": (x.get("title") or "").strip(),
+            "units": units,
+            "price": price,
+            "ratings": int(x.get("ratings_total") or 0),
+            "monthly_contrib": round(units * price) if (matched and not dup) else 0,
+        })
+    return rows
 
 
 def rainforest_score(brand: str) -> dict | None:
@@ -222,7 +278,7 @@ def rainforest_score(brand: str) -> dict | None:
     results = [{
         "brand": x.get("brand"), "title": x.get("title"),
         "price": x.get("price"), "recent_sales": x.get("recent_sales"),
-        "ratings_total": x.get("ratings_total"),
+        "ratings_total": x.get("ratings_total"), "asin": x.get("asin"),
     } for x in (data.get("search_results") or [])]
     s = score_search_results(brand, results)
     s["source"] = "rainforest"
