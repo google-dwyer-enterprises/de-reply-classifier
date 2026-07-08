@@ -160,7 +160,8 @@ def claim_pending_request(conn) -> dict | None:
               from claimed
              where r.id = claimed.id
             returning r.id, r.requested_leads, r.industries, r.skip_industries,
-                      r.countries, r.notes, r.max_credits, r.enrichment
+                      r.countries, r.notes, r.max_credits, r.enrichment,
+                      r.revenue_floor
             """
         )
         row = cur.fetchone()
@@ -176,6 +177,7 @@ def claim_pending_request(conn) -> dict | None:
         "notes": row[5],
         "max_credits": row[6],   # None -> worker auto-computes; int -> explicit cap
         "enrichment": row[7] or "email",   # 'email' | 'both' (phones = 10 cr each)
+        "revenue_floor": row[8],  # None -> bettercontact_main uses the $300k default
     }
 
 
@@ -277,6 +279,7 @@ def run_scrape(req: dict) -> dict:
         page_limit=page_limit,
         max_credits=max_credits,
         enrichment=req.get("enrichment", "email"),
+        revenue_floor=req.get("revenue_floor"),   # None -> $300k default
         scrape_request_id=req["id"],
     )
 

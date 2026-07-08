@@ -573,6 +573,9 @@ alter table bettercontact_scrape_state add column if not exists parked_at timest
 -- 2026-06-12: 22 credits for 2 leads with both flags on), so the worker
 -- scales its credit reservations by 11x when phones are enabled.
 alter table scrape_requests add column if not exists enrichment text not null default 'email';
+-- Per-client Amazon revenue floor (keep/drop line) for this request; NULL = the
+-- $300k default. Set on the submit form; the worker passes it to bettercontact_main.
+alter table scrape_requests add column if not exists revenue_floor integer;
 alter table lead_contacts add column if not exists mobile text;
 
 -- Provenance: which scrape_requests batch a moved lead came from. Nullable —
