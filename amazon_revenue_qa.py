@@ -155,7 +155,8 @@ def _budget_score(search_name: str, budget: dict | None):
     return s
 
 
-def rainforest_floor(cur, search_name: str, budget: dict | None = None) -> dict | None:
+def rainforest_floor(cur, search_name: str, budget: dict | None = None,
+                     floor_line: float = REVENUE_FLOOR_ANNUAL) -> dict | None:
     """Rainforest presence + revenue-floor for a brand/company name, cached under
     its normalized form so a credit is spent at most once per name per TTL.
 
@@ -188,7 +189,7 @@ def rainforest_floor(cur, search_name: str, budget: dict | None = None) -> dict 
             s, source = s2, "rainforest_spaceless"
 
     byline = (s.get("top_byline") or "").strip()
-    if (s["on_amazon"] and s["revenue_floor_annual"] < REVENUE_FLOOR_ANNUAL
+    if (s["on_amazon"] and s["revenue_floor_annual"] < floor_line
             and byline and byline.lower() != (search_name or "").strip().lower()
             and _is_respelling(search_name, byline)):
         s2 = _budget_score(byline, budget)
@@ -203,16 +204,18 @@ def rainforest_floor(cur, search_name: str, budget: dict | None = None) -> dict 
     return rev
 
 
-def floor_verdict(rev: dict) -> tuple[str, str]:
+def floor_verdict(rev: dict, floor_line: float = REVENUE_FLOOR_ANNUAL) -> tuple[str, str]:
     """Verdict from a Rainforest floor result. The floor under-counts, so KEEP is
-    safe, but a below-floor established brand goes to REVIEW, not DROP."""
+    safe, but a below-floor established brand goes to REVIEW, not DROP.
+    `floor_line` = keep/drop threshold (default $300k; per-client override, e.g. a
+    $1M-ICP client passes floor_line=1_000_000)."""
     hits = rev.get("branded_hits") or 0
     floor = rev.get("annual_revenue") or 0
     ratings = rev.get("ratings_total") or 0
     units = rev.get("annual_units") or 0
     if hits == 0:
         return "DROP", "not on Amazon (0 branded listings)"
-    if floor >= REVENUE_FLOOR_ANNUAL:
+    if floor >= floor_line:
         # sanity: a KEEP-level floor whose implied annual units wildly exceed the
         # review base is likely over-annualized ("bought last month" x 12 on a
         # spiky/new listing) -> REVIEW for a human, don't auto-KEEP.
@@ -223,17 +226,23 @@ def floor_verdict(rev: dict) -> tuple[str, str]:
         if units > SUSPECT_UNITS_PER_RATING * ratings:
             return "REVIEW", (f"floor ${floor:,.0f}/yr but implied {units:,} units/yr vs only "
                               f"{ratings:,} ratings ({units/ratings:.0f}x) — verify, likely over-annualized")
-        return "KEEP", f"revenue floor ${floor:,.0f}/yr >= ${REVENUE_FLOOR_ANNUAL:,} (measured, under-counted)"
+        return "KEEP", f"revenue floor ${floor:,.0f}/yr >= ${floor_line:,.0f} (measured, under-counted)"
     if hits >= MIN_LISTINGS_ESTABLISHED and ratings >= RATINGS_ESTABLISHED:
         return "REVIEW", (f"established on Amazon ({hits} listings, {ratings:,} ratings) "
-                          f"but measurable floor ${floor:,.0f} < ${REVENUE_FLOOR_ANNUAL:,} — floor under-counts")
+                          f"but measurable floor ${floor:,.0f} < ${floor_line:,.0f} — floor under-counts")
     return "DROP", f"small Amazon presence ({hits} listing(s), {ratings:,} ratings, floor ${floor:,.0f})"
 
 
 # --------------------------------------------------------------------------- #
 # Cascade
 # --------------------------------------------------------------------------- #
-def evaluate(cur, company: str, use_llm: bool = False, budget: dict | None = None) -> dict:
+def evaluate(cur, company: str, use_llm: bool = False, budget: dict | None = None,
+             floor_line: float = REVENUE_FLOOR_ANNUAL) -> dict:
+    # Per-client grey band scales with the floor (defaults 200k/500k at a 300k
+    # floor): SmartScout is trusted outside [grey_low, grey_high]; inside it we
+    # confirm with the Rainforest floor.
+    grey_low = round(floor_line * (GREY_LOW / REVENUE_FLOOR_ANNUAL))
+    grey_high = round(floor_line * (GREY_HIGH / REVENUE_FLOOR_ANNUAL))
     res = {"company": company, "brand": None, "match_method": None,
            "on_amazon": None, "annual_revenue": None, "source": None, "verdict": "REVIEW",
            "reason": ""}
@@ -242,7 +251,7 @@ def evaluate(cur, company: str, use_llm: bool = False, budget: dict | None = Non
         if rev is None:
             res["reason"] = prefix + "Rainforest unavailable -> review"
             return
-        v, why = floor_verdict(rev)
+        v, why = floor_verdict(rev, floor_line)
         res.update(on_amazon=rev["on_amazon"], annual_revenue=rev["annual_revenue"],
                    source=rev["source"], verdict=v, reason=prefix + why)
 
@@ -254,7 +263,8 @@ def evaluate(cur, company: str, use_llm: bool = False, budget: dict | None = Non
     m = match_brand(cur, company, use_llm=use_llm)
     if not m:
         # No SmartScout brand -> Rainforest presence+floor by COMPANY name.
-        apply_floor(rainforest_floor(cur, company, budget), prefix="no SmartScout match; ")
+        apply_floor(rainforest_floor(cur, company, budget, floor_line),
+                    prefix="no SmartScout match; ")
         return res
 
     res.update(brand=m["brand"], match_method=m["method"])
@@ -266,18 +276,18 @@ def evaluate(cur, company: str, use_llm: bool = False, budget: dict | None = Non
     if rev is not None:
         ann = rev["annual_revenue"]
         res.update(on_amazon=rev["on_amazon"], annual_revenue=ann, source=rev["source"])
-        if ann >= GREY_HIGH:
-            res.update(verdict="KEEP", reason=f"SmartScout ${ann:,.0f}/yr >= ${GREY_HIGH:,} (clear)")
-        elif ann < GREY_LOW:
-            res.update(verdict="DROP", reason=f"SmartScout ${ann:,.0f}/yr < ${GREY_LOW:,} (clear)")
+        if ann >= grey_high:
+            res.update(verdict="KEEP", reason=f"SmartScout ${ann:,.0f}/yr >= ${grey_high:,.0f} (clear)")
+        elif ann < grey_low:
+            res.update(verdict="DROP", reason=f"SmartScout ${ann:,.0f}/yr < ${grey_low:,.0f} (clear)")
         else:
             # borderline -> confirm with the Rainforest floor
-            rf = rainforest_floor(cur, m["brand"], budget)
+            rf = rainforest_floor(cur, m["brand"], budget, floor_line)
             if rf is None:
                 res.update(verdict="REVIEW", reason=f"SmartScout borderline (${ann:,.0f}); Rainforest unavailable -> review")
-            elif (rf.get("annual_revenue") or 0) >= REVENUE_FLOOR_ANNUAL:
+            elif (rf.get("annual_revenue") or 0) >= floor_line:
                 res.update(verdict="KEEP", annual_revenue=rf["annual_revenue"], source="smartscout+rainforest",
-                           reason=f"borderline SmartScout confirmed: floor ${rf['annual_revenue']:,.0f} >= ${REVENUE_FLOOR_ANNUAL:,}")
+                           reason=f"borderline SmartScout confirmed: floor ${rf['annual_revenue']:,.0f} >= ${floor_line:,.0f}")
             else:
                 res.update(verdict="REVIEW", source="smartscout+rainforest",
                            reason=f"SmartScout borderline (${ann:,.0f}) and floor didn't confirm -> review")
@@ -285,7 +295,8 @@ def evaluate(cur, company: str, use_llm: bool = False, budget: dict | None = Non
 
     # SmartScout matched the brand but has no revenue -> Rainforest on the brand
     # (rainforest_floor is cache-first, so repeats cost nothing).
-    apply_floor(rainforest_floor(cur, m["brand"], budget), prefix="SmartScout match w/o revenue; ")
+    apply_floor(rainforest_floor(cur, m["brand"], budget, floor_line),
+                prefix="SmartScout match w/o revenue; ")
     return res
 
 
@@ -305,7 +316,8 @@ def ensure_lead_columns(cur) -> None:
 
 
 def qa_companies(conn, leads: list[dict], max_credits: int = 150,
-                 budget: dict | None = None) -> dict:
+                 budget: dict | None = None,
+                 floor_line: float = REVENUE_FLOOR_ANNUAL) -> dict:
     """Amazon Revenue QA for one accepted batch — the LAST company-level gate
     (after brand_verify; cost-optimal slot measured on batch #44, see
     RAINFOREST_VERIFICATION.html).
@@ -329,7 +341,7 @@ def qa_companies(conn, leads: list[dict], max_credits: int = 150,
             continue
         if key not in verdicts:
             exhausted_before = budget["spent"] >= budget["max"]
-            r = evaluate(cur, co, budget=budget)
+            r = evaluate(cur, co, budget=budget, floor_line=floor_line)
             if (exhausted_before and r["verdict"] == "REVIEW"
                     and "unavailable" in r["reason"]):
                 r["verdict"] = "PENDING_CREDITS"

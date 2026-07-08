@@ -999,6 +999,7 @@ def _run_category(conn, api_key: str, *,
                    skip_brand_verify: bool = False,
                    skip_amazon_qa: bool = False,
                    amazon_qa_max_credits: int = AMAZON_QA_MAX_CREDITS,
+                   revenue_floor: float = amazon_revenue_qa.REVENUE_FLOOR_ANNUAL,
                    enrichment: str = "email",
                    scrape_request_id: int | None = None) -> dict:
     """Round-robin over BC_INDUSTRIES, advancing each industry's offset by
@@ -1380,7 +1381,8 @@ def _run_category(conn, api_key: str, *,
             if batch_accepted and not skip_amazon_qa:
                 try:
                     amazon_revenue_qa.qa_companies(
-                        conn, batch_accepted, budget=amazon_qa_budget)
+                        conn, batch_accepted, budget=amazon_qa_budget,
+                        floor_line=revenue_floor)
                     if AMAZON_QA_ENFORCE:
                         survivors = []
                         for lead in batch_accepted:
@@ -1519,6 +1521,7 @@ def _run_category_revenue_first(conn, api_key: str, *,
                                 skip_brand_verify: bool = False,
                                 skip_amazon_qa: bool = False,
                                 amazon_qa_max_credits: int = AMAZON_QA_MAX_CREDITS,
+                                revenue_floor: float = amazon_revenue_qa.REVENUE_FLOOR_ANNUAL,
                                 scrape_request_id: int | None = None) -> dict:
     """REVENUE-FIRST category scrape (opt-in, experimental).
 
@@ -1631,7 +1634,8 @@ def _run_category_revenue_first(conn, api_key: str, *,
         # 6. Amazon revenue QA — the revenue gate (reject DROP; REVIEW/PENDING pass)
         if survivors and not skip_amazon_qa:
             try:
-                amazon_revenue_qa.qa_companies(conn, survivors, budget=amazon_qa_budget)
+                amazon_revenue_qa.qa_companies(conn, survivors, budget=amazon_qa_budget,
+                                               floor_line=revenue_floor)
                 kept = []
                 for lead in survivors:
                     if lead.get("amazon_verdict") == "DROP":
@@ -1735,6 +1739,7 @@ def main(*, mode: str = "category", target_leads: int | None = None,
          skip_llm: bool = False, skip_brand_verify: bool = False,
          skip_amazon_qa: bool = False,
          amazon_qa_max_credits: int = AMAZON_QA_MAX_CREDITS,
+         revenue_floor: float | None = None,
          enrichment: str = "email",
          scrape_request_id: int | None = None,
          revenue_first: bool = False) -> dict:
@@ -1756,6 +1761,8 @@ def main(*, mode: str = "category", target_leads: int | None = None,
     # as a traceback, same as any other invalid-input error.
     if mode != "category":
         raise ValueError(f"BetterContact only supports --mode category (got {mode!r})")
+    # None -> the default $300k floor (lets CLI/worker pass through unset cleanly).
+    revenue_floor = revenue_floor or amazon_revenue_qa.REVENUE_FLOOR_ANNUAL
     # Enforced HERE (not just in run.py's arg parsing) so programmatic callers
     # can't reach the scraper with paid phone enrichment and no budget cap —
     # phones bill 10 cr each and the budget guard is inert when max_credits
@@ -1778,6 +1785,7 @@ def main(*, mode: str = "category", target_leads: int | None = None,
                       dry_run=dry_run, max_credits=max_credits, skip_llm=skip_llm,
                       skip_brand_verify=skip_brand_verify, skip_amazon_qa=skip_amazon_qa,
                       amazon_qa_max_credits=amazon_qa_max_credits,
+                      revenue_floor=revenue_floor,
                       scrape_request_id=scrape_request_id)
         if not revenue_first:
             kwargs["enrichment"] = enrichment   # revenue-first is email-only by design

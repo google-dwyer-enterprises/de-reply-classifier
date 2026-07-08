@@ -274,6 +274,10 @@ def main() -> None:
                          "ICP/brand/Amazon-revenue gate the company -> enrich only "
                          "survivors. Shifts spend to (cheap) Rainforest. Opt-in; needs "
                          "a supervised validation before it's the default.")
+    sl.add_argument("--revenue-floor", type=int, default=None,
+                    help="[bettercontact] Amazon revenue keep/drop line in $/yr for this "
+                         "run (default 300000). e.g. 1000000 for a $1M-ICP client. The "
+                         "SmartScout grey band scales with it.")
     sl.add_argument("--max-credits", type=int, default=None,
                     help="Hard budget cap. Aborts run before spending past this.")
     sl.add_argument("--page-limit", type=int, default=200,
@@ -414,6 +418,7 @@ def _dispatch(args) -> None:
                          "(it spends BetterContact enrich + Rainforest credits)")
             bettercontact_main(mode=args.mode,
                                revenue_first=args.revenue_first,
+                               revenue_floor=args.revenue_floor,
                                target_leads=args.target_leads,
                                country=country_list,
                                skip_industries=skip_list,

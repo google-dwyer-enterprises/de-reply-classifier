@@ -133,6 +133,27 @@ class TestVerdictAnnualizationGuard(unittest.TestCase):
         self.assertEqual(v, "REVIEW")
 
 
+class TestPerClientFloor(unittest.TestCase):
+    """The keep/drop line is a per-run/per-client parameter (July 8 ask)."""
+    def _rev(self, annual, ratings=5_000, units=50_000, hits=5):
+        return {"branded_hits": hits, "annual_revenue": annual,
+                "ratings_total": ratings, "annual_units": units}
+
+    def test_default_floor_keeps_500k(self):
+        # $500k clears the default $300k floor
+        self.assertEqual(floor_verdict(self._rev(500_000))[0], "KEEP")
+
+    def test_million_floor_does_not_keep_500k(self):
+        # same $500k brand, but a $1M-ICP client -> below floor -> not KEEP
+        v, _ = floor_verdict(self._rev(500_000), floor_line=1_000_000)
+        self.assertNotEqual(v, "KEEP")
+
+    def test_million_floor_keeps_2M(self):
+        v, _ = floor_verdict(self._rev(2_000_000, ratings=50_000, units=500_000),
+                             floor_line=1_000_000)
+        self.assertEqual(v, "KEEP")
+
+
 class TestRequeryRespellingGuard(unittest.TestCase):
     def test_legit_respellings_allowed(self):
         self.assertTrue(_is_respelling("Scents Ational S", "ScentSationals"))
