@@ -161,7 +161,7 @@ def claim_pending_request(conn) -> dict | None:
              where r.id = claimed.id
             returning r.id, r.requested_leads, r.industries, r.skip_industries,
                       r.countries, r.notes, r.max_credits, r.enrichment,
-                      r.revenue_floor
+                      r.revenue_floor, r.revenue_first
             """
         )
         row = cur.fetchone()
@@ -178,6 +178,7 @@ def claim_pending_request(conn) -> dict | None:
         "max_credits": row[6],   # None -> worker auto-computes; int -> explicit cap
         "enrichment": row[7] or "email",   # 'email' | 'both' (phones = 10 cr each)
         "revenue_floor": row[8],  # None -> bettercontact_main uses the $300k default
+        "revenue_first": bool(row[9]),  # revenue-first flow (discover->gate->enrich survivors)
     }
 
 
@@ -271,7 +272,7 @@ def run_scrape(req: dict) -> dict:
         f"countries={req['countries']}, skip={skip}, "
         f"page_limit={page_limit}, max_credits={max_credits} ({cap_src}), "
         f"enrichment={req.get('enrichment', 'email')}")
-    return bettercontact_sync.main(
+    call_kwargs = dict(
         mode="category",
         target_leads=req["requested_leads"],
         country=req["countries"] or None,
@@ -282,6 +283,16 @@ def run_scrape(req: dict) -> dict:
         revenue_floor=req.get("revenue_floor"),   # None -> $300k default
         scrape_request_id=req["id"],
     )
+    if req.get("revenue_first"):
+        # Revenue-first: discover free -> verify e-commerce -> Rainforest revenue
+        # gate -> enrich only survivors. Bound the Rainforest spend per batch
+        # (~6 credits/target lead, floor 150) so a batch can't run away on credits.
+        call_kwargs["revenue_first"] = True
+        call_kwargs["amazon_qa_max_credits"] = max(150, req["requested_leads"] * 6)
+        log(f"req #{req['id']}: REVENUE-FIRST flow "
+            f"(Rainforest cap={call_kwargs['amazon_qa_max_credits']}, "
+            f"BC enrich cap={max_credits})")
+    return bettercontact_sync.main(**call_kwargs)
 
 
 def mark_ready(conn, request_id: int, *, scraped_count: int,

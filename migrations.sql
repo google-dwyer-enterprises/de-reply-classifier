@@ -576,6 +576,11 @@ alter table scrape_requests add column if not exists enrichment text not null de
 -- Per-client Amazon revenue floor (keep/drop line) for this request; NULL = the
 -- $300k default. Set on the submit form; the worker passes it to bettercontact_main.
 alter table scrape_requests add column if not exists revenue_floor integer;
+-- Revenue-first flow for this request: discover email-free -> verify e-commerce
+-- -> Rainforest revenue gate -> enrich only survivors (vs the classic
+-- enrich-everyone-first flow). The worker passes revenue_first + a per-batch
+-- Rainforest cap (~6 credits/target lead) to bettercontact_main.
+alter table scrape_requests add column if not exists revenue_first boolean not null default false;
 alter table lead_contacts add column if not exists mobile text;
 
 -- Provenance: which scrape_requests batch a moved lead came from. Nullable —

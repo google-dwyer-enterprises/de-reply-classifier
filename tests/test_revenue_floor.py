@@ -11,10 +11,11 @@ from unittest import mock
 import worker
 
 
-def _req(floor):
-    return {"id": 1, "requested_leads": 10, "industries": [], "skip_industries": [],
-            "countries": ["United States"], "notes": None, "max_credits": 100,
-            "enrichment": "email", "revenue_floor": floor}
+def _req(floor, revenue_first=False, requested_leads=10):
+    return {"id": 1, "requested_leads": requested_leads, "industries": [],
+            "skip_industries": [], "countries": ["United States"], "notes": None,
+            "max_credits": 100, "enrichment": "email", "revenue_floor": floor,
+            "revenue_first": revenue_first}
 
 
 class TestRunScrapeThreadsFloor(unittest.TestCase):
@@ -28,6 +29,21 @@ class TestRunScrapeThreadsFloor(unittest.TestCase):
         with mock.patch.object(worker.bettercontact_sync, "main", return_value={}) as m:
             worker.run_scrape(_req(None))
         self.assertIsNone(m.call_args.kwargs.get("revenue_floor"))
+
+    def test_classic_request_does_not_set_revenue_first(self):
+        # a normal batch must NOT flip into the revenue-first flow
+        with mock.patch.object(worker.bettercontact_sync, "main", return_value={}) as m:
+            worker.run_scrape(_req(None))
+        self.assertNotIn("revenue_first", m.call_args.kwargs)
+        self.assertNotIn("amazon_qa_max_credits", m.call_args.kwargs)
+
+    def test_revenue_first_threaded_with_capped_rainforest(self):
+        # revenue_first=True -> threads the flag + a per-batch Rainforest cap
+        # (~6 credits/target lead, floor 150). 50 leads -> 300.
+        with mock.patch.object(worker.bettercontact_sync, "main", return_value={}) as m:
+            worker.run_scrape(_req(None, revenue_first=True, requested_leads=50))
+        self.assertTrue(m.call_args.kwargs.get("revenue_first"))
+        self.assertEqual(m.call_args.kwargs.get("amazon_qa_max_credits"), 300)
 
 
 if __name__ == "__main__":
