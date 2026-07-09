@@ -581,6 +581,10 @@ alter table scrape_requests add column if not exists revenue_floor integer;
 -- enrich-everyone-first flow). The worker passes revenue_first + a per-batch
 -- Rainforest cap (~6 credits/target lead) to bettercontact_main.
 alter table scrape_requests add column if not exists revenue_first boolean not null default false;
+-- Rainforest credits spent by this batch's Amazon revenue gate (separate from
+-- credits_spent, which is BetterContact enrichment). Written by worker.mark_ready
+-- from the run summary's amazon_qa_credits, so /batches shows the full spend.
+alter table scrape_requests add column if not exists amazon_qa_credits_spent integer not null default 0;
 alter table lead_contacts add column if not exists mobile text;
 
 -- Provenance: which scrape_requests batch a moved lead came from. Nullable —

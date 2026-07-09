@@ -297,7 +297,7 @@ def run_scrape(req: dict) -> dict:
 
 def mark_ready(conn, request_id: int, *, scraped_count: int,
                credits_spent: float, csv_path: str | None,
-               xlsx_path: str | None) -> None:
+               xlsx_path: str | None, amazon_qa_credits: int = 0) -> None:
     """Move row to status='ready' after a successful scrape.
 
     Per-batch isolation is now structural via the lead-reviewer Flask app
@@ -317,15 +317,17 @@ def mark_ready(conn, request_id: int, *, scraped_count: int,
         cur.execute(
             """
             update scrape_requests
-               set status            = 'ready',
-                   ready_at          = now(),
-                   scraped_count     = %s,
-                   credits_spent     = %s,
-                   export_csv_path   = %s,
-                   export_xlsx_path  = %s
+               set status                 = 'ready',
+                   ready_at               = now(),
+                   scraped_count          = %s,
+                   credits_spent          = %s,
+                   amazon_qa_credits_spent = %s,
+                   export_csv_path        = %s,
+                   export_xlsx_path       = %s
              where id = %s
             """,
-            (scraped_count, credits_spent, csv_path, xlsx_path, request_id),
+            (scraped_count, credits_spent, amazon_qa_credits, csv_path,
+             xlsx_path, request_id),
         )
     conn.commit()
 
@@ -424,6 +426,7 @@ def process_one_pending_request(conn) -> bool:
         conn, rid,
         scraped_count=stats["accepted"],
         credits_spent=float(run_summary.get("credits_spent") or 0),
+        amazon_qa_credits=int(run_summary.get("amazon_qa_credits") or 0),
         csv_path=run_summary.get("csv_path"),
         xlsx_path=run_summary.get("xlsx_path"),
     )
