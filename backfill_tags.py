@@ -1,17 +1,28 @@
 """Backfill `tags` column on replies and sent_messages from campaign tag mappings.
 
-Reuses fetch_campaign_tags() from instantly_sync. Idempotent — running it
-again on already-tagged rows is a no-op write of the same array.
+Reuses fetch_campaign_tags() from instantly_sync. Idempotent — running it again
+on already-tagged rows is a no-op write.
+
+Hardened 2026-07-09 (cron OOM/kill fix — see project-railway-deploy-state): the
+previous version fired one PostgREST UPDATE per campaign per table (~643 × 2 =
+~1,286 round-trips) and pulled every updated row back into memory via
+`return=representation`. That was the heavy, slow step whose completion the daily
+cron kept dying right after (starving the sync). This version collapses it into
+ONE server-side, set-based SQL UPDATE per table via psycopg2 — no per-campaign
+round-trips, no row payloads copied into Python — so it's fast and memory-flat.
+The `is distinct from` guard + the campaign_id index keep each UPDATE to only the
+rows whose tags genuinely changed (near-zero after the first pass; new rows are
+already tagged at insert time by instantly_sync.parse_email).
 """
 
 from __future__ import annotations
 
-import os
 import sys
 
 from dotenv import load_dotenv
-from supabase import create_client
+from psycopg2.extras import execute_values
 
+from db import connect
 from instantly_sync import (
     DEFAULT_MIN_INTERVAL_S,
     RateLimiter,
@@ -23,40 +34,23 @@ from instantly_sync import (
 TABLES = ("replies", "sent_messages")
 
 
-def _pg_array_literal(tags: list[str]) -> str:
-    """Render a text[] as a Postgres array literal for a PostgREST filter.
-
-    Each element is double-quoted with `"`/`\\` escaped, e.g.
-    ["Booked", "a,b"] -> '{"Booked","a,b"}'. Empty list -> '{}'.
-    """
-    parts = []
-    for t in tags:
-        esc = str(t).replace("\\", "\\\\").replace('"', '\\"')
-        parts.append(f'"{esc}"')
-    return "{" + ",".join(parts) + "}"
-
-
-def backfill_table(supabase, table: str, tags_map: dict[str, list[str]]) -> int:
-    """Backfill campaign tags, touching only rows whose tags actually differ.
-
-    New rows are already tagged at insert time (instantly_sync.parse_email), so
-    the `neq` guard makes the daily run a near-zero-write no-op while still
-    propagating genuine campaign→tag mapping changes to existing rows. Combined
-    with the campaign_id index this keeps each UPDATE fast — the previous
-    unguarded, unindexed full-table rewrite timed out on sent_messages (~445k rows).
-    """
-    total_updated = 0
-    for cid, tags in tags_map.items():
-        resp = (
-            supabase.table(table)
-            .update({"tags": tags})
-            .eq("campaign_id", cid)
-            .neq("tags", _pg_array_literal(tags))
-            .execute()
-        )
-        n = len(resp.data or [])
-        total_updated += n
-    return total_updated
+def backfill_table(cur, table: str, tags_map: dict[str, list[str]]) -> int:
+    """One set-based UPDATE for the whole table: join the (campaign_id -> tags)
+    map in as a VALUES list and write only rows whose tags actually differ.
+    Returns the number of rows updated (cur.rowcount)."""
+    if not tags_map:
+        return 0
+    rows = [(cid, list(tags)) for cid, tags in tags_map.items()]
+    # table name is a fixed constant from TABLES, never user input.
+    sql = (
+        f"update {table} t "
+        f"   set tags = v.tags "
+        f"  from (values %s) as v(campaign_id, tags) "
+        f" where t.campaign_id = v.campaign_id "
+        f"   and t.tags is distinct from v.tags"
+    )
+    execute_values(cur, sql, rows, template="(%s, %s::text[])", page_size=1000)
+    return cur.rowcount
 
 
 def main() -> None:
@@ -67,10 +61,7 @@ def main() -> None:
 
     load_dotenv()
     instantly_key = get_env("INSTANTLY_API_KEY")
-    supabase_url = get_env("SUPABASE_URL")
-    supabase_key = get_env("SUPABASE_KEY")
 
-    supabase = create_client(supabase_url, supabase_key)
     session = make_session(instantly_key)
     limiter = RateLimiter(DEFAULT_MIN_INTERVAL_S)
 
@@ -82,9 +73,15 @@ def main() -> None:
         print("No tag mappings found; nothing to backfill.")
         return
 
-    for table in TABLES:
-        n = backfill_table(supabase, table, tags_map)
-        print(f"  {table}: updated {n} rows")
+    conn = connect()
+    conn.autocommit = True
+    try:
+        cur = conn.cursor()
+        for table in TABLES:
+            n = backfill_table(cur, table, tags_map)
+            print(f"  {table}: updated {n} rows")
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
