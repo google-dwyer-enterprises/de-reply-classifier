@@ -254,6 +254,7 @@ def insert_scrape_request(
     requested_leads: int, industries: list[str], skip_industries: list[str],
     countries: list[str], notes: str, max_credits: int | None = None,
     enrichment: str = "email", revenue_floor: int | None = None,
+    revenue_first: bool = True,
 ) -> dict:
     """Insert a new scrape_requests row at status='pending'. Returns the
     row (incl. the auto-generated review_token).
@@ -271,8 +272,8 @@ def insert_scrape_request(
             cur.execute("""
                 insert into scrape_requests
                   (requested_leads, industries, skip_industries, countries,
-                   notes, max_credits, enrichment, revenue_floor)
-                values (%s, %s, %s, %s, %s, %s, %s, %s)
+                   notes, max_credits, enrichment, revenue_floor, revenue_first)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 returning id, review_token
             """, (
                 requested_leads,
@@ -283,6 +284,7 @@ def insert_scrape_request(
                 max_credits,
                 enrichment,
                 revenue_floor,
+                revenue_first,
             ))
             return cur.fetchone()
     finally:
@@ -568,11 +570,16 @@ def submit_post():
             form=request.form,
         ), 400
 
+    # Revenue-first is the production default: discover -> verify real e-commerce
+    # brand -> Amazon revenue gate -> enrich ONLY survivors. The "Classic pipeline"
+    # checkbox opts out (enrich everyone, no revenue gate).
+    revenue_first = not request.form.get("use_classic")
+
     # Preflight: don't queue a batch when a required provider is down — it would
     # just burn credits and fail (e.g. BetterContact enrichment hanging, or
     # Rainforest out of credits). Blocks the submission with a clear reason.
     import preflight
-    healthy, status = preflight.check(revenue_first=False)
+    healthy, status = preflight.check(revenue_first=revenue_first)
     if not healthy:
         return render_template(
             "submit.html", **_submit_base_context(),
@@ -584,6 +591,7 @@ def submit_post():
     row = insert_scrape_request(
         requested_leads, industries, skip_industries, countries, notes,
         max_credits=max_credits, enrichment=enrichment, revenue_floor=revenue_floor,
+        revenue_first=revenue_first,
     )
     return redirect(url_for("batches", submitted=row["id"]))
 

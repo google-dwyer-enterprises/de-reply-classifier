@@ -581,6 +581,11 @@ alter table scrape_requests add column if not exists revenue_floor integer;
 -- enrich-everyone-first flow). The worker passes revenue_first + a per-batch
 -- Rainforest cap (~6 credits/target lead) to bettercontact_main.
 alter table scrape_requests add column if not exists revenue_first boolean not null default false;
+-- Revenue-first is the PRODUCTION DEFAULT (2026-07-10, Victor's revenue-first
+-- direction): new batches run discover -> verify -> Amazon revenue gate ->
+-- enrich survivors unless the submit form's "Classic pipeline" opt-out is set.
+-- Existing rows keep their value; only the column default flips.
+alter table scrape_requests alter column revenue_first set default true;
 -- Rainforest credits spent by this batch's Amazon revenue gate (separate from
 -- credits_spent, which is BetterContact enrichment). Written by worker.mark_ready
 -- from the run summary's amazon_qa_credits, so /batches shows the full spend.

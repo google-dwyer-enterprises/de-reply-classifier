@@ -43,6 +43,15 @@
   </div>
 
   <div class="form-field">
+    <label class="checkbox-row">
+      <input type="checkbox" name="use_classic" value="1"
+             {{ 'checked' if (form and form.use_classic) else '' }}>
+      Use the classic pipeline (opt out of revenue-first)
+    </label>
+    <p class="hint"><strong>Revenue-first is on by default:</strong> discover a company, verify it's a real e-commerce brand, check its Amazon revenue, and spend a BetterContact credit <em>only</em> on the ones that qualify — cheaper and higher-quality. Tick this only to fall back to the <strong>classic</strong> flow (enrich everyone first, no revenue gate). The Amazon revenue floor above applies to revenue-first only.</p>
+  </div>
+
+  <div class="form-field">
     <label>Industries to target <span class="hint-inline">(top performers are pre-selected — adjust freely; select none to target all)</span></label>
     <p class="hint" style="margin:-2px 0 8px">Ranked by booking performance from the
       <a href="{{ url_for('category_booking') }}" target="_blank" rel="noopener">category analysis</a> —
