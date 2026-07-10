@@ -317,7 +317,7 @@ def bc_domain_ok(domain: str | None) -> bool:
     return d.rsplit(".", 1)[1] in BC_ALLOWED_TLDS
 
 BC_PAGE_LIMIT = 200            # API max per submit
-WORKER_PAGE_LIMIT = 50         # worker's per-cycle page-size cap (see effective_page_limit)
+WORKER_PAGE_LIMIT = 200        # worker's per-page cap (= BC API max; see effective_page_limit)
 BC_REQUEST_TIMEOUT_S = 30      # HTTP timeout for submit + poll calls
 BC_POLL_INTERVAL_S = 5         # how often to poll for terminate status
 BC_POLL_TIMEOUT_S = 600        # give up on a request after this long. Bumped
@@ -1558,8 +1558,26 @@ def _run_category_revenue_first(conn, api_key: str, *,
     n_discovered = n_gated_out = 0
     aborted_reason = None
 
-    for ind in queue:
+    def _revfirst_queue():
+        # Round-robin the live (non-exhausted) industries, cycling to DEEPER
+        # offsets each pass, until every industry is exhausted. Previously this
+        # was a single pass (one page/industry) so a target-based run stopped
+        # after ~one page each and never used its credit budget. Caps
+        # (target / Rainforest / BC) are enforced by the break checks below.
+        while True:
+            live = [i for i in BC_INDUSTRIES
+                    if i not in skip_set and not state.get(i, {}).get("exhausted")]
+            if not live:
+                return
+            for i in live:
+                yield i
+
+    for ind in _revfirst_queue():
         if target_leads and len(accepted) >= target_leads:
+            break
+        if amazon_qa_budget["spent"] >= amazon_qa_budget["max"]:
+            aborted_reason = (f"Rainforest cap hit "
+                              f"({amazon_qa_budget['spent']}/{amazon_qa_budget['max']})")
             break
         offset = state.get(ind, {}).get("last_offset_consumed", 0)
         filters = _industry_filters(ind, countries)
@@ -1694,12 +1712,15 @@ def _run_category_revenue_first(conn, api_key: str, *,
 
         new_offset = offset + page_limit
         est = state.get(ind, {}).get("total_leads_estimated") or leads_found or 0
-        exhausted = bool(est) and new_offset >= est
+        # a page that returns nothing => pool end (guards the cycle loop from
+        # spinning forever on an industry whose estimated total is unknown/0).
+        exhausted = (bool(est) and new_offset >= est) or len(bc_leads) == 0
         _update_state(conn, ind, new_offset=new_offset, leads_found=leads_found,
                       credits_spent_delta=0.0, exhausted=exhausted,
                       countries=countries or [], accepted_delta=len(page_accepted))
         conn.commit()
         state.setdefault(ind, {})["last_offset_consumed"] = new_offset
+        state[ind]["exhausted"] = exhausted   # keep the cycle queue in sync
         print(f"  [{ind}] discovered {len(bc_leads)} | survived gates {len(survivors)} | "
               f"accepted {len(page_accepted)} | BC-cr {credits_spent:.0f}"
               f"{f'/{max_credits}' if max_credits else ''} | RF-cr {amazon_qa_budget['spent']}")

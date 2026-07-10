@@ -161,7 +161,7 @@ def claim_pending_request(conn) -> dict | None:
              where r.id = claimed.id
             returning r.id, r.requested_leads, r.industries, r.skip_industries,
                       r.countries, r.notes, r.max_credits, r.enrichment,
-                      r.revenue_floor, r.revenue_first
+                      r.revenue_floor, r.revenue_first, r.amazon_qa_max_credits
             """
         )
         row = cur.fetchone()
@@ -179,6 +179,7 @@ def claim_pending_request(conn) -> dict | None:
         "enrichment": row[7] or "email",   # 'email' | 'both' (phones = 10 cr each)
         "revenue_floor": row[8],  # None -> bettercontact_main uses the $300k default
         "revenue_first": bool(row[9]),  # revenue-first flow (discover->gate->enrich survivors)
+        "amazon_qa_max_credits": row[10],  # None -> worker derives ~6/target-lead
     }
 
 
@@ -285,13 +286,13 @@ def run_scrape(req: dict) -> dict:
     )
     if req.get("revenue_first"):
         # Revenue-first: discover free -> verify e-commerce -> Rainforest revenue
-        # gate -> enrich only survivors. Bound the Rainforest spend per batch
-        # (~6 credits/target lead, floor 150) so a batch can't run away on credits.
+        # gate -> enrich only survivors. Bound the Rainforest spend per batch: an
+        # explicit per-request cap if set, else ~6 credits/target lead (floor 150).
         call_kwargs["revenue_first"] = True
-        call_kwargs["amazon_qa_max_credits"] = max(150, req["requested_leads"] * 6)
+        rf_cap = req.get("amazon_qa_max_credits") or max(150, req["requested_leads"] * 6)
+        call_kwargs["amazon_qa_max_credits"] = int(rf_cap)
         log(f"req #{req['id']}: REVENUE-FIRST flow "
-            f"(Rainforest cap={call_kwargs['amazon_qa_max_credits']}, "
-            f"BC enrich cap={max_credits})")
+            f"(Rainforest cap={int(rf_cap)}, BC enrich cap={max_credits})")
     return bettercontact_sync.main(**call_kwargs)
 
 

@@ -11,11 +11,11 @@ from unittest import mock
 import worker
 
 
-def _req(floor, revenue_first=False, requested_leads=10):
+def _req(floor, revenue_first=False, requested_leads=10, amazon_qa_max_credits=None):
     return {"id": 1, "requested_leads": requested_leads, "industries": [],
             "skip_industries": [], "countries": ["United States"], "notes": None,
             "max_credits": 100, "enrichment": "email", "revenue_floor": floor,
-            "revenue_first": revenue_first}
+            "revenue_first": revenue_first, "amazon_qa_max_credits": amazon_qa_max_credits}
 
 
 class TestRunScrapeThreadsFloor(unittest.TestCase):
@@ -44,6 +44,14 @@ class TestRunScrapeThreadsFloor(unittest.TestCase):
             worker.run_scrape(_req(None, revenue_first=True, requested_leads=50))
         self.assertTrue(m.call_args.kwargs.get("revenue_first"))
         self.assertEqual(m.call_args.kwargs.get("amazon_qa_max_credits"), 300)
+
+    def test_explicit_rainforest_cap_overrides_formula(self):
+        # an explicit per-request cap (e.g. 2000 for a big validation run) wins
+        # over the ~6/target-lead formula
+        with mock.patch.object(worker.bettercontact_sync, "main", return_value={}) as m:
+            worker.run_scrape(_req(None, revenue_first=True, requested_leads=50,
+                                   amazon_qa_max_credits=2000))
+        self.assertEqual(m.call_args.kwargs.get("amazon_qa_max_credits"), 2000)
 
 
 if __name__ == "__main__":

@@ -585,6 +585,10 @@ alter table scrape_requests add column if not exists revenue_first boolean not n
 -- credits_spent, which is BetterContact enrichment). Written by worker.mark_ready
 -- from the run summary's amazon_qa_credits, so /batches shows the full spend.
 alter table scrape_requests add column if not exists amazon_qa_credits_spent integer not null default 0;
+-- Per-request Rainforest cap for a revenue-first batch (NULL = worker derives
+-- ~6 credits/target lead, floor 150). Lets a big validation run set an explicit
+-- ceiling (e.g. 2000 for a 50-lead target).
+alter table scrape_requests add column if not exists amazon_qa_max_credits integer;
 alter table lead_contacts add column if not exists mobile text;
 
 -- Provenance: which scrape_requests batch a moved lead came from. Nullable —
