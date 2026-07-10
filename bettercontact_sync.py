@@ -326,6 +326,14 @@ BC_POLL_TIMEOUT_S = 600        # give up on a request after this long. Bumped
                                 # billing for them.
 BC_SUBMIT_MAX_RETRIES = 5      # network-level retries on submit
 BC_POLL_MAX_RETRIES = 5        # network-level retries on each poll GET
+# Enrichment resilience (2026-07-10): BC's async enrich is intermittently slow —
+# a batch poll can hang the full 600s (killed batch #47; stalled #48/#49). So the
+# revenue-first enrich runs in small chunks with a SHORT per-attempt timeout and
+# retries: a hang costs one chunk-attempt (~90s) and re-submits, instead of a
+# 10-min dead wait, and one bad chunk doesn't lose the others.
+BC_ENRICH_POLL_TIMEOUT_S = 90  # per-attempt enrich poll timeout (vs 600 for search)
+BC_ENRICH_CHUNK = 5            # enrich survivors this many at a time
+BC_ENRICH_ATTEMPTS = 3         # re-submit a chunk this many times on timeout
 
 
 class InsufficientCreditsError(Exception):
@@ -531,6 +539,51 @@ def enrich_contacts(leads: list[dict], api_key: str,
         if (d.get("status") or "").lower() in ("terminated", "completed", "done", "finished"):
             return d
     raise RuntimeError(f"BC enrich poll {eid} timeout after {timeout_s}s")
+
+
+def enrich_contacts_resilient(leads: list[dict], api_key: str,
+                              enrich_phones: bool = False) -> dict | None:
+    """Chunked, short-timeout, retrying enrich (see BC_ENRICH_* constants).
+
+    BetterContact's async enrich is intermittently slow. Enriching all survivors
+    in one request means a single hung poll wastes 10 min AND loses the whole
+    page. This runs small chunks with a short per-attempt timeout and re-submits
+    on timeout, so a hang costs ~90s and is retried, one bad chunk doesn't lose
+    the others, and results are aggregated. Propagates InsufficientCreditsError;
+    raises RuntimeError only if EVERY chunk failed (BC unhealthy) so the caller's
+    abort guard fires."""
+    if not leads:
+        return {"data": [], "credits_consumed": 0}
+    data: list[dict] = []
+    credits = 0.0
+    chunks = [leads[i:i + BC_ENRICH_CHUNK]
+              for i in range(0, len(leads), BC_ENRICH_CHUNK)]
+    failed = 0
+    for ci, part in enumerate(chunks, 1):
+        ok = False
+        for attempt in range(1, BC_ENRICH_ATTEMPTS + 1):
+            try:
+                r = enrich_contacts(part, api_key, enrich_phones=enrich_phones,
+                                    timeout_s=BC_ENRICH_POLL_TIMEOUT_S)
+                if r:
+                    data.extend(r.get("data") or [])
+                    credits += float(r.get("credits_consumed") or 0)
+                ok = True
+                break
+            except InsufficientCreditsError:
+                raise
+            except RuntimeError as e:
+                if attempt < BC_ENRICH_ATTEMPTS:
+                    print(f"      enrich chunk {ci}/{len(chunks)} attempt {attempt} "
+                          f"failed ({str(e)[:50]}) — retrying")
+                else:
+                    print(f"      enrich chunk {ci}/{len(chunks)} gave up after "
+                          f"{BC_ENRICH_ATTEMPTS} attempts")
+        if not ok:
+            failed += 1
+    if failed and failed == len(chunks):
+        raise RuntimeError(f"all {failed} enrich chunk(s) timed out — BC enrichment unhealthy")
+    return {"data": data, "credits_consumed": credits}
 
 
 def _industry_filters(industry: str, countries: list[str] | None,
@@ -1670,7 +1723,7 @@ def _run_category_revenue_first(conn, api_key: str, *,
         page_accepted: list[dict] = []
         if survivors and (max_credits is None or credits_spent < max_credits):
             try:
-                enr = enrich_contacts(survivors, api_key)
+                enr = enrich_contacts_resilient(survivors, api_key)
                 enrich_failures = 0
             except InsufficientCreditsError as e:
                 aborted_reason = str(e)          # credits genuinely out -> stop
