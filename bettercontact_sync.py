@@ -579,6 +579,13 @@ def enrich_contacts_resilient(leads: list[dict], api_key: str,
                 else:
                     print(f"      enrich chunk {ci}/{len(chunks)} gave up after "
                           f"{BC_ENRICH_ATTEMPTS} attempts")
+                    try:   # surface on the admin panel (best-effort)
+                        import api_events
+                        api_events.record("BetterContact",
+                                          api_events.classify_error(None, str(e)),
+                                          detail=str(e)[:500], context="enrich")
+                    except Exception:
+                        pass
         if not ok:
             failed += 1
     if failed and failed == len(chunks):

@@ -346,6 +346,13 @@ def mark_failed(conn, request_id: int, error: str) -> None:
             (error[:8000], request_id),
         )
     conn.commit()
+    # Surface every batch failure on the admin panel (best-effort — never raise).
+    try:
+        import api_events
+        api_events.record("Worker", api_events.classify_error(None, error),
+                          detail=error[:1000], context=f"scrape batch #{request_id}")
+    except Exception:
+        pass
 
 
 def send_email_and_log(conn, request_id: int, req_dict: dict,
