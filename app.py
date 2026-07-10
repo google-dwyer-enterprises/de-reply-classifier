@@ -568,6 +568,19 @@ def submit_post():
             form=request.form,
         ), 400
 
+    # Preflight: don't queue a batch when a required provider is down — it would
+    # just burn credits and fail (e.g. BetterContact enrichment hanging, or
+    # Rainforest out of credits). Blocks the submission with a clear reason.
+    import preflight
+    healthy, status = preflight.check(revenue_first=False)
+    if not healthy:
+        return render_template(
+            "submit.html", **_submit_base_context(),
+            error="Can't start a batch right now — a required service looks down: "
+                  + "; ".join(status) + ". Please try again in a bit.",
+            form=request.form,
+        ), 503
+
     row = insert_scrape_request(
         requested_leads, industries, skip_industries, countries, notes,
         max_credits=max_credits, enrichment=enrichment, revenue_floor=revenue_floor,

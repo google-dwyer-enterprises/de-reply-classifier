@@ -401,6 +401,24 @@ def process_one_pending_request(conn) -> bool:
         return False
     rid = req["id"]
     log(f"req #{rid}: claimed, status -> running")
+    # Preflight: don't spend if a provider this batch needs is down. Put it back
+    # to pending so it runs automatically once the provider recovers — rather than
+    # burning credits on a doomed run (as #48-50 did while BC enrichment hung).
+    import preflight
+    healthy, status = preflight.check(revenue_first=req.get("revenue_first", False))
+    if not healthy:
+        with conn.cursor() as cur:
+            cur.execute("update scrape_requests set status='pending', started_at=null where id=%s", (rid,))
+        conn.commit()
+        reason = "; ".join(status)
+        log(f"req #{rid}: HELD (dependency down) -> back to pending: {reason}")
+        try:
+            import api_events
+            api_events.record("Preflight", "other", detail=reason,
+                              context=f"batch #{rid} held (dependency down)")
+        except Exception:
+            pass
+        return False   # sleep the poll loop; re-checks next cycle (probe cached ~5m)
     try:
         run_summary = run_scrape(req)
     except InsufficientCreditsError as e:
