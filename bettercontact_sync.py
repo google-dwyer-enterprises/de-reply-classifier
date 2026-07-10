@@ -1556,6 +1556,7 @@ def _run_category_revenue_first(conn, api_key: str, *,
     rejected_counts: dict[str, int] = {}
     credits_spent = 0.0            # BC ENRICH credits only — discovery is free
     n_discovered = n_gated_out = 0
+    enrich_failures = 0            # consecutive transient BC-enrich failures
     aborted_reason = None
 
     def _revfirst_queue():
@@ -1670,9 +1671,24 @@ def _run_category_revenue_first(conn, api_key: str, *,
         if survivors and (max_credits is None or credits_spent < max_credits):
             try:
                 enr = enrich_contacts(survivors, api_key)
+                enrich_failures = 0
             except InsufficientCreditsError as e:
-                aborted_reason = str(e)
+                aborted_reason = str(e)          # credits genuinely out -> stop
                 enr = None
+            except RuntimeError as e:
+                # Transient BC enrich failure (poll timeout / 5xx / transport):
+                # skip THIS page and keep cycling — one slow BC poll must not
+                # abort the whole run (batch #47 died on a 600s poll timeout).
+                # Bail only if BC enrichment fails repeatedly (it's down).
+                enrich_failures += 1
+                print(f"    enrich failed for [{ind}] (#{enrich_failures}), "
+                      f"skipping this page: {str(e)[:110]}")
+                rejected_counts["enrich_error"] = (
+                    rejected_counts.get("enrich_error", 0) + len(survivors))
+                enr = None
+                if enrich_failures >= 3:
+                    aborted_reason = (f"BC enrichment failing repeatedly "
+                                      f"({enrich_failures}x) — stopping")
             if enr:
                 credits_spent += float(enr.get("credits_consumed") or 0)
                 idx = {}
