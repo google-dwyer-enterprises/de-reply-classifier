@@ -179,7 +179,8 @@ def fetch_recent_batches(limit: int = 50) -> list[dict]:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 select sr.id, sr.status, sr.approval, sr.moved_count,
-                       sr.credits_spent, sr.max_credits, sr.created_at,
+                       sr.credits_spent, sr.amazon_qa_credits_spent, sr.max_credits,
+                       sr.created_at,
                        sr.ready_at, sr.moved_at, sr.review_token, sr.notes,
                        sr.requested_leads,
                        -- scraped_count is the ACCEPTED count, but the worker only
@@ -217,7 +218,8 @@ def fetch_batch_by_token(token: str) -> dict | None:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 select id, status, approval, scraped_count, moved_count,
-                       credits_spent, max_credits, created_at, ready_at, moved_at,
+                       credits_spent, amazon_qa_credits_spent, max_credits,
+                       created_at, ready_at, moved_at,
                        review_token, notes, requested_leads,
                        industries, skip_industries, countries, enrichment
                   from scrape_requests

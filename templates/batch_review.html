@@ -13,9 +13,10 @@
   <div class="item"><div class="k">Rejected</div><div class="v">{{ counts.rejected }}</div></div>
   <div class="item"><div class="k">Moved to pool</div><div class="v">{{ counts.moved }}</div></div>
   <div class="item">
-    <div class="k">Credits</div>
+    <div class="k">Credits (BetterContact / Rainforest)</div>
     <div class="v">
-      {{ batch.credits_spent }}{% if batch.max_credits %} / {{ batch.max_credits }}{% endif %}
+      {{ batch.credits_spent }} BC{% if batch.max_credits %} <span class="muted">/ {{ batch.max_credits }} cap</span>{% endif %}
+      &nbsp;+&nbsp; {{ batch.amazon_qa_credits_spent or 0 }} Rainforest
     </div>
   </div>
 </div>
