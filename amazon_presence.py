@@ -126,6 +126,13 @@ def _rainforest_raw(search_term: str) -> dict | None:
             except Exception:
                 pass
             return None
+        # proactive low-balance warning (before credits hit 0) — cheap no-op
+        # unless remaining is at/under the threshold.
+        try:
+            import credit_alerts
+            credit_alerts.maybe_low_balance_alert("Rainforest", info.get("credits_remaining"))
+        except Exception:
+            pass
         return data
     except Exception as e:
         try:

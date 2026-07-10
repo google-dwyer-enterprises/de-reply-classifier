@@ -33,6 +33,11 @@ RESEND_ENDPOINT = "https://api.resend.com/emails"
 RESEND_FALLBACK_FROM = "Pipeline Monitor <onboarding@resend.dev>"
 DEFAULT_FROM = "Dwyer Lead Scraper <noreply@dwyer-enterprises.com>"
 THROTTLE_HOURS = 12
+# Proactive low-balance warning: alert when a provider's REMAINING credits drop
+# to/below this, BEFORE it hits 0, so it gets topped up before the pipeline
+# stalls. (Distinct from maybe_alert, which is reactive — fires only once a call
+# is already rejected for no credit.)
+LOW_BALANCE_THRESHOLDS = {"Rainforest": 1000}   # ~10% of the 10k/mo Starter plan
 
 
 def _resolve_sender() -> str:
@@ -146,6 +151,70 @@ def _send_email(provider: str, detail: str, renew_hint: str) -> bool:
         return False
     except Exception as e:
         print(f"credit_alerts: send failed: {e}", file=sys.stderr)
+        return False
+
+
+def _send_low_balance_email(provider: str, remaining: int, threshold: int) -> bool:
+    api_key = (os.environ.get("RESEND_API_KEY") or "").strip()
+    to = (os.environ.get("NOTIFY_EMAIL") or "").strip()
+    sender = _resolve_sender()
+    renew = SIGNATURES.get(provider, ([], "the provider dashboard"))[1]
+    if not (api_key and to):
+        print(f"credit_alerts: RESEND_API_KEY/NOTIFY_EMAIL not set — would warn about "
+              f"{provider} low balance ({remaining} left)", file=sys.stderr)
+        return False
+    subject = f"⚠️ {provider} credits running low — {remaining} left"
+    html = f"""\
+<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:580px;
+            margin:0 auto;padding:24px;line-height:1.6;color:#1a1a1a;">
+  <p><strong>{provider}</strong> credits are running low: <strong>{remaining}</strong>
+     remaining (warning threshold {threshold}).</p>
+  <p><strong>Top up before it hits 0</strong> at <strong>{renew}</strong> — once it
+     runs out, revenue-first scraping stalls.</p>
+  <p style="color:#6b7280;font-size:13px;">(You won't get another {provider}
+     low-balance reminder for {THROTTLE_HOURS}h.)</p>
+  <p style="color:#6b7280;font-size:13px;">— Pipeline monitor</p>
+</div>"""
+    try:
+        r = requests.post(RESEND_ENDPOINT,
+                          json={"from": sender, "to": [to], "subject": subject, "html": html},
+                          headers={"Authorization": f"Bearer {api_key}",
+                                   "Content-Type": "application/json"},
+                          timeout=30)
+        if 200 <= r.status_code < 300:
+            print(f"credit_alerts: emailed {to} — {provider} low balance ({remaining})")
+            return True
+        print(f"credit_alerts: Resend {r.status_code}: {r.text[:200]}", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"credit_alerts: low-balance send failed: {e}", file=sys.stderr)
+        return False
+
+
+def maybe_low_balance_alert(provider: str, remaining, threshold: int | None = None) -> bool:
+    """Proactively warn when `provider` credits are LOW (before they hit 0).
+    Throttled per provider (a key distinct from the exhaustion alert), records an
+    api_event so it shows on the admin panel, and emails. Returns True if it
+    fired (balance was at/under threshold). Never raises — safe to call on the
+    hot path (it only touches the DB/email when actually low)."""
+    try:
+        if remaining is None:
+            return False
+        remaining = int(remaining)
+        thr = threshold if threshold is not None else LOW_BALANCE_THRESHOLDS.get(provider)
+        if thr is None or remaining > thr:
+            return False   # cheap no-op in the normal (not-low) case
+        detail = f"{provider} credits low: {remaining} remaining (threshold {thr})"
+        try:   # surface on the admin panel (credit category)
+            import api_events
+            api_events.record(provider, "credit_exhausted", detail=detail, context="low_balance")
+        except Exception:
+            pass
+        if _should_send(f"{provider}-lowbalance"):
+            _send_low_balance_email(provider, remaining, thr)
+        return True
+    except Exception as e:
+        print(f"credit_alerts: maybe_low_balance_alert error: {e}", file=sys.stderr)
         return False
 
 
