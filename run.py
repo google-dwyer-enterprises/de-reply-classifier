@@ -155,6 +155,41 @@ def cmd_export_leads(args) -> None:
     prospeo_export_all(mode=args.mode)
 
 
+def cmd_drain_enrich_queue(args) -> None:
+    """Manual drain of the tier-3 revenue-first enrichment queue. Enriches
+    pending survivors (chunked + retried) and writes the accepted leads."""
+    import os
+    from dotenv import load_dotenv
+    import bettercontact_sync as bc
+    from db import connect
+    load_dotenv()
+    api_key = (os.environ.get("BETTERCONTACT_API_KEY") or "").strip()
+    if not api_key:
+        sys.exit("BETTERCONTACT_API_KEY not set in env")
+    conn = connect()
+    try:
+        total = {"enriched": 0, "skipped": 0, "credits": 0.0}
+        spent = 0.0
+        while True:
+            d = bc.drain_enrich_queue(
+                conn, api_key, scrape_request_id=args.request_id,
+                max_credits=args.max_credits, credits_already_spent=spent,
+                limit=args.limit)
+            total["enriched"] += d["enriched"]
+            total["skipped"] += d["skipped"]
+            spent += d["credits_spent"]
+            print(f"  drain: +{d['enriched']} enriched / {d['skipped']} skipped, "
+                  f"{d['still_pending']} pending, BC-cr {spent:.0f}"
+                  + (f" [{d['aborted_reason']}]" if d.get("aborted_reason") else ""))
+            if (d["still_pending"] in (0, None) or d.get("aborted_reason")
+                    or (d["enriched"] == 0 and d["skipped"] == 0) or args.limit):
+                break
+        print(f"\n=== drain done ===\n  enriched: {total['enriched']}\n"
+              f"  skipped:  {total['skipped']}\n  BC credits: {spent:.0f}")
+    finally:
+        conn.close()
+
+
 def main() -> None:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -324,6 +359,15 @@ def main() -> None:
     lf.add_argument("--yes", action="store_true", help="Skip the cost confirmation prompt")
     lf.add_argument("--retag", action="store_true", help="Re-tag all rows, not just untagged/stale")
 
+    dq = sub.add_parser("drain-enrich-queue",
+                        help="Enrich pending revenue-first survivors (tier-3 queue); "
+                             "manual catch-up when the worker isn't running or after BC recovers")
+    dq.add_argument("--request-id", type=int, default=None,
+                    help="Only drain this scrape_request's queued survivors (default: the CLI NULL bucket)")
+    dq.add_argument("--max-credits", type=int, default=None,
+                    help="BetterContact enrich credit cap for this drain")
+    dq.add_argument("--limit", type=int, default=None, help="Cap rows enriched this run")
+
     args = parser.parse_args()
 
     # Wrap dispatch so every `run.py <cmd>` (each daily-cron step is one) records
@@ -458,6 +502,8 @@ def _dispatch(args) -> None:
         from followup_llm_features import main as llm_followup_features_main
         llm_followup_features_main(limit=args.limit, dry_run=args.dry_run,
                                    yes=args.yes, retag=args.retag)
+    elif args.command == "drain-enrich-queue":
+        cmd_drain_enrich_queue(args)
 
 
 if __name__ == "__main__":

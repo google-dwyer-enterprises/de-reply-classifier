@@ -387,6 +387,7 @@ def admin_panel():
     recent, credit_state = [], []
     job_health, job_runs = [], []
     worker = {"last_seen": None, "host": None, "stale": None}
+    enrich_queue = {"pending": 0, "failed": 0, "batches": 0}
     try:
         summary = api_events.summary(hours=hours)
         recent = api_events.recent(limit=150)
@@ -394,13 +395,35 @@ def admin_panel():
         job_health = job_monitor.daily_health()
         job_runs = job_monitor.recent_runs(limit=60)
         worker = heartbeat.status()
+        enrich_queue = _enrich_queue_backlog()
     except Exception as e:
         db_error = str(e)[:300]
     return render_template(
         "admin.html", summary=summary, recent=recent, credit_state=credit_state,
         hours=hours, kinds=api_events.KINDS, db_error=db_error,
         job_health=job_health, job_runs=job_runs, worker=worker,
+        enrich_queue=enrich_queue,
     )
+
+
+def _enrich_queue_backlog() -> dict:
+    """Tier-3 visibility: how many revenue-first survivors are waiting to be
+    enriched. A rising 'pending' with 'batches' stuck in status='enriching'
+    means BetterContact enrichment is degraded (the gate did its job; the drain
+    is blocked). 'failed' = rows BC couldn't process after many retries."""
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select count(*) filter (where status='pending'), "
+                        "       count(*) filter (where status='failed') "
+                        "  from revenue_first_enrich_queue")
+            pending, failed = cur.fetchone()
+            cur.execute("select count(*) from scrape_requests where status='enriching'")
+            batches = cur.fetchone()[0]
+        return {"pending": int(pending or 0), "failed": int(failed or 0),
+                "batches": int(batches or 0)}
+    finally:
+        conn.close()
 
 
 @app.route("/analytics")

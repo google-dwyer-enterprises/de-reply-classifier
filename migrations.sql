@@ -724,3 +724,55 @@ create table if not exists followup_experiments (
 create index if not exists fexp_status_idx on followup_experiments (status);
 create index if not exists fexp_lead_idx   on followup_experiments (lead_email);
 create index if not exists fexp_client_idx on followup_experiments (client);
+
+
+-- =========================================================================
+-- Tier-3: decouple revenue-first gating from BetterContact enrichment
+-- (2026-07-11)
+-- =========================================================================
+-- Revenue-first previously enriched survivors INLINE per page: discover -> gate
+-- (Rainforest/LLM) -> BC enrich, all in one loop. BC's async enrich is
+-- intermittently slow, so a hang stalled the whole run AND wasted the
+-- Rainforest/LLM spend already made — batches #48-50 gated fine but produced 0
+-- accepted because BC was down at enrich time. Tier-3 splits the two:
+--
+--   GATE phase  : discover email-free (0 cr) -> ICP/brand/revenue gate ->
+--                 persist every qualified survivor into the queue below
+--                 (email still unknown, all verdicts stamped). Spends only the
+--                 reliable providers (Rainforest + Anthropic); never touches BC
+--                 enrich, so it cannot hang. Request goes to status='enriching'.
+--   DRAIN phase : a separate step enriches pending queue rows with retries and
+--                 writes the accepted leads. When a request's queue is fully
+--                 drained (every row enriched or skipped) the batch flips to
+--                 'ready'. Flaky BC now only DELAYS enrichment — it never blocks
+--                 discovery, wastes a gate credit, or loses a qualified brand.
+--
+-- The worker drains the backlog every poll, so rows queued while BC was down
+-- get enriched automatically once it recovers (no re-submit / no re-gate spend).
+alter table scrape_requests drop constraint if exists scrape_requests_status_check;
+alter table scrape_requests add constraint scrape_requests_status_check
+  check (status in ('pending','running','enriching','ready','moved','rejected','failed'));
+
+create table if not exists revenue_first_enrich_queue (
+  id                bigserial primary key,
+  scrape_request_id bigint references scrape_requests(id) on delete cascade,
+  company_domain    text,
+  -- lower(first)|lower(last)|lower(domain) — dedups contacts within a request's
+  -- queue and matches BC enrich results back to the queued survivor.
+  contact_key       text not null,
+  -- the full post-gate, pre-enrich survivor dict (all brand_verify / amazon_qa
+  -- verdicts already stamped); the deliverable email + mobile are merged in on
+  -- a successful enrich so the accepted export reads straight from here.
+  lead_json         jsonb not null,
+  status            text not null default 'pending'
+                    check (status in ('pending','enriched','skipped','failed')),
+  attempts          integer not null default 0,   -- transient BC-enrich attempts made
+  last_error        text,
+  queued_at         timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  unique (scrape_request_id, contact_key)
+);
+-- The drain hot-path: find pending rows for a request cheaply.
+create index if not exists rf_enrich_queue_pending_idx
+  on revenue_first_enrich_queue (scrape_request_id)
+  where status = 'pending';

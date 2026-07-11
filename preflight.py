@@ -89,13 +89,28 @@ def _anthropic() -> tuple[bool, str]:
         return False, f"Anthropic not responding ({str(e)[:60]})"
 
 
+def bettercontact_ok(use_cache: bool = True) -> tuple[bool, str]:
+    """Is BetterContact's enrich endpoint responsive right now? Used by the
+    tier-3 drain to decide whether to attempt enrichment this poll (a degraded
+    BC leaves queued rows pending rather than hanging the drain)."""
+    return _cached("bettercontact", _bettercontact) if use_cache else _bettercontact()
+
+
 def check(revenue_first: bool = False, use_cache: bool = True) -> tuple[bool, list[str]]:
-    """Return (all_healthy, [per-provider status lines]) for the providers this
-    batch needs: BetterContact always; Rainforest too when revenue_first."""
+    """Return (all_healthy, [per-provider status lines]) for the providers a
+    batch must have UP to START spending.
+
+    Classic flow: Anthropic (ICP gate) + BetterContact (inline enrichment).
+    Revenue-first (tier-3): Anthropic + Rainforest (the revenue gate). NOT
+    BetterContact — enrichment is decoupled into the drain queue, so a degraded
+    BC no longer blocks the gate (which spends only Rainforest/Anthropic); the
+    drain retries the enrich when BC recovers. This is what lets a revenue-first
+    batch make progress during a BC-enrich outage instead of being held."""
     probes = [("anthropic", _anthropic)]   # the ICP gate needs it in BOTH flows
     if revenue_first:
         probes.append(("rainforest", _rainforest))
-    probes.append(("bettercontact", _bettercontact))
+    else:
+        probes.append(("bettercontact", _bettercontact))
     ok_all, msgs = True, []
     for name, fn in probes:
         ok, msg = _cached(name, fn) if use_cache else fn()

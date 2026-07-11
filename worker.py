@@ -73,6 +73,10 @@ CREDITS_PER_LEAD_BUDGET = 3
 DEFAULT_MAX_CREDITS_WHEN_BLANK = 1000
 # Page size policy now lives in bettercontact_sync.effective_page_limit
 # (WORKER_PAGE_LIMIT = 50), shared with the submit-form credit validation.
+# Tier-3: max queued survivors a single poll enriches PER enriching batch. Keeps
+# each poll short (BC enrich is chunked internally) so the worker stays
+# responsive + the heartbeat keeps beating; the backlog drains over many polls.
+DRAIN_ROWS_PER_POLL = 25
 
 
 # ---------------------------------------------------------------------------
@@ -285,14 +289,19 @@ def run_scrape(req: dict) -> dict:
         scrape_request_id=req["id"],
     )
     if req.get("revenue_first"):
-        # Revenue-first: discover free -> verify e-commerce -> Rainforest revenue
-        # gate -> enrich only survivors. Bound the Rainforest spend per batch: an
-        # explicit per-request cap if set, else ~6 credits/target lead (floor 150).
+        # Revenue-first (tier-3 decoupled): run only the GATE phase here —
+        # discover free -> verify e-commerce -> Rainforest revenue gate ->
+        # ENQUEUE survivors. Enrichment is drained asynchronously by
+        # drain_enriching_requests so a slow BC enrich never blocks the claim.
+        # Bound the Rainforest spend per batch: an explicit per-request cap if
+        # set, else ~6 credits/target lead (floor 150).
         call_kwargs["revenue_first"] = True
+        call_kwargs["gate_only"] = True
         rf_cap = req.get("amazon_qa_max_credits") or max(150, req["requested_leads"] * 6)
         call_kwargs["amazon_qa_max_credits"] = int(rf_cap)
-        log(f"req #{req['id']}: REVENUE-FIRST flow "
-            f"(Rainforest cap={int(rf_cap)}, BC enrich cap={max_credits})")
+        log(f"req #{req['id']}: REVENUE-FIRST GATE "
+            f"(Rainforest cap={int(rf_cap)}, BC enrich cap={max_credits}); "
+            f"enrichment drains asynchronously")
     return bettercontact_sync.main(**call_kwargs)
 
 
@@ -329,6 +338,30 @@ def mark_ready(conn, request_id: int, *, scraped_count: int,
             """,
             (scraped_count, credits_spent, amazon_qa_credits, csv_path,
              xlsx_path, request_id),
+        )
+    conn.commit()
+
+
+def mark_enriching(conn, request_id: int, *, amazon_qa_credits: int) -> None:
+    """Move a revenue-first request to status='enriching' after the GATE phase.
+
+    The gate has persisted its survivors into revenue_first_enrich_queue and
+    spent its Rainforest credits (stored now so /batches shows the RF spend
+    while enrichment is still draining). BC-enrich credits accrue into
+    credits_spent as drain_enriching_requests works the queue. sweep_stuck_
+    running only touches 'running', so an 'enriching' batch waiting on a BC
+    outage is never force-failed — it holds until BC recovers."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update scrape_requests
+               set status                  = 'enriching',
+                   amazon_qa_credits_spent = %s,
+                   credits_spent           = 0,
+                   scraped_count           = 0
+             where id = %s
+            """,
+            (amazon_qa_credits, request_id),
         )
     conn.commit()
 
@@ -433,6 +466,24 @@ def process_one_pending_request(conn) -> bool:
         log(f"req #{rid}: FAILED — {e}")
         return True
 
+    # Revenue-first (tier-3): run_scrape ran the GATE only. Move the batch to
+    # 'enriching' and let drain_enriching_requests do the (flaky) BC enrichment
+    # asynchronously — so a BC-enrich outage never blocks or fails the claim.
+    if req.get("revenue_first"):
+        queued = int(run_summary.get("queued") or 0)
+        aborted = run_summary.get("aborted_reason")
+        rf_credits = int(run_summary.get("amazon_qa_credits") or 0)
+        if queued == 0:
+            reason = aborted or "no leads survived the revenue-first gates"
+            mark_failed(conn, rid, f"No leads scraped — {reason}")
+            notifier.send_no_leads_email(rid, reason)
+            log(f"req #{rid}: gate produced 0 queued — {reason}")
+            return True
+        mark_enriching(conn, rid, amazon_qa_credits=rf_credits)
+        log(f"req #{rid}: gated {queued} survivor(s) -> status=enriching "
+            f"(Rainforest {rf_credits} cr); enrichment drains next polls")
+        return True
+
     stats = collect_stats(conn, rid)
     log(f"req #{rid}: scrape done, accepted={stats['accepted']}, "
         f"rejected={stats['rejected']}, "
@@ -458,6 +509,138 @@ def process_one_pending_request(conn) -> bool:
     )
     send_email_and_log(conn, rid, req, stats, run_summary)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Tier-3: drain the revenue-first enrichment queue (decoupled from gating)
+# ---------------------------------------------------------------------------
+#
+# Revenue-first batches sit in status='enriching' after their gate phase, with
+# their qualified survivors queued in revenue_first_enrich_queue. This step
+# enriches pending rows (bounded per poll), writes the accepted leads, and —
+# once a batch's queue is fully drained (or its BC budget is spent) — finalizes
+# it to 'ready' and emails Jam. A degraded BetterContact just leaves rows
+# pending; they drain automatically on a later poll once BC recovers.
+
+def _export_enriched(conn, request_id: int) -> tuple[str | None, str | None]:
+    """Write the accepted (enriched) leads for a batch to CSV + XLSX from the
+    queue's lead_json (the deliverable email was merged in on enrich)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select lead_json from revenue_first_enrich_queue "
+            "where scrape_request_id = %s and status = 'enriched' order by id",
+            (request_id,),
+        )
+        leads = [r[0] for r in cur.fetchall()]   # jsonb -> dict
+    if not leads:
+        return None, None
+    os.makedirs("exports", exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    csv_path = f"exports/bettercontact_revfirst_req{request_id}_{stamp}.csv"
+    xlsx_path = f"exports/bettercontact_revfirst_req{request_id}_{stamp}.xlsx"
+    bettercontact_sync.write_csv(leads, csv_path)
+    bettercontact_sync.write_xlsx(leads, [], xlsx_path)
+    return csv_path, xlsx_path
+
+
+def _finalize_enriched_batch(conn, request_id: int, *, requested_leads: int,
+                             bc_credits: float, rf_credits: int,
+                             budget_done: bool) -> None:
+    """A revenue-first batch's queue is fully drained (or BC budget spent):
+    finalize it to 'ready' (+ email), or fail it with a plain reason if nothing
+    enriched."""
+    stats = collect_stats(conn, request_id)
+    if stats["accepted"] == 0:
+        reason = ("BC enrich budget exhausted before any lead was enriched"
+                  if budget_done
+                  else "no enrichable leads — BetterContact found no deliverable "
+                       "email for any gated survivor")
+        mark_failed(conn, request_id, f"No leads scraped — {reason}")
+        notifier.send_no_leads_email(request_id, reason)
+        log(f"req #{request_id}: enrich drained, 0 accepted — {reason}")
+        return
+    csv_path, xlsx_path = _export_enriched(conn, request_id)
+    mark_ready(conn, request_id, scraped_count=stats["accepted"],
+               credits_spent=bc_credits, amazon_qa_credits=rf_credits,
+               csv_path=csv_path, xlsx_path=xlsx_path)
+    send_email_and_log(conn, request_id,
+                       {"requested_leads": requested_leads}, stats,
+                       {"credits_spent": bc_credits})
+    log(f"req #{request_id}: enrich fully drained -> status=ready, "
+        f"accepted={stats['accepted']}, BC-cr {bc_credits:.0f}")
+
+
+def drain_enriching_requests(conn) -> bool:
+    """Enrich pending queue rows for every 'enriching' batch (bounded per poll).
+
+    Returns True if any batch was worked this poll. Skips the whole step (cheap)
+    when BetterContact's enrich endpoint is down — rows stay pending and drain
+    on a later poll once it recovers, so a BC outage only DELAYS enrichment."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select id, requested_leads, max_credits, credits_spent, "
+            "       amazon_qa_credits_spent "
+            "  from scrape_requests where status = 'enriching' order by id"
+        )
+        rows = cur.fetchall()
+    if not rows:
+        return False
+
+    import preflight
+    ok, msg = preflight.bettercontact_ok()
+    if not ok:
+        log(f"drain: BetterContact enrich down ({msg}) — {len(rows)} batch(es) "
+            f"waiting; will retry when it recovers")
+        return False
+
+    api_key = (os.environ.get("BETTERCONTACT_API_KEY") or "").strip()
+    if not api_key:
+        log("drain: BETTERCONTACT_API_KEY not set — cannot enrich queued survivors")
+        return False
+
+    import heartbeat
+    did = False
+    for rid, requested_leads, max_credits, credits_spent, rf_credits in rows:
+        did = True
+        bc_cap = int(max_credits) if max_credits is not None else DEFAULT_MAX_CREDITS_WHEN_BLANK
+        already = float(credits_spent or 0)
+        try:
+            d = bettercontact_sync.drain_enrich_queue(
+                conn, api_key, scrape_request_id=rid, max_credits=bc_cap,
+                credits_already_spent=already, limit=DRAIN_ROWS_PER_POLL)
+        except Exception as e:
+            log(f"req #{rid}: drain error (will retry next poll): {e}")
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            continue
+        new_credits = already + float(d["credits_spent"])
+        with conn.cursor() as cur:
+            cur.execute("update scrape_requests set credits_spent = %s where id = %s",
+                        (new_credits, rid))
+        conn.commit()
+        heartbeat.beat()
+        aborted = d.get("aborted_reason")
+        log(f"req #{rid}: drain +{d['enriched']} enriched / {d['skipped']} skipped, "
+            f"{d['still_pending']} pending, BC-cr {new_credits:.0f}/{bc_cap}"
+            + (f" [{aborted}]" if aborted else ""))
+
+        # Account genuinely out of credits: the batch can't finish — fail it.
+        if aborted and "insufficient" in aborted.lower():
+            mark_failed(conn, rid,
+                        f"BetterContact INSUFFICIENT_CREDITS during enrich drain: {aborted}")
+            notifier.send_failure_email(rid, aborted)
+            log(f"req #{rid}: FAILED — insufficient credits during drain")
+            continue
+
+        budget_done = bool(aborted and "budget cap" in aborted.lower())
+        if d["still_pending"] == 0 or budget_done:
+            _finalize_enriched_batch(
+                conn, rid, requested_leads=requested_leads,
+                bc_credits=new_credits, rf_credits=int(rf_credits or 0),
+                budget_done=budget_done)
+    return did
 
 
 # ---------------------------------------------------------------------------
@@ -950,6 +1133,11 @@ def main() -> None:
                 sweep_stuck_running(conn)
                 last_sweep = time.monotonic()
             did_work = process_one_pending_request(conn)
+            # Tier-3: enrich queued survivors for any 'enriching' revenue-first
+            # batch and finalize the ones whose queue fully drains. Runs every
+            # poll so a BC-enrich outage only delays enrichment (rows stay
+            # queued) instead of blocking or failing the batch.
+            did_work = drain_enriching_requests(conn) or did_work
             # Mass-approve runs before the move so leads flipped this poll
             # get moved on the same cycle (no extra 60s wait for Jam).
             did_work = bool(apply_mass_approval(conn)) or did_work

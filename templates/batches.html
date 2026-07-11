@@ -36,6 +36,9 @@
         {% if r.queue_position and r.status == 'pending' %}
           <span class="badge badge-queue" title="Worker processes one batch at a time">#{{ r.queue_position }} in queue</span>
         {% endif %}
+        {% if r.status == 'enriching' %}
+          <span class="badge badge-queue" title="Companies passed the revenue gate; fetching their contact emails. You'll get the ready email when this finishes.">finding emails…</span>
+        {% endif %}
       </td>
       <td>
         {% if r.approval == 'pending' %}<span class="badge badge-pending">{{ r.approval }}</span>

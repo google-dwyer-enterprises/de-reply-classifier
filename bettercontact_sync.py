@@ -335,6 +335,16 @@ BC_ENRICH_POLL_TIMEOUT_S = 90  # per-attempt enrich poll timeout (vs 600 for sea
 BC_ENRICH_CHUNK = 5            # enrich survivors this many at a time
 BC_ENRICH_ATTEMPTS = 3         # re-submit a chunk this many times on timeout
 
+# Tier-3 (decoupled gating/enrichment): the GATE phase over-queues survivors a
+# little past the target so the DRAIN phase still hits the target after BC drops
+# the survivors it can't find a deliverable email for. Bounded by the Rainforest
+# cap regardless. 1.25x ~ the observed post-enrich survival slack.
+GATE_QUEUE_OVERSHOOT = 1.25
+# A queue row left 'pending' this many transient-failure attempts is marked
+# 'failed' (BC has been unable to process it for a very long time) so the drain
+# stops retrying it forever and it surfaces on the admin backlog view.
+ENRICH_MAX_ATTEMPTS = 20
+
 
 class InsufficientCreditsError(Exception):
     """Raised when BetterContact rejects with a no-credit error."""
@@ -1571,60 +1581,254 @@ def _run_category(conn, api_key: str, *,
 # Entry point
 # ---------------------------------------------------------------------------
 
-def _run_category_revenue_first(conn, api_key: str, *,
-                                target_leads: int | None,
-                                country: list[str] | None,
-                                skip_industries: list[str] | None = None,
-                                page_limit: int = BC_PAGE_LIMIT,
-                                dry_run: bool, max_credits: int | None,
-                                skip_llm: bool = False,
-                                skip_brand_verify: bool = False,
-                                skip_amazon_qa: bool = False,
-                                amazon_qa_max_credits: int = AMAZON_QA_MAX_CREDITS,
-                                revenue_floor: float = amazon_revenue_qa.REVENUE_FLOOR_ANNUAL,
-                                scrape_request_id: int | None = None) -> dict:
-    """REVENUE-FIRST category scrape (opt-in, experimental).
+# ---------------------------------------------------------------------------
+# Tier-3: decoupled revenue-first — GATE (discover+verify) and DRAIN (enrich)
+# ---------------------------------------------------------------------------
+#
+# The GATE phase discovers email-free, runs the ICP/brand/revenue gates, and
+# persists every qualified survivor into `revenue_first_enrich_queue` (email
+# still unknown, verdicts stamped). It spends only the reliable providers
+# (Rainforest + Anthropic) and NEVER calls BC enrich, so it can't hang. The
+# DRAIN phase enriches pending queue rows with retries and writes the accepted
+# leads. A flaky BetterContact enrich now only DELAYS the drain — it never
+# blocks discovery, wastes a gate credit, or loses a qualified brand.
 
-    Discover email-free (credits_consumed=0) -> ICP/brand/revenue-gate the
-    company (no email needed) -> enrich ONLY survivors via the standalone
-    endpoint (1 cr/found email). Shifts spend from BetterContact emails to
-    (cheap) Rainforest. Pre-enrich rejects are never paid for or written; their
-    verdicts live in the brand/revenue caches. Needs a Phase-4 live validation
-    before it defaults — see docs/cost/REVENUE_FIRST_PIPELINE_PLAN.md."""
+
+def _contact_key(lead: dict) -> str:
+    """Stable per-contact key: lower(first)|lower(last)|lower(domain).
+
+    Dedups contacts within a request's queue (the unique constraint) and matches
+    a BC enrich result row back to the survivor that produced it."""
+    return "|".join([
+        (lead.get("first_name") or "").strip().lower(),
+        (lead.get("last_name") or "").strip().lower(),
+        (lead.get("company_domain") or "").strip().lower(),
+    ])
+
+
+def _enqueue_survivors(conn, survivors: list[dict],
+                       scrape_request_id: int | None) -> int:
+    """Persist gated survivors into revenue_first_enrich_queue. Idempotent on
+    (scrape_request_id, contact_key) so re-gating a page never double-queues.
+    Returns the number of rows newly queued this call."""
+    if not survivors:
+        return 0
+    rows = [(scrape_request_id,
+             (l.get("company_domain") or "").strip().lower() or None,
+             _contact_key(l),
+             json.dumps(l, default=str))
+            for l in survivors]
+    with conn.cursor() as cur:
+        before = cur.rowcount
+        cur.executemany(
+            """insert into revenue_first_enrich_queue
+                 (scrape_request_id, company_domain, contact_key, lead_json)
+               values (%s, %s, %s, %s)
+               on conflict (scrape_request_id, contact_key) do nothing""",
+            rows)
+    conn.commit()
+    # executemany's rowcount is driver-dependent for multi-row; report the
+    # count queued this call by re-reading pending isn't worth it — the caller
+    # only logs it. Best-effort: attempted rows (dedup drops are rare).
+    return len(rows)
+
+
+def _pending_count(conn, scrape_request_id: int | None) -> int:
+    where = ("scrape_request_id = %s" if scrape_request_id is not None
+             else "scrape_request_id is null")
+    params = (scrape_request_id,) if scrape_request_id is not None else ()
+    with conn.cursor() as cur:
+        cur.execute(f"select count(*) from revenue_first_enrich_queue "
+                    f"where {where} and status = 'pending'", params)
+        return int(cur.fetchone()[0])
+
+
+def drain_enrich_queue(conn, api_key: str, *, scrape_request_id: int | None,
+                       max_credits: int | None = None,
+                       credits_already_spent: float = 0.0,
+                       limit: int | None = None) -> dict:
+    """Enrich pending queue rows for one request (or the CLI's NULL bucket).
+
+    Enriches in small chunks with a short per-attempt timeout and retries
+    (BC_ENRICH_* ). Per row outcome:
+      * deliverable, non-generic email  -> status='enriched', lead written to
+        prospeo_new_leads (on-conflict dedup), email merged into lead_json;
+      * BC processed it but no usable email (undeliverable / role mailbox)
+        -> status='skipped' (terminal — retrying won't help);
+      * the whole chunk's BC call kept timing out -> row stays 'pending',
+        attempts++ (goes 'failed' past ENRICH_MAX_ATTEMPTS) — retried next drain.
+
+    Spend is bounded to `max_credits` (minus credits_already_spent) by capping
+    the number of rows pulled (BC bills ~1 cr per found email). Returns a
+    summary dict incl. `accepted_leads` (for the inline CLI export) and
+    `still_pending` (the worker uses 0 to decide the batch is fully drained)."""
+    where = ("scrape_request_id = %s" if scrape_request_id is not None
+             else "scrape_request_id is null")
+    params: tuple = (scrape_request_id,) if scrape_request_id is not None else ()
+
+    zero = {"enriched": 0, "skipped": 0, "failed": 0, "still_pending": None,
+            "credits_spent": 0.0, "accepted_leads": [], "aborted_reason": None}
+
+    remaining = None if max_credits is None else max(0.0, max_credits - credits_already_spent)
+    row_cap = limit if limit is not None else 10_000
+    if remaining is not None:
+        row_cap = min(row_cap, int(remaining))   # ~1 credit per found email
+        if row_cap < 1:
+            return {**zero, "still_pending": _pending_count(conn, scrape_request_id),
+                    "aborted_reason": f"BC enrich budget cap hit "
+                                      f"({credits_already_spent:.0f}/{max_credits})"}
+
+    with conn.cursor() as cur:
+        cur.execute(f"select id, lead_json from revenue_first_enrich_queue "
+                    f"where {where} and status = 'pending' order by id limit %s",
+                    (*params, row_cap))
+        pending = cur.fetchall()
+    if not pending:
+        return {**zero, "still_pending": 0}
+
+    enriched_updates: list[tuple[str, int]] = []   # (lead_json, id)
+    skipped_ids: list[int] = []
+    pending_bump: list[int] = []
+    accepted_leads: list[dict] = []
+    credits = 0.0
+    aborted = None
+
+    chunks = [pending[i:i + BC_ENRICH_CHUNK]
+              for i in range(0, len(pending), BC_ENRICH_CHUNK)]
+    for chunk in chunks:
+        ids = [r[0] for r in chunk]
+        leads = [r[1] for r in chunk]     # jsonb -> dict already
+        enr = None
+        for attempt in range(1, BC_ENRICH_ATTEMPTS + 1):
+            try:
+                enr = enrich_contacts(leads, api_key,
+                                      timeout_s=BC_ENRICH_POLL_TIMEOUT_S)
+                break
+            except InsufficientCreditsError as e:
+                aborted = str(e)
+                enr = None
+                break
+            except RuntimeError as e:
+                if attempt >= BC_ENRICH_ATTEMPTS:
+                    try:
+                        import api_events
+                        api_events.record(
+                            "BetterContact",
+                            api_events.classify_error(None, str(e)),
+                            detail=str(e)[:500], context="drain-enrich")
+                    except Exception:
+                        pass
+        if aborted:
+            break
+        if enr is None:
+            # Every attempt for this chunk timed out — leave pending, retry later.
+            pending_bump.extend(ids)
+            continue
+
+        credits += float(enr.get("credits_consumed") or 0)
+        idx: dict[tuple, dict] = {}
+        for row in (enr.get("data") or []):
+            idx[((row.get("contact_first_name") or "").lower(),
+                 (row.get("contact_last_name") or "").lower(),
+                 (row.get("company_domain") or "").lower())] = row
+        for row_id, lead in zip(ids, leads):
+            k = ((lead.get("first_name") or "").lower(),
+                 (lead.get("last_name") or "").lower(),
+                 (lead.get("company_domain") or "").lower())
+            hit = idx.get(k) or {}
+            email = (hit.get("contact_email_address") or "").lower().strip()
+            deliverable = hit.get("contact_email_address_status") == "deliverable"
+            if email and deliverable and not is_generic_email(email):
+                lead["email"] = email
+                lead["mobile"] = hit.get("contact_phone_number")
+                lead["rejected"] = False
+                accepted_leads.append(lead)
+                enriched_updates.append((json.dumps(lead, default=str), row_id))
+            else:
+                # BC returned a terminal result with no usable email.
+                skipped_ids.append(row_id)
+
+    # Write accepted leads (on-conflict dedup) + flip queue statuses.
+    if accepted_leads:
+        _insert_leads(conn, accepted_leads, scrape_request_id=scrape_request_id)
+    with conn.cursor() as cur:
+        if enriched_updates:
+            cur.executemany(
+                "update revenue_first_enrich_queue set status='enriched', "
+                "lead_json=%s::jsonb, updated_at=now() where id=%s",
+                enriched_updates)
+        if skipped_ids:
+            cur.execute(
+                "update revenue_first_enrich_queue set status='skipped', "
+                "updated_at=now() where id = any(%s)", (skipped_ids,))
+        if pending_bump:
+            # attempts++ ; retire to 'failed' once BC has been unable to process
+            # the row ENRICH_MAX_ATTEMPTS times (surfaces on the admin backlog).
+            cur.execute(
+                "update revenue_first_enrich_queue "
+                "set attempts = attempts + 1, updated_at = now(), "
+                "    last_error = 'enrich timeout', "
+                "    status = case when attempts + 1 >= %s then 'failed' "
+                "                  else 'pending' end "
+                "where id = any(%s)", (ENRICH_MAX_ATTEMPTS, pending_bump))
+    conn.commit()
+
+    failed = 0
+    if pending_bump:
+        with conn.cursor() as cur:
+            cur.execute("select count(*) from revenue_first_enrich_queue "
+                        "where id = any(%s) and status = 'failed'", (pending_bump,))
+            failed = int(cur.fetchone()[0])
+
+    return {
+        "enriched": len(enriched_updates),
+        "skipped": len(skipped_ids),
+        "failed": failed,
+        "still_pending": _pending_count(conn, scrape_request_id),
+        "credits_spent": float(credits),
+        "accepted_leads": accepted_leads,
+        "aborted_reason": aborted,
+    }
+
+
+def _gate_revenue_first(conn, api_key: str, *,
+                        target_leads: int | None,
+                        country: list[str] | None,
+                        skip_industries: list[str] | None = None,
+                        page_limit: int = BC_PAGE_LIMIT,
+                        skip_llm: bool = False,
+                        skip_brand_verify: bool = False,
+                        skip_amazon_qa: bool = False,
+                        amazon_qa_max_credits: int = AMAZON_QA_MAX_CREDITS,
+                        revenue_floor: float = amazon_revenue_qa.REVENUE_FLOOR_ANNUAL,
+                        scrape_request_id: int | None = None) -> dict:
+    """GATE phase of the decoupled revenue-first flow.
+
+    Discover email-free (0 credits) -> deterministic ICP gates -> per-company
+    cap -> ICP LLM gate -> brand_verify -> Amazon revenue gate, then ENQUEUE
+    every survivor for later enrichment. Spends Rainforest (revenue gate) +
+    Anthropic (LLM) only; NEVER calls BC enrich, so it can't hang. Over-queues
+    to ~target*GATE_QUEUE_OVERSHOOT so the drain still hits target after BC
+    drops the survivors it can't find an email for. Returns a gate summary."""
     countries = country
     skip_set = set(skip_industries or [])
     state = _load_state(conn)
-    existing_emails = _load_existing_emails(conn)
     company_counts = _load_company_counts(conn)
     amazon_qa_budget = {"max": amazon_qa_max_credits, "spent": 0}
+    # Over-queue past target so post-enrich drop-off still lands ~target leads.
+    queue_target = (int(target_leads * GATE_QUEUE_OVERSHOOT + 0.999)
+                    if target_leads else None)
 
-    queue = [ind for ind in BC_INDUSTRIES
-             if ind not in skip_set and not state.get(ind, {}).get("exhausted")]
-    print(f"\ncategory REVENUE-FIRST — countries={countries or '(any)'}, "
-          f"target={target_leads or '(all)'}, BC-enrich cap={max_credits}, "
+    print(f"\ncategory REVENUE-FIRST (GATE) — countries={countries or '(any)'}, "
+          f"target={target_leads or '(all)'} (queue to {queue_target or '(all)'}), "
           f"Rainforest cap={amazon_qa_max_credits}")
-    zero = {"accepted": 0, "rejected": 0, "credits_spent": 0.0, "csv_path": None,
-            "xlsx_path": None, "rejected_counts": {}, "amazon_qa_credits": 0}
-    if not queue:
-        return {**zero, "aborted_reason": "all_industries_exhausted"}
-    if dry_run:
-        print("--dry-run: no paid calls, no writes.")
-        return {**zero, "aborted_reason": "dry_run"}
 
     llm_client = llm_system = None
-    accepted: list[dict] = []
     rejected_counts: dict[str, int] = {}
-    credits_spent = 0.0            # BC ENRICH credits only — discovery is free
-    n_discovered = n_gated_out = 0
-    enrich_failures = 0            # consecutive transient BC-enrich failures
+    n_discovered = n_gated_out = queued = 0
     aborted_reason = None
 
     def _revfirst_queue():
-        # Round-robin the live (non-exhausted) industries, cycling to DEEPER
-        # offsets each pass, until every industry is exhausted. Previously this
-        # was a single pass (one page/industry) so a target-based run stopped
-        # after ~one page each and never used its credit budget. Caps
-        # (target / Rainforest / BC) are enforced by the break checks below.
         while True:
             live = [i for i in BC_INDUSTRIES
                     if i not in skip_set and not state.get(i, {}).get("exhausted")]
@@ -1633,8 +1837,15 @@ def _run_category_revenue_first(conn, api_key: str, *,
             for i in live:
                 yield i
 
+    live0 = [i for i in BC_INDUSTRIES
+             if i not in skip_set and not state.get(i, {}).get("exhausted")]
+    if not live0:
+        return {"queued": 0, "discovered": 0, "gated_out": 0,
+                "rejected_counts": {}, "amazon_qa_credits": 0,
+                "aborted_reason": "all_industries_exhausted"}
+
     for ind in _revfirst_queue():
-        if target_leads and len(accepted) >= target_leads:
+        if queue_target and queued >= queue_target:
             break
         if amazon_qa_budget["spent"] >= amazon_qa_budget["max"]:
             aborted_reason = (f"Rainforest cap hit "
@@ -1726,86 +1937,99 @@ def _run_category_revenue_first(conn, api_key: str, *,
                 print(f"    amazon-qa error (leads pass unstamped): {e}")
         n_gated_out += len(bc_leads) - len(survivors)
 
-        # 7. enrich ONLY survivors (paid; respect BC budget)
-        page_accepted: list[dict] = []
-        if survivors and (max_credits is None or credits_spent < max_credits):
-            try:
-                enr = enrich_contacts_resilient(survivors, api_key)
-                enrich_failures = 0
-            except InsufficientCreditsError as e:
-                aborted_reason = str(e)          # credits genuinely out -> stop
-                enr = None
-            except RuntimeError as e:
-                # Transient BC enrich failure (poll timeout / 5xx / transport):
-                # skip THIS page and keep cycling — one slow BC poll must not
-                # abort the whole run (batch #47 died on a 600s poll timeout).
-                # Bail only if BC enrichment fails repeatedly (it's down).
-                enrich_failures += 1
-                print(f"    enrich failed for [{ind}] (#{enrich_failures}), "
-                      f"skipping this page: {str(e)[:110]}")
-                rejected_counts["enrich_error"] = (
-                    rejected_counts.get("enrich_error", 0) + len(survivors))
-                enr = None
-                if enrich_failures >= 3:
-                    aborted_reason = (f"BC enrichment failing repeatedly "
-                                      f"({enrich_failures}x) — stopping")
-            if enr:
-                credits_spent += float(enr.get("credits_consumed") or 0)
-                idx = {}
-                for row in (enr.get("data") or []):
-                    k = ((row.get("contact_first_name") or "").lower(),
-                         (row.get("contact_last_name") or "").lower(),
-                         (row.get("company_domain") or "").lower())
-                    idx[k] = row
-                for lead in survivors:
-                    k = ((lead.get("first_name") or "").lower(),
-                         (lead.get("last_name") or "").lower(),
-                         (lead.get("company_domain") or "").lower())
-                    row = idx.get(k) or {}
-                    email = (row.get("contact_email_address") or "").lower().strip()
-                    if not email or row.get("contact_email_address_status") != "deliverable":
-                        continue
-                    # Now that we have the real email, apply the generic/role
-                    # mailbox check that _post_filter deferred pre-enrichment.
-                    if is_generic_email(email):
-                        rejected_counts["generic_email"] = rejected_counts.get("generic_email", 0) + 1
-                        continue
-                    if email in existing_emails:
-                        continue
-                    existing_emails.add(email)
-                    lead["email"] = email
-                    lead["mobile"] = row.get("contact_phone_number")
-                    lead["rejected"] = False
-                    page_accepted.append(lead)
-        elif survivors:
-            aborted_reason = f"BC enrich budget cap hit ({credits_spent}/{max_credits})"
-
-        # 8. write accepted survivors (they now have a deliverable email)
-        if page_accepted:
-            _insert_leads(conn, page_accepted, scrape_request_id=scrape_request_id)
-            conn.commit()
-            accepted.extend(page_accepted)
+        # 7. ENQUEUE survivors for later enrichment (no BC enrich here).
+        if survivors:
+            queued += _enqueue_survivors(conn, survivors, scrape_request_id)
 
         new_offset = offset + page_limit
         est = state.get(ind, {}).get("total_leads_estimated") or leads_found or 0
-        # a page that returns nothing => pool end (guards the cycle loop from
-        # spinning forever on an industry whose estimated total is unknown/0).
         exhausted = (bool(est) and new_offset >= est) or len(bc_leads) == 0
         _update_state(conn, ind, new_offset=new_offset, leads_found=leads_found,
                       credits_spent_delta=0.0, exhausted=exhausted,
-                      countries=countries or [], accepted_delta=len(page_accepted))
+                      countries=countries or [], accepted_delta=len(survivors))
         conn.commit()
         state.setdefault(ind, {})["last_offset_consumed"] = new_offset
-        state[ind]["exhausted"] = exhausted   # keep the cycle queue in sync
-        print(f"  [{ind}] discovered {len(bc_leads)} | survived gates {len(survivors)} | "
-              f"accepted {len(page_accepted)} | BC-cr {credits_spent:.0f}"
-              f"{f'/{max_credits}' if max_credits else ''} | RF-cr {amazon_qa_budget['spent']}")
-        try:   # keep the worker-liveness heartbeat fresh during a long batch
+        state[ind]["exhausted"] = exhausted
+        print(f"  [{ind}] discovered {len(bc_leads)} | queued {len(survivors)} "
+              f"(run total {queued}) | RF-cr {amazon_qa_budget['spent']}")
+        try:   # keep the worker-liveness heartbeat fresh during a long gate run
             import heartbeat
             heartbeat.beat()
         except Exception:
             pass
         if aborted_reason:
+            break
+
+    print(f"\n=== revenue-first GATE summary ===")
+    if aborted_reason:
+        print(f"  ABORTED:              {aborted_reason}")
+    print(f"  discovered (free):    {n_discovered}")
+    print(f"  gated out (unpaid):   {n_gated_out}")
+    print(f"  queued for enrich:    {queued}")
+    print(f"  Rainforest credits:   {amazon_qa_budget['spent']}")
+    for r, n in sorted(rejected_counts.items(), key=lambda x: -x[1])[:10]:
+        print(f"    {r}: {n}")
+    return {"queued": queued, "discovered": n_discovered, "gated_out": n_gated_out,
+            "rejected_counts": dict(rejected_counts),
+            "amazon_qa_credits": amazon_qa_budget["spent"],
+            "aborted_reason": aborted_reason}
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def _run_category_revenue_first(conn, api_key: str, *,
+                                target_leads: int | None,
+                                country: list[str] | None,
+                                skip_industries: list[str] | None = None,
+                                page_limit: int = BC_PAGE_LIMIT,
+                                dry_run: bool, max_credits: int | None,
+                                skip_llm: bool = False,
+                                skip_brand_verify: bool = False,
+                                skip_amazon_qa: bool = False,
+                                amazon_qa_max_credits: int = AMAZON_QA_MAX_CREDITS,
+                                revenue_floor: float = amazon_revenue_qa.REVENUE_FLOOR_ANNUAL,
+                                scrape_request_id: int | None = None) -> dict:
+    """REVENUE-FIRST category scrape — the INLINE (CLI) path.
+
+    Gate (discover + verify + enqueue) then immediately drain the queue
+    (enrich survivors) in one call, so a CLI user gets leads in one shot. The
+    two phases are the same decoupled primitives the worker runs asynchronously
+    (`_gate_revenue_first` + `drain_enrich_queue`); running them back-to-back
+    here just preserves the one-command CLI ergonomics while making survivors
+    durable (a crash mid-enrich leaves them queued, never lost).
+
+    See docs/cost/REVENUE_FIRST_PIPELINE_PLAN.md."""
+    zero = {"accepted": 0, "rejected": 0, "credits_spent": 0.0, "csv_path": None,
+            "xlsx_path": None, "rejected_counts": {}, "amazon_qa_credits": 0}
+    if dry_run:
+        print("--dry-run: no paid calls, no writes.")
+        return {**zero, "aborted_reason": "dry_run"}
+
+    gate = _gate_revenue_first(
+        conn, api_key, target_leads=target_leads, country=country,
+        skip_industries=skip_industries, page_limit=page_limit, skip_llm=skip_llm,
+        skip_brand_verify=skip_brand_verify, skip_amazon_qa=skip_amazon_qa,
+        amazon_qa_max_credits=amazon_qa_max_credits, revenue_floor=revenue_floor,
+        scrape_request_id=scrape_request_id)
+
+    # DRAIN this run's queued survivors inline (enrich_contacts chunks + retries
+    # inside drain_enrich_queue; leftover-pending rows on a BC outage remain
+    # queued for `run.py drain-enrich-queue`).
+    accepted: list[dict] = []
+    bc_credits = 0.0
+    drain_aborted = None
+    while True:
+        d = drain_enrich_queue(conn, api_key, scrape_request_id=scrape_request_id,
+                               max_credits=max_credits, credits_already_spent=bc_credits)
+        accepted.extend(d["accepted_leads"])
+        bc_credits += d["credits_spent"]
+        drain_aborted = d["aborted_reason"]
+        # Stop when the queue is drained, a hard abort fired, or a drain round
+        # made no progress (BC down: rows stay pending — don't spin).
+        if (d["still_pending"] in (0, None) or drain_aborted
+                or (d["enriched"] == 0 and d["skipped"] == 0)):
             break
 
     os.makedirs("exports", exist_ok=True)
@@ -1815,22 +2039,27 @@ def _run_category_revenue_first(conn, api_key: str, *,
     write_csv(accepted, csv_path)
     write_xlsx(accepted, [], xlsx_path)
 
+    still_pending = _pending_count(conn, scrape_request_id)
     print(f"\n=== revenue-first summary ===")
+    aborted_reason = gate["aborted_reason"] or drain_aborted
     if aborted_reason:
         print(f"  ABORTED:              {aborted_reason}")
-    print(f"  discovered (free):    {n_discovered}")
-    print(f"  gated out (unpaid):   {n_gated_out}  <- would have been enriched in the classic flow")
+    print(f"  discovered (free):    {gate['discovered']}")
+    print(f"  gated out (unpaid):   {gate['gated_out']}")
+    print(f"  queued for enrich:    {gate['queued']}")
     print(f"  enriched + accepted:  {len(accepted)}")
-    print(f"  BC enrich credits:    {credits_spent:.0f}")
-    print(f"  Rainforest credits:   {amazon_qa_budget['spent']}")
+    print(f"  still pending enrich: {still_pending}  <- run `drain-enrich-queue` when BC recovers")
+    print(f"  BC enrich credits:    {bc_credits:.0f}")
+    print(f"  Rainforest credits:   {gate['amazon_qa_credits']}")
     print(f"  CSV (accepted):       {csv_path}")
-    for r, n in sorted(rejected_counts.items(), key=lambda x: -x[1])[:10]:
+    rc = dict(gate["rejected_counts"])
+    for r, n in sorted(rc.items(), key=lambda x: -x[1])[:10]:
         print(f"    {r}: {n}")
-    return {"accepted": len(accepted), "rejected": n_gated_out,
-            "credits_spent": float(credits_spent), "csv_path": csv_path,
+    return {"accepted": len(accepted), "rejected": gate["gated_out"],
+            "credits_spent": float(bc_credits), "csv_path": csv_path,
             "xlsx_path": xlsx_path, "aborted_reason": aborted_reason,
-            "rejected_counts": dict(rejected_counts),
-            "amazon_qa_credits": amazon_qa_budget["spent"]}
+            "rejected_counts": rc, "amazon_qa_credits": gate["amazon_qa_credits"],
+            "queued": gate["queued"], "still_pending": still_pending}
 
 
 def main(*, mode: str = "category", target_leads: int | None = None,
@@ -1844,7 +2073,8 @@ def main(*, mode: str = "category", target_leads: int | None = None,
          revenue_floor: float | None = None,
          enrichment: str = "email",
          scrape_request_id: int | None = None,
-         revenue_first: bool = False) -> dict:
+         revenue_first: bool = False,
+         gate_only: bool = False) -> dict:
     """Entry point for `run.py scrape-leads --provider bettercontact`.
 
     Domain mode is NOT supported — BetterContact's Lead Finder is criteria-
@@ -1879,8 +2109,27 @@ def main(*, mode: str = "category", target_leads: int | None = None,
     if not api_key:
         raise ValueError("BETTERCONTACT_API_KEY not set in env")
 
+    if gate_only and not revenue_first:
+        raise ValueError("gate_only is only valid with revenue_first=True")
+
     conn = connect()
     try:
+        # gate_only (worker path): run the GATE phase alone and return the gate
+        # summary; the worker moves the batch to 'enriching' and drains the
+        # queue asynchronously so a slow BC enrich never blocks the claim.
+        if gate_only:
+            if dry_run:
+                print("--dry-run: no paid calls, no writes.")
+                return {"queued": 0, "discovered": 0, "gated_out": 0,
+                        "rejected_counts": {}, "amazon_qa_credits": 0,
+                        "aborted_reason": "dry_run"}
+            return _gate_revenue_first(
+                conn, api_key, target_leads=target_leads, country=country,
+                skip_industries=skip_industries, page_limit=page_limit,
+                skip_llm=skip_llm, skip_brand_verify=skip_brand_verify,
+                skip_amazon_qa=skip_amazon_qa,
+                amazon_qa_max_credits=amazon_qa_max_credits,
+                revenue_floor=revenue_floor, scrape_request_id=scrape_request_id)
         runner = (_run_category_revenue_first if revenue_first else _run_category)
         kwargs = dict(target_leads=target_leads, country=country,
                       skip_industries=skip_industries, page_limit=page_limit,

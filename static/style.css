@@ -250,6 +250,7 @@ h1 { font-size: 24px; font-weight: 700; margin: 8px 0 4px; letter-spacing: -0.01
 .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; }
 .badge-pending  { background: var(--amber-soft); color: var(--amber); border: 1px solid #fcd34d; }
 .badge-running  { background: var(--accent-soft); color: var(--accent); border: 1px solid #93c5fd; }
+.badge-enriching { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
 .badge-ready    { background: #fef9c3; color: #854d0e; border: 1px solid #fcd34d; }
 .badge-moved    { background: var(--green-soft); color: #065f46; border: 1px solid #6ee7b7; }
 .badge-approved { background: var(--green-soft); color: #166534; border: 1px solid #86efac; }
