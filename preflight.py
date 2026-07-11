@@ -72,10 +72,27 @@ def _bettercontact() -> tuple[bool, str]:
         return False, f"BetterContact enrichment not responding ({str(e)[:60]})"
 
 
+def _anthropic() -> tuple[bool, str]:
+    """Both flows gate every company through a Haiku ICP judgment (and revenue-
+    first also brand-verifies via Haiku). If Anthropic is down/rate-limited/out
+    of credit, the ICP gate fails closed and the whole run yields nothing — so
+    don't start. A 1-token ping is effectively free."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return False, "Anthropic has no API key set"
+    try:
+        import anthropic
+        anthropic.Anthropic(timeout=20).messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}])
+        return True, "Anthropic OK"
+    except Exception as e:
+        return False, f"Anthropic not responding ({str(e)[:60]})"
+
+
 def check(revenue_first: bool = False, use_cache: bool = True) -> tuple[bool, list[str]]:
     """Return (all_healthy, [per-provider status lines]) for the providers this
     batch needs: BetterContact always; Rainforest too when revenue_first."""
-    probes = []
+    probes = [("anthropic", _anthropic)]   # the ICP gate needs it in BOTH flows
     if revenue_first:
         probes.append(("rainforest", _rainforest))
     probes.append(("bettercontact", _bettercontact))

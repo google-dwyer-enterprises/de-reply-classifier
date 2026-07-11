@@ -1800,6 +1800,11 @@ def _run_category_revenue_first(conn, api_key: str, *,
         print(f"  [{ind}] discovered {len(bc_leads)} | survived gates {len(survivors)} | "
               f"accepted {len(page_accepted)} | BC-cr {credits_spent:.0f}"
               f"{f'/{max_credits}' if max_credits else ''} | RF-cr {amazon_qa_budget['spent']}")
+        try:   # keep the worker-liveness heartbeat fresh during a long batch
+            import heartbeat
+            heartbeat.beat()
+        except Exception:
+            pass
         if aborted_reason:
             break
 

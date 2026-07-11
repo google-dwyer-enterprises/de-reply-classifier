@@ -45,6 +45,19 @@
   {% endfor %}
 </div>
 
+<h2>Scrape worker</h2>
+{% if worker.stale is none %}
+  <p class="muted">Worker liveness unknown (heartbeat store unreachable).</p>
+{% elif worker.stale %}
+  <div class="alert alert-error" style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:10px 12px;margin:10px 0;">
+    ⚠️ Scrape worker looks <strong>DOWN</strong> — last heartbeat
+    {{ worker.last_seen.strftime('%Y-%m-%d %H:%M UTC') if worker.last_seen else 'never' }}.
+    Pending batches won't run until it's back.
+  </div>
+{% else %}
+  <p class="muted">✅ Worker alive — last heartbeat {{ worker.last_seen.strftime('%Y-%m-%d %H:%M UTC') if worker.last_seen else '?' }}{% if worker.host %} ({{ worker.host }}){% endif %}.</p>
+{% endif %}
+
 <h2>Daily cron health</h2>
 <p class="muted">Each step the daily cron runs, with its last outcome. <span class="st st-stale">stale</span> = no successful run in the last 26h (a job that <em>didn't run</em> shows here too, not just one that failed).</p>
 {% if job_health %}

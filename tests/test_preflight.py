@@ -11,28 +11,39 @@ import preflight
 
 
 class TestPreflightCheck(unittest.TestCase):
-    def test_classic_checks_only_bettercontact(self):
-        with mock.patch.object(preflight, "_bettercontact", return_value=(True, "BC OK")), \
+    def test_classic_checks_anthropic_and_bettercontact_not_rainforest(self):
+        with mock.patch.object(preflight, "_anthropic", return_value=(True, "Anthropic OK")), \
+             mock.patch.object(preflight, "_bettercontact", return_value=(True, "BC OK")), \
              mock.patch.object(preflight, "_rainforest", return_value=(False, "RF down")) as rf:
             ok, msgs = preflight.check(revenue_first=False, use_cache=False)
         self.assertTrue(ok)                 # Rainforest not required for classic
         rf.assert_not_called()
-        self.assertEqual(msgs, ["BC OK"])
+        self.assertEqual(msgs, ["Anthropic OK", "BC OK"])
 
-    def test_revenue_first_requires_both(self):
-        with mock.patch.object(preflight, "_bettercontact", return_value=(True, "BC OK")), \
+    def test_revenue_first_requires_all_three(self):
+        with mock.patch.object(preflight, "_anthropic", return_value=(True, "Anthropic OK")), \
+             mock.patch.object(preflight, "_bettercontact", return_value=(True, "BC OK")), \
              mock.patch.object(preflight, "_rainforest", return_value=(True, "RF OK")):
             ok, _ = preflight.check(revenue_first=True, use_cache=False)
         self.assertTrue(ok)
 
+    def test_down_anthropic_blocks_even_classic(self):
+        with mock.patch.object(preflight, "_anthropic", return_value=(False, "Anthropic down")), \
+             mock.patch.object(preflight, "_bettercontact", return_value=(True, "BC OK")):
+            ok, msgs = preflight.check(revenue_first=False, use_cache=False)
+        self.assertFalse(ok)
+        self.assertIn("Anthropic down", msgs)
+
     def test_down_bettercontact_blocks(self):
-        with mock.patch.object(preflight, "_bettercontact", return_value=(False, "BC hung")):
+        with mock.patch.object(preflight, "_anthropic", return_value=(True, "Anthropic OK")), \
+             mock.patch.object(preflight, "_bettercontact", return_value=(False, "BC hung")):
             ok, msgs = preflight.check(revenue_first=False, use_cache=False)
         self.assertFalse(ok)
         self.assertIn("BC hung", msgs)
 
     def test_down_rainforest_blocks_revenue_first(self):
-        with mock.patch.object(preflight, "_bettercontact", return_value=(True, "BC OK")), \
+        with mock.patch.object(preflight, "_anthropic", return_value=(True, "Anthropic OK")), \
+             mock.patch.object(preflight, "_bettercontact", return_value=(True, "BC OK")), \
              mock.patch.object(preflight, "_rainforest", return_value=(False, "RF out of credits")):
             ok, msgs = preflight.check(revenue_first=True, use_cache=False)
         self.assertFalse(ok)
@@ -46,7 +57,8 @@ class TestPreflightCheck(unittest.TestCase):
             calls["n"] += 1
             return True, "BC OK"
 
-        with mock.patch.object(preflight, "_bettercontact", side_effect=flaky):
+        with mock.patch.object(preflight, "_anthropic", return_value=(True, "Anthropic OK")), \
+             mock.patch.object(preflight, "_bettercontact", side_effect=flaky):
             preflight.check(revenue_first=False, use_cache=True)
             preflight.check(revenue_first=False, use_cache=True)
         self.assertEqual(calls["n"], 1)     # second call served from cache

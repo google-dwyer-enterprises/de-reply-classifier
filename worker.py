@@ -930,13 +930,25 @@ def _handle_shutdown(signum, _frame) -> None:
 
 def main() -> None:
     log(f"worker starting (poll interval = {POLL_INTERVAL_S}s)")
+    if not (os.environ.get("RESEND_API_KEY") and os.environ.get("NOTIFY_EMAIL")):
+        log("WARNING: alert delivery is OFF — set RESEND_API_KEY + NOTIFY_EMAIL "
+            "to email failure/credit/preflight alerts. (They still record to "
+            "/admin, but nobody is paged without these.)")
     signal.signal(signal.SIGTERM, _handle_shutdown)
     signal.signal(signal.SIGINT, _handle_shutdown)
+    import heartbeat
     conn = connect()
     sweep_stuck_running(conn)
+    last_sweep = time.monotonic()
     log("entering poll loop")
     while not _shutdown:
         try:
+            heartbeat.beat()   # worker-alive signal (also beat per page in the scraper)
+            # Periodic stuck-batch sweep (not just at startup): recover a batch
+            # orphaned by a mid-session crash without waiting for a restart.
+            if time.monotonic() - last_sweep > 1800:   # every 30 min
+                sweep_stuck_running(conn)
+                last_sweep = time.monotonic()
             did_work = process_one_pending_request(conn)
             # Mass-approve runs before the move so leads flipped this poll
             # get moved on the same cycle (no extra 60s wait for Jam).
