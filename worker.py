@@ -571,11 +571,15 @@ def _finalize_enriched_batch(conn, request_id: int, *, requested_leads: int,
 
 
 def drain_enriching_requests(conn) -> bool:
-    """Enrich pending queue rows for every 'enriching' batch (bounded per poll).
+    """Async-drain every 'enriching' batch's queue (bounded per poll).
 
-    Returns True if any batch was worked this poll. Skips the whole step (cheap)
-    when BetterContact's enrich endpoint is down — rows stay pending and drain
-    on a later poll once it recovers, so a BC outage only DELAYS enrichment."""
+    Each call SUBMITS pending survivors + COLLECTS any whose BC enrich has
+    terminated (see bettercontact_sync.drain_enrich_queue). Both are quick
+    network ops, so this never blocks the poll loop even when BetterContact is
+    slow/hung — queued rows just carry over to the next poll. No preflight gate
+    needed (the async drain doesn't wait on a slow enrich). A batch finalizes to
+    'ready' only when its queue is fully resolved: nothing pending AND nothing
+    still in flight. Returns True if any batch was worked this poll."""
     with conn.cursor() as cur:
         cur.execute(
             "select id, requested_leads, max_credits, credits_spent, "
@@ -584,13 +588,6 @@ def drain_enriching_requests(conn) -> bool:
         )
         rows = cur.fetchall()
     if not rows:
-        return False
-
-    import preflight
-    ok, msg = preflight.bettercontact_ok()
-    if not ok:
-        log(f"drain: BetterContact enrich down ({msg}) — {len(rows)} batch(es) "
-            f"waiting; will retry when it recovers")
         return False
 
     api_key = (os.environ.get("BETTERCONTACT_API_KEY") or "").strip()
@@ -607,7 +604,7 @@ def drain_enriching_requests(conn) -> bool:
         try:
             d = bettercontact_sync.drain_enrich_queue(
                 conn, api_key, scrape_request_id=rid, max_credits=bc_cap,
-                credits_already_spent=already, limit=DRAIN_ROWS_PER_POLL)
+                credits_already_spent=already, submit_limit=DRAIN_ROWS_PER_POLL)
         except Exception as e:
             log(f"req #{rid}: drain error (will retry next poll): {e}")
             try:
@@ -622,8 +619,9 @@ def drain_enriching_requests(conn) -> bool:
         conn.commit()
         heartbeat.beat()
         aborted = d.get("aborted_reason")
-        log(f"req #{rid}: drain +{d['enriched']} enriched / {d['skipped']} skipped, "
-            f"{d['still_pending']} pending, BC-cr {new_credits:.0f}/{bc_cap}"
+        log(f"req #{rid}: drain +{d['enriched']} enriched / {d['skipped']} skipped / "
+            f"{d['submitted']} submitted, {d['still_pending']} pending + "
+            f"{d['in_flight']} in-flight, BC-cr {new_credits:.0f}/{bc_cap}"
             + (f" [{aborted}]" if aborted else ""))
 
         # Account genuinely out of credits: the batch can't finish — fail it.
@@ -634,8 +632,10 @@ def drain_enriching_requests(conn) -> bool:
             log(f"req #{rid}: FAILED — insufficient credits during drain")
             continue
 
+        # Finalize only when the queue is fully resolved (nothing pending AND
+        # nothing in flight) or the BC budget is spent with nothing left waiting.
         budget_done = bool(aborted and "budget cap" in aborted.lower())
-        if d["still_pending"] == 0 or budget_done:
+        if (d["still_pending"] == 0 and d["in_flight"] == 0) or budget_done:
             _finalize_enriched_batch(
                 conn, rid, requested_leads=requested_leads,
                 bc_credits=new_credits, rf_credits=int(rf_credits or 0),

@@ -387,7 +387,7 @@ def admin_panel():
     recent, credit_state = [], []
     job_health, job_runs = [], []
     worker = {"last_seen": None, "host": None, "stale": None}
-    enrich_queue = {"pending": 0, "failed": 0, "batches": 0}
+    enrich_queue = {"pending": 0, "in_flight": 0, "failed": 0, "batches": 0}
     try:
         summary = api_events.summary(hours=hours)
         recent = api_events.recent(limit=150)
@@ -415,13 +415,14 @@ def _enrich_queue_backlog() -> dict:
     try:
         with conn.cursor() as cur:
             cur.execute("select count(*) filter (where status='pending'), "
+                        "       count(*) filter (where status='submitted'), "
                         "       count(*) filter (where status='failed') "
                         "  from revenue_first_enrich_queue")
-            pending, failed = cur.fetchone()
+            pending, in_flight, failed = cur.fetchone()
             cur.execute("select count(*) from scrape_requests where status='enriching'")
             batches = cur.fetchone()[0]
-        return {"pending": int(pending or 0), "failed": int(failed or 0),
-                "batches": int(batches or 0)}
+        return {"pending": int(pending or 0), "in_flight": int(in_flight or 0),
+                "failed": int(failed or 0), "batches": int(batches or 0)}
     finally:
         conn.close()
 

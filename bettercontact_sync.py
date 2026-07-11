@@ -345,6 +345,14 @@ GATE_QUEUE_OVERSHOOT = 1.25
 # stops retrying it forever and it surfaces on the admin backlog view.
 ENRICH_MAX_ATTEMPTS = 20
 
+# Async submit/collect drain tuning. BC enrich is flaky AND slow-when-up
+# (minutes/domain), so the drain SUBMITS (fast POST) then COLLECTS on later
+# polls (quick status GET) instead of blocking.
+ENRICH_SUBMIT_BATCH = 10        # contacts per BC /async submit (one bc_request_id)
+ENRICH_INFLIGHT_MAX_AGE_S = 1800  # a submitted enrich not done in 30 min -> resubmit
+CLI_DRAIN_MAX_WALL_S = 1200     # inline CLI drain gives up waiting after 20 min
+                                 # (the worker has no such cap — it drains over polls)
+
 
 class InsufficientCreditsError(Exception):
     """Raised when BetterContact rejects with a no-credit error."""
@@ -601,6 +609,56 @@ def enrich_contacts_resilient(leads: list[dict], api_key: str,
     if failed and failed == len(chunks):
         raise RuntimeError(f"all {failed} enrich chunk(s) timed out — BC enrichment unhealthy")
     return {"data": data, "credits_consumed": credits}
+
+
+def _enrich_payload(leads: list[dict]) -> list[dict]:
+    """Map queued/survivor lead dicts to BC's /async enrich payload rows."""
+    return [{
+        "first_name": l.get("first_name") or l.get("contact_first_name"),
+        "last_name": l.get("last_name") or l.get("contact_last_name"),
+        "company": l.get("company_name") or l.get("company"),
+        "company_domain": l.get("company_domain"),
+        "linkedin_url": l.get("contact_linkedin_profile_url") or l.get("linkedin_url"),
+    } for l in leads]
+
+
+def enrich_submit(leads: list[dict], api_key: str,
+                  enrich_phones: bool = False) -> str:
+    """SUBMIT-only half of the async drain: POST /async, return the BC request
+    id. Fast (a POST), does NOT wait for the enrich to finish. Raises
+    InsufficientCreditsError / RuntimeError like the other BC calls."""
+    body = {"data": _enrich_payload(leads), "enrich_email_address": True,
+            "enrich_phone_number": bool(enrich_phones)}
+    headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
+    r = requests.post(f"{BC_BASE}/async", json=body, headers=headers,
+                      timeout=BC_REQUEST_TIMEOUT_S)
+    if r.status_code == 402:
+        raise InsufficientCreditsError(f"BC enrich insufficient credits: {r.text[:200]}")
+    if r.status_code not in (200, 201, 202):
+        raise RuntimeError(f"BC enrich submit {r.status_code}: {r.text[:200]}")
+    eid = (r.json() or {}).get("id")
+    if not eid:
+        raise RuntimeError(f"BC enrich returned no id: {r.text[:200]}")
+    return eid
+
+
+def enrich_poll_once(request_id: str, api_key: str) -> dict | None:
+    """COLLECT-probe half of the async drain: a SINGLE quick status GET. Returns
+    the result dict if the enrich has terminated, else None (still running /
+    transient error). Never blocks waiting — the caller checks back next poll."""
+    try:
+        g = requests.get(f"{BC_BASE}/async/{request_id}",
+                         headers={"X-API-Key": api_key},
+                         timeout=BC_REQUEST_TIMEOUT_S)
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError):
+        return None
+    if g.status_code not in (200, 202):
+        return None
+    d = g.json() or {}
+    if (d.get("status") or "").lower() in ("terminated", "completed", "done", "finished"):
+        return d
+    return None
 
 
 def _industry_filters(industry: str, countries: list[str] | None,
@@ -1633,105 +1691,90 @@ def _enqueue_survivors(conn, survivors: list[dict],
     return len(rows)
 
 
-def _pending_count(conn, scrape_request_id: int | None) -> int:
+def _queue_counts(conn, scrape_request_id: int | None) -> tuple[int, int]:
+    """(pending, submitted/in-flight) counts for a request (or the NULL bucket)."""
     where = ("scrape_request_id = %s" if scrape_request_id is not None
              else "scrape_request_id is null")
     params = (scrape_request_id,) if scrape_request_id is not None else ()
     with conn.cursor() as cur:
-        cur.execute(f"select count(*) from revenue_first_enrich_queue "
-                    f"where {where} and status = 'pending'", params)
-        return int(cur.fetchone()[0])
+        cur.execute(f"select count(*) filter (where status='pending'), "
+                    f"count(*) filter (where status='submitted') "
+                    f"from revenue_first_enrich_queue where {where}", params)
+        p, s = cur.fetchone()
+    return int(p or 0), int(s or 0)
+
+
+def _pending_count(conn, scrape_request_id: int | None) -> int:
+    return _queue_counts(conn, scrape_request_id)[0]
 
 
 def drain_enrich_queue(conn, api_key: str, *, scrape_request_id: int | None,
                        max_credits: int | None = None,
                        credits_already_spent: float = 0.0,
-                       limit: int | None = None) -> dict:
-    """Enrich pending queue rows for one request (or the CLI's NULL bucket).
+                       submit_limit: int | None = None) -> dict:
+    """ASYNC submit/collect drain for one request (or the CLI NULL bucket).
 
-    Enriches in small chunks with a short per-attempt timeout and retries
-    (BC_ENRICH_* ). Per row outcome:
-      * deliverable, non-generic email  -> status='enriched', lead written to
-        prospeo_new_leads (on-conflict dedup), email merged into lead_json;
-      * BC processed it but no usable email (undeliverable / role mailbox)
-        -> status='skipped' (terminal — retrying won't help);
-      * the whole chunk's BC call kept timing out -> row stays 'pending',
-        attempts++ (goes 'failed' past ENRICH_MAX_ATTEMPTS) — retried next drain.
+    BetterContact enrich is flaky AND slow-when-up (minutes/domain), so this
+    never blocks waiting on it. Two quick phases per call:
 
-    Spend is bounded to `max_credits` (minus credits_already_spent) by capping
-    the number of rows pulled (BC bills ~1 cr per found email). Returns a
-    summary dict incl. `accepted_leads` (for the inline CLI export) and
-    `still_pending` (the worker uses 0 to decide the batch is fully drained)."""
+      COLLECT — for each in-flight `bc_request_id`, ONE status GET:
+        * terminated -> per row: deliverable, non-generic email => 'enriched'
+          + written to prospeo_new_leads (email merged into lead_json); else
+          => 'skipped' (BC found nothing usable — terminal);
+        * still running + older than ENRICH_INFLIGHT_MAX_AGE_S => reset to
+          'pending' (attempts++, -> 'failed' past ENRICH_MAX_ATTEMPTS) so it
+          gets resubmitted; still running + young => left in flight.
+      SUBMIT — batch pending rows (ENRICH_SUBMIT_BATCH each), POST -> mark
+        'submitted' with the returned bc_request_id. Bounded by `submit_limit`
+        and the credit budget (worst case 1 cr per already-spent + in-flight +
+        new contact).
+
+    Both phases are quick network ops, so the worker loop stays responsive.
+    Returns counts incl. `still_pending` + `in_flight` — the worker finalizes a
+    batch only when BOTH are 0. `accepted_leads` carries the freshly-collected
+    leads for the inline CLI export."""
     where = ("scrape_request_id = %s" if scrape_request_id is not None
              else "scrape_request_id is null")
     params: tuple = (scrape_request_id,) if scrape_request_id is not None else ()
 
-    zero = {"enriched": 0, "skipped": 0, "failed": 0, "still_pending": None,
-            "credits_spent": 0.0, "accepted_leads": [], "aborted_reason": None}
-
-    remaining = None if max_credits is None else max(0.0, max_credits - credits_already_spent)
-    row_cap = limit if limit is not None else 10_000
-    if remaining is not None:
-        row_cap = min(row_cap, int(remaining))   # ~1 credit per found email
-        if row_cap < 1:
-            return {**zero, "still_pending": _pending_count(conn, scrape_request_id),
-                    "aborted_reason": f"BC enrich budget cap hit "
-                                      f"({credits_already_spent:.0f}/{max_credits})"}
-
-    with conn.cursor() as cur:
-        cur.execute(f"select id, lead_json from revenue_first_enrich_queue "
-                    f"where {where} and status = 'pending' order by id limit %s",
-                    (*params, row_cap))
-        pending = cur.fetchall()
-    if not pending:
-        return {**zero, "still_pending": 0}
-
     enriched_updates: list[tuple[str, int]] = []   # (lead_json, id)
     skipped_ids: list[int] = []
-    pending_bump: list[int] = []
+    reset_ids: list[int] = []                       # aged-out -> pending/failed
     accepted_leads: list[dict] = []
     credits = 0.0
     aborted = None
+    submitted_now = 0
 
-    chunks = [pending[i:i + BC_ENRICH_CHUNK]
-              for i in range(0, len(pending), BC_ENRICH_CHUNK)]
-    for chunk in chunks:
-        ids = [r[0] for r in chunk]
-        leads = [r[1] for r in chunk]     # jsonb -> dict already
-        enr = None
-        for attempt in range(1, BC_ENRICH_ATTEMPTS + 1):
-            try:
-                enr = enrich_contacts(leads, api_key,
-                                      timeout_s=BC_ENRICH_POLL_TIMEOUT_S)
-                break
-            except InsufficientCreditsError as e:
-                aborted = str(e)
-                enr = None
-                break
-            except RuntimeError as e:
-                if attempt >= BC_ENRICH_ATTEMPTS:
-                    try:
-                        import api_events
-                        api_events.record(
-                            "BetterContact",
-                            api_events.classify_error(None, str(e)),
-                            detail=str(e)[:500], context="drain-enrich")
-                    except Exception:
-                        pass
-        if aborted:
-            break
-        if enr is None:
-            # Every attempt for this chunk timed out — leave pending, retry later.
-            pending_bump.extend(ids)
+    # ---- COLLECT: one quick status GET per in-flight BC request id ----
+    with conn.cursor() as cur:
+        cur.execute(f"select id, lead_json, bc_request_id, submitted_at "
+                    f"from revenue_first_enrich_queue "
+                    f"where {where} and status = 'submitted'", params)
+        inflight = cur.fetchall()
+    groups: dict[str, list] = {}
+    for row_id, lead, rid, submitted_at in inflight:
+        groups.setdefault(rid, []).append((row_id, lead, submitted_at))
+    now = datetime.now(timezone.utc)
+    for rid, members in groups.items():
+        res = None
+        try:
+            res = enrich_poll_once(rid, api_key)
+        except Exception:
+            res = None
+        if res is None:
+            # Not terminated (still running / transient). Age out if too old so a
+            # permanently-stuck BC request is resubmitted rather than orphaned.
+            oldest = min((m[2] for m in members if m[2] is not None), default=None)
+            if oldest is not None and (now - oldest).total_seconds() > ENRICH_INFLIGHT_MAX_AGE_S:
+                reset_ids.extend(m[0] for m in members)
             continue
-
-        credits += float(enr.get("credits_consumed") or 0)
+        credits += float(res.get("credits_consumed") or 0)
         idx: dict[tuple, dict] = {}
-        for row in (enr.get("data") or []):
-            idx[((row.get("contact_first_name") or "").lower(),
-                 (row.get("contact_last_name") or "").lower(),
-                 (row.get("company_domain") or "").lower())] = row
-        for row_id, lead in zip(ids, leads):
+        for r in (res.get("data") or []):
+            idx[((r.get("contact_first_name") or "").lower(),
+                 (r.get("contact_last_name") or "").lower(),
+                 (r.get("company_domain") or "").lower())] = r
+        for row_id, lead, _sa in members:
             k = ((lead.get("first_name") or "").lower(),
                  (lead.get("last_name") or "").lower(),
                  (lead.get("company_domain") or "").lower())
@@ -1745,46 +1788,93 @@ def drain_enrich_queue(conn, api_key: str, *, scrape_request_id: int | None,
                 accepted_leads.append(lead)
                 enriched_updates.append((json.dumps(lead, default=str), row_id))
             else:
-                # BC returned a terminal result with no usable email.
                 skipped_ids.append(row_id)
 
-    # Write accepted leads (on-conflict dedup) + flip queue statuses.
     if accepted_leads:
         _insert_leads(conn, accepted_leads, scrape_request_id=scrape_request_id)
     with conn.cursor() as cur:
         if enriched_updates:
             cur.executemany(
                 "update revenue_first_enrich_queue set status='enriched', "
-                "lead_json=%s::jsonb, updated_at=now() where id=%s",
+                "lead_json=%s::jsonb, bc_request_id=null, updated_at=now() where id=%s",
                 enriched_updates)
         if skipped_ids:
             cur.execute(
                 "update revenue_first_enrich_queue set status='skipped', "
-                "updated_at=now() where id = any(%s)", (skipped_ids,))
-        if pending_bump:
-            # attempts++ ; retire to 'failed' once BC has been unable to process
-            # the row ENRICH_MAX_ATTEMPTS times (surfaces on the admin backlog).
+                "bc_request_id=null, updated_at=now() where id = any(%s)", (skipped_ids,))
+        if reset_ids:
             cur.execute(
                 "update revenue_first_enrich_queue "
                 "set attempts = attempts + 1, updated_at = now(), "
-                "    last_error = 'enrich timeout', "
+                "    bc_request_id = null, submitted_at = null, "
+                "    last_error = 'enrich timed out in flight', "
                 "    status = case when attempts + 1 >= %s then 'failed' "
                 "                  else 'pending' end "
-                "where id = any(%s)", (ENRICH_MAX_ATTEMPTS, pending_bump))
+                "where id = any(%s)", (ENRICH_MAX_ATTEMPTS, reset_ids))
     conn.commit()
 
+    # ---- SUBMIT: POST new pending rows, bounded by budget + submit_limit ----
+    pending_n, inflight_n = _queue_counts(conn, scrape_request_id)
+    # Worst case 1 credit per (already-spent + in-flight + newly-submitted)
+    # contact; keep the total under max_credits.
+    room = None
+    if max_credits is not None:
+        room = int(max_credits - credits_already_spent - credits - inflight_n)
+    cap = submit_limit if submit_limit is not None else 10_000
+    if room is not None:
+        cap = min(cap, max(0, room))
+    if cap > 0 and pending_n > 0:
+        with conn.cursor() as cur:
+            cur.execute(f"select id, lead_json from revenue_first_enrich_queue "
+                        f"where {where} and status = 'pending' order by id limit %s",
+                        (*params, cap))
+            to_submit = cur.fetchall()
+        for i in range(0, len(to_submit), ENRICH_SUBMIT_BATCH):
+            batch = to_submit[i:i + ENRICH_SUBMIT_BATCH]
+            ids = [r[0] for r in batch]
+            leads = [r[1] for r in batch]
+            try:
+                rid = enrich_submit(leads, api_key)
+            except InsufficientCreditsError as e:
+                aborted = str(e)
+                break
+            except Exception as e:
+                # Transient submit failure — leave pending, retry next poll.
+                try:
+                    import api_events
+                    api_events.record("BetterContact",
+                                      api_events.classify_error(None, str(e)),
+                                      detail=str(e)[:500], context="drain-submit")
+                except Exception:
+                    pass
+                break
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update revenue_first_enrich_queue set status='submitted', "
+                    "bc_request_id=%s, submitted_at=now(), updated_at=now() "
+                    "where id = any(%s)", (rid, ids))
+            conn.commit()
+            submitted_now += len(ids)
+    elif room is not None and room <= 0 and pending_n > 0 and inflight_n == 0:
+        # Can't submit more and nothing is in flight to wait on -> budget stop.
+        aborted = (f"BC enrich budget cap hit "
+                   f"({credits_already_spent:.0f}/{max_credits})")
+
+    pending_n, inflight_n = _queue_counts(conn, scrape_request_id)
     failed = 0
-    if pending_bump:
+    if reset_ids:
         with conn.cursor() as cur:
             cur.execute("select count(*) from revenue_first_enrich_queue "
-                        "where id = any(%s) and status = 'failed'", (pending_bump,))
+                        "where id = any(%s) and status = 'failed'", (reset_ids,))
             failed = int(cur.fetchone()[0])
 
     return {
         "enriched": len(enriched_updates),
         "skipped": len(skipped_ids),
         "failed": failed,
-        "still_pending": _pending_count(conn, scrape_request_id),
+        "submitted": submitted_now,
+        "still_pending": pending_n,
+        "in_flight": inflight_n,
         "credits_spent": float(credits),
         "accepted_leads": accepted_leads,
         "aborted_reason": aborted,
@@ -2014,23 +2104,30 @@ def _run_category_revenue_first(conn, api_key: str, *,
         amazon_qa_max_credits=amazon_qa_max_credits, revenue_floor=revenue_floor,
         scrape_request_id=scrape_request_id)
 
-    # DRAIN this run's queued survivors inline (enrich_contacts chunks + retries
-    # inside drain_enrich_queue; leftover-pending rows on a BC outage remain
-    # queued for `run.py drain-enrich-queue`).
+    # DRAIN this run's queued survivors inline via the async submit/collect
+    # primitive: each pass submits pending rows + collects any that terminated,
+    # sleeping between passes to give BC time. Bounded by a wall-clock cap —
+    # leftover pending/in-flight rows remain queued for `run.py drain-enrich-queue`.
     accepted: list[dict] = []
     bc_credits = 0.0
     drain_aborted = None
+    deadline = time.time() + CLI_DRAIN_MAX_WALL_S
     while True:
         d = drain_enrich_queue(conn, api_key, scrape_request_id=scrape_request_id,
                                max_credits=max_credits, credits_already_spent=bc_credits)
         accepted.extend(d["accepted_leads"])
         bc_credits += d["credits_spent"]
         drain_aborted = d["aborted_reason"]
-        # Stop when the queue is drained, a hard abort fired, or a drain round
-        # made no progress (BC down: rows stay pending — don't spin).
-        if (d["still_pending"] in (0, None) or drain_aborted
-                or (d["enriched"] == 0 and d["skipped"] == 0)):
+        if drain_aborted:
             break
+        # Done only when nothing is pending AND nothing is still in flight.
+        if d["still_pending"] == 0 and d["in_flight"] == 0:
+            break
+        if time.time() > deadline:
+            drain_aborted = ("drain wall-clock cap reached — survivors remain "
+                             "queued; run `drain-enrich-queue` to finish")
+            break
+        time.sleep(BC_POLL_INTERVAL_S)
 
     os.makedirs("exports", exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -2039,7 +2136,7 @@ def _run_category_revenue_first(conn, api_key: str, *,
     write_csv(accepted, csv_path)
     write_xlsx(accepted, [], xlsx_path)
 
-    still_pending = _pending_count(conn, scrape_request_id)
+    pending_n, inflight_n = _queue_counts(conn, scrape_request_id)
     print(f"\n=== revenue-first summary ===")
     aborted_reason = gate["aborted_reason"] or drain_aborted
     if aborted_reason:
@@ -2048,7 +2145,7 @@ def _run_category_revenue_first(conn, api_key: str, *,
     print(f"  gated out (unpaid):   {gate['gated_out']}")
     print(f"  queued for enrich:    {gate['queued']}")
     print(f"  enriched + accepted:  {len(accepted)}")
-    print(f"  still pending enrich: {still_pending}  <- run `drain-enrich-queue` when BC recovers")
+    print(f"  pending / in-flight:  {pending_n} / {inflight_n}  <- run `drain-enrich-queue` to finish")
     print(f"  BC enrich credits:    {bc_credits:.0f}")
     print(f"  Rainforest credits:   {gate['amazon_qa_credits']}")
     print(f"  CSV (accepted):       {csv_path}")
@@ -2059,7 +2156,8 @@ def _run_category_revenue_first(conn, api_key: str, *,
             "credits_spent": float(bc_credits), "csv_path": csv_path,
             "xlsx_path": xlsx_path, "aborted_reason": aborted_reason,
             "rejected_counts": rc, "amazon_qa_credits": gate["amazon_qa_credits"],
-            "queued": gate["queued"], "still_pending": still_pending}
+            "queued": gate["queued"], "still_pending": pending_n,
+            "in_flight": inflight_n}
 
 
 def main(*, mode: str = "category", target_leads: int | None = None,

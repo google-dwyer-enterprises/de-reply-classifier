@@ -156,9 +156,11 @@ def cmd_export_leads(args) -> None:
 
 
 def cmd_drain_enrich_queue(args) -> None:
-    """Manual drain of the tier-3 revenue-first enrichment queue. Enriches
-    pending survivors (chunked + retried) and writes the accepted leads."""
-    import os
+    """Manual drain of the tier-3 revenue-first enrichment queue (async
+    submit/collect). Submits pending survivors + collects terminated ones,
+    looping with a short wait until the queue is fully resolved (nothing pending
+    AND nothing in flight), a hard abort, or the wall-clock cap."""
+    import os, time
     from dotenv import load_dotenv
     import bettercontact_sync as bc
     from db import connect
@@ -168,22 +170,31 @@ def cmd_drain_enrich_queue(args) -> None:
         sys.exit("BETTERCONTACT_API_KEY not set in env")
     conn = connect()
     try:
-        total = {"enriched": 0, "skipped": 0, "credits": 0.0}
+        total = {"enriched": 0, "skipped": 0}
         spent = 0.0
+        deadline = time.time() + bc.CLI_DRAIN_MAX_WALL_S
         while True:
             d = bc.drain_enrich_queue(
                 conn, api_key, scrape_request_id=args.request_id,
                 max_credits=args.max_credits, credits_already_spent=spent,
-                limit=args.limit)
+                submit_limit=args.limit)
             total["enriched"] += d["enriched"]
             total["skipped"] += d["skipped"]
             spent += d["credits_spent"]
-            print(f"  drain: +{d['enriched']} enriched / {d['skipped']} skipped, "
-                  f"{d['still_pending']} pending, BC-cr {spent:.0f}"
+            print(f"  drain: +{d['enriched']} enriched / {d['skipped']} skipped / "
+                  f"{d['submitted']} submitted, {d['still_pending']} pending + "
+                  f"{d['in_flight']} in-flight, BC-cr {spent:.0f}"
                   + (f" [{d['aborted_reason']}]" if d.get("aborted_reason") else ""))
-            if (d["still_pending"] in (0, None) or d.get("aborted_reason")
-                    or (d["enriched"] == 0 and d["skipped"] == 0) or args.limit):
+            if d.get("aborted_reason"):
                 break
+            if d["still_pending"] == 0 and d["in_flight"] == 0:
+                break
+            if args.limit:                       # one bounded pass when --limit set
+                break
+            if time.time() > deadline:
+                print("  wall-clock cap reached — rows remain queued; re-run to finish")
+                break
+            time.sleep(bc.BC_POLL_INTERVAL_S)
         print(f"\n=== drain done ===\n  enriched: {total['enriched']}\n"
               f"  skipped:  {total['skipped']}\n  BC credits: {spent:.0f}")
     finally:

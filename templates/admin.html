@@ -59,14 +59,15 @@
 {% endif %}
 
 <h2>Revenue-first enrichment queue</h2>
-{% if enrich_queue.batches or enrich_queue.pending or enrich_queue.failed %}
-  {% if enrich_queue.pending %}
+{% if enrich_queue.batches or enrich_queue.pending or enrich_queue.in_flight or enrich_queue.failed %}
+  {% if enrich_queue.pending or enrich_queue.in_flight %}
     <div class="alert" style="background:#f5f3ff;border:1px solid #ddd6fe;color:#5b21b6;border-radius:8px;padding:10px 12px;margin:10px 0;">
-      <strong>{{ enrich_queue.pending }}</strong> gated survivor(s) waiting to be enriched
+      <strong>{{ enrich_queue.pending }}</strong> waiting +
+      <strong>{{ enrich_queue.in_flight }}</strong> in flight at BetterContact,
       across <strong>{{ enrich_queue.batches }}</strong> batch(es) in <code>enriching</code>.
-      Gating already spent its Rainforest credits and persisted these — they drain into
-      contact emails as BetterContact processes them. A large, non-shrinking backlog means
-      BetterContact's enrich endpoint is degraded (the batch holds safely; no re-spend).
+      Gating already spent its Rainforest credits and persisted these — the drain submits them
+      to BetterContact and collects the emails as they finish. A large, non-shrinking backlog
+      means BetterContact's enrich endpoint is slow/degraded (the batch holds safely; no re-spend).
     </div>
   {% else %}
     <p class="muted">✅ No survivors waiting — enrichment queue is drained.</p>

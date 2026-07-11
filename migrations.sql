@@ -776,3 +776,21 @@ create table if not exists revenue_first_enrich_queue (
 create index if not exists rf_enrich_queue_pending_idx
   on revenue_first_enrich_queue (scrape_request_id)
   where status = 'pending';
+
+-- Async submit/collect drain (2026-07-11): BetterContact's standalone enrich is
+-- not just occasionally down but flaky-and-slow even when up (minutes per
+-- domain; verified all domains incl. a mega-cap hung >120s during a live
+-- degradation). A synchronous drain that waits for each enrich blocks the
+-- worker loop. So the drain now SUBMITS the enrich (fast POST -> a BC request
+-- id stored here), moves on, and COLLECTS the result on a later poll (a quick
+-- status GET). The loop never blocks on a slow enrich; hung requests age out.
+--   'submitted' = enrich POSTed to BC, awaiting result (bc_request_id set).
+alter table revenue_first_enrich_queue add column if not exists bc_request_id text;
+alter table revenue_first_enrich_queue add column if not exists submitted_at timestamptz;
+alter table revenue_first_enrich_queue drop constraint if exists revenue_first_enrich_queue_status_check;
+alter table revenue_first_enrich_queue add constraint revenue_first_enrich_queue_status_check
+  check (status in ('pending','submitted','enriched','skipped','failed'));
+-- Collect hot-path: group in-flight rows by their BC request id.
+create index if not exists rf_enrich_queue_submitted_idx
+  on revenue_first_enrich_queue (bc_request_id)
+  where status = 'submitted';
