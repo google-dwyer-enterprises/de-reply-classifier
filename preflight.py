@@ -19,14 +19,17 @@ import os
 import time
 
 PROBE_TTL_S = 300          # reuse a health result for 5 min
-BC_PROBE_TIMEOUT_S = 60    # a BC enrich that can't finish in 60s = degraded
-# Plausible names at real domains — the probe only needs BetterContact's async
-# poll to TERMINATE quickly (that's what hangs when it's degraded); whether it
-# actually finds an email is irrelevant, so this costs ~0 credits.
+# SINGLE-contact probe, generous timeout. Measured 2026-07-12: a 1-contact
+# enrich terminates reliably in ~40s, but a 3-contact batch didn't finish in
+# 200s — BetterContact's MULTI-contact enrich is intermittently slow (the known
+# flakiness the drain retries around). So a multi-contact probe FALSE-negatives
+# on a healthy endpoint, which would wrongly make the tier-3 drain skip and
+# stall queued batches. One contact is the right liveness signal: "can BC
+# process an enrich at all?" — the drain's own chunk timeouts + retries handle
+# the per-batch slowness. Costs ~1 credit per probe (cached PROBE_TTL_S).
+BC_PROBE_TIMEOUT_S = 120   # a single-contact enrich that can't finish in 120s = degraded
 _BC_PROBE = [
     {"first_name": "John", "last_name": "Smith", "company_domain": "nike.com", "company_name": "Nike"},
-    {"first_name": "Jane", "last_name": "Doe", "company_domain": "shopify.com", "company_name": "Shopify"},
-    {"first_name": "Sam", "last_name": "Lee", "company_domain": "hubspot.com", "company_name": "HubSpot"},
 ]
 
 _cache: dict[str, tuple[float, bool, str]] = {}
