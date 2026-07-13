@@ -104,6 +104,11 @@ AMAZON_QA_MAX_CREDITS = 150
 
 BC_BASE = "https://app.bettercontact.rocks/api/v2"
 
+# Enrichment costs >=1 credit per found email; below this the account can't
+# complete a single enrich (BC parks the job 'on hold' instead of erroring), so
+# treat it as "out of credits" for the preflight gate. See account_credits().
+BC_ACCOUNT_MIN_CREDITS = 1.0
+
 # BC-specific ICP brand-gate prompt (manufacturer/private-label only, excluded
 # categories, no blogs). Separate from Prospeo's shared agency_filter.txt so
 # Prospeo's gate is unaffected.
@@ -640,6 +645,30 @@ def enrich_submit(leads: list[dict], api_key: str,
     if not eid:
         raise RuntimeError(f"BC enrich returned no id: {r.text[:200]}")
     return eid
+
+
+def account_credits(api_key: str | None = None) -> float | None:
+    """Remaining BetterContact credits via GET /api/v2/account (FREE — the
+    account endpoint consumes no credit). Returns `credits_left` as a float, or
+    None if the account can't be reached / parsed.
+
+    Why this matters: with <1 credit BetterContact still ACCEPTS an enrich job
+    (HTTP 201) and silently parks it 'on hold' forever instead of returning a
+    402 — so an empty balance looks exactly like a hang. Checking this balance
+    is the only reliable pre-check (learned the hard way 2026-07-13: a day lost
+    to a phantom 'outage' that was just a 0.9-credit balance)."""
+    key = (api_key or os.environ.get("BETTERCONTACT_API_KEY") or "").strip()
+    if not key:
+        return None
+    try:
+        r = requests.get(f"{BC_BASE}/account", headers={"X-API-Key": key},
+                         timeout=BC_REQUEST_TIMEOUT_S)
+        if r.status_code != 200:
+            return None
+        cl = (r.json() or {}).get("credits_left")
+        return float(cl) if cl is not None else None
+    except Exception:
+        return None
 
 
 def enrich_poll_once(request_id: str, api_key: str) -> dict | None:

@@ -49,6 +49,36 @@ class TestPreflightCheck(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("RF out of credits", msgs)
 
+    def test_bettercontact_probe_blocks_when_out_of_credits(self):
+        # The gap that lost a day: a near-zero BC balance parks enrich jobs
+        # 'on hold' silently. The probe must catch it from the balance.
+        import bettercontact_sync, credit_alerts
+        with mock.patch.dict("os.environ", {"BETTERCONTACT_API_KEY": "x"}), \
+             mock.patch.object(bettercontact_sync, "account_credits", return_value=0.9), \
+             mock.patch.object(credit_alerts, "maybe_low_balance_alert"):
+            ok, msg = preflight._bettercontact()
+        self.assertFalse(ok)
+        self.assertIn("out of credits", msg.lower())
+
+    def test_bettercontact_probe_ok_with_credits(self):
+        import bettercontact_sync, credit_alerts
+        with mock.patch.dict("os.environ", {"BETTERCONTACT_API_KEY": "x"}), \
+             mock.patch.object(bettercontact_sync, "account_credits", return_value=500), \
+             mock.patch.object(credit_alerts, "maybe_low_balance_alert") as warn:
+            ok, msg = preflight._bettercontact()
+        self.assertTrue(ok)
+        self.assertIn("500", msg)
+        warn.assert_called_once()             # always feeds the low-balance check
+
+    def test_revenue_first_also_gates_on_bettercontact_credits(self):
+        with mock.patch.object(preflight, "_anthropic", return_value=(True, "Anthropic OK")), \
+             mock.patch.object(preflight, "_rainforest", return_value=(True, "RF OK")), \
+             mock.patch.object(preflight, "_bettercontact",
+                               return_value=(False, "BetterContact is out of credits (0.9 left)")):
+            ok, msgs = preflight.check(revenue_first=True, use_cache=False)
+        self.assertFalse(ok)
+        self.assertTrue(any("out of credits" in m.lower() for m in msgs))
+
     def test_cache_reuses_result(self):
         preflight._cache.clear()
         calls = {"n": 0}

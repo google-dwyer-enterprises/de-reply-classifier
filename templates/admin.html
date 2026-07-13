@@ -58,6 +58,27 @@
   <p class="muted">✅ Worker alive — last heartbeat {{ worker.last_seen.strftime('%Y-%m-%d %H:%M UTC') if worker.last_seen else '?' }}{% if worker.host %} ({{ worker.host }}){% endif %}.</p>
 {% endif %}
 
+<h2>Provider credits</h2>
+{% set bc = provider_credits.bettercontact %}
+{% set bcmin = provider_credits.bc_min or 1 %}
+<p class="muted">
+  {% if bc is none %}
+    BetterContact: <span class="st st-stale">balance unavailable</span>
+  {% elif bc < bcmin %}
+    BetterContact: <span class="st st-failure">{{ '%g'|format(bc) }} credits — OUT OF CREDITS</span>
+    (enrich jobs park “on hold” until topped up at app.bettercontact.rocks)
+  {% else %}
+    BetterContact: <strong>{{ '%g'|format(bc) }}</strong> credits
+    {% if bc < 200 %}<span class="st st-stale">running low</span>{% endif %}
+  {% endif %}
+  &nbsp;·&nbsp;
+  Rainforest:
+  {% if provider_credits.rainforest is none %}<span class="muted">unavailable</span>
+  {% else %}<strong>{{ provider_credits.rainforest }}</strong> credits
+    {% if provider_credits.rainforest < 1000 %}<span class="st st-stale">running low</span>{% endif %}
+  {% endif %}
+</p>
+
 <h2>Revenue-first enrichment queue</h2>
 {% if enrich_queue.batches or enrich_queue.pending or enrich_queue.in_flight or enrich_queue.failed %}
   {% if enrich_queue.pending or enrich_queue.in_flight %}

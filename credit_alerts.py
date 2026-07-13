@@ -37,7 +37,10 @@ THROTTLE_HOURS = 12
 # to/below this, BEFORE it hits 0, so it gets topped up before the pipeline
 # stalls. (Distinct from maybe_alert, which is reactive — fires only once a call
 # is already rejected for no credit.)
-LOW_BALANCE_THRESHOLDS = {"Rainforest": 1000}   # ~10% of the 10k/mo Starter plan
+LOW_BALANCE_THRESHOLDS = {
+    "Rainforest": 1000,      # ~10% of the 10k/mo Starter plan
+    "BetterContact": 200,    # ~2-4 revenue-first batches of runway (≈1 cr/email)
+}
 
 
 def _resolve_sender() -> str:

@@ -19,18 +19,6 @@ import os
 import time
 
 PROBE_TTL_S = 300          # reuse a health result for 5 min
-# SINGLE-contact probe, generous timeout. Measured 2026-07-12: a 1-contact
-# enrich terminates reliably in ~40s, but a 3-contact batch didn't finish in
-# 200s — BetterContact's MULTI-contact enrich is intermittently slow (the known
-# flakiness the drain retries around). So a multi-contact probe FALSE-negatives
-# on a healthy endpoint, which would wrongly make the tier-3 drain skip and
-# stall queued batches. One contact is the right liveness signal: "can BC
-# process an enrich at all?" — the drain's own chunk timeouts + retries handle
-# the per-batch slowness. Costs ~1 credit per probe (cached PROBE_TTL_S).
-BC_PROBE_TIMEOUT_S = 120   # a single-contact enrich that can't finish in 120s = degraded
-_BC_PROBE = [
-    {"first_name": "John", "last_name": "Smith", "company_domain": "nike.com", "company_name": "Nike"},
-]
 
 _cache: dict[str, tuple[float, bool, str]] = {}
 
@@ -64,15 +52,34 @@ def _rainforest() -> tuple[bool, str]:
 
 
 def _bettercontact() -> tuple[bool, str]:
-    key = os.environ.get("BETTERCONTACT_API_KEY")
-    if not key:
+    """Gate on the BetterContact CREDIT BALANCE, not an enrich round-trip.
+
+    Learned 2026-07-13: with <1 credit BC still accepts an enrich job (HTTP 201)
+    and silently parks it 'on hold' forever instead of erroring — so an empty
+    balance is indistinguishable from a hang, and an enrich-round-trip probe both
+    (a) burns a credit when it works and (b) hangs for the full timeout when the
+    balance is dead, giving no useful signal. The free /account balance is the
+    right, fast, accurate check: if we can't complete one enrich, don't start.
+    Also fires the proactive low-balance warning so it's caught before zero."""
+    if not os.environ.get("BETTERCONTACT_API_KEY"):
         return False, "BetterContact has no API key set"
     try:
         import bettercontact_sync as bc
-        bc.enrich_contacts(_BC_PROBE, key, timeout_s=BC_PROBE_TIMEOUT_S)
-        return True, "BetterContact OK"
+        credits = bc.account_credits()
+        if credits is None:
+            return False, "BetterContact account unreachable"
+        try:                       # proactive 'running low' email (throttled)
+            import credit_alerts
+            credit_alerts.maybe_low_balance_alert("BetterContact", int(credits))
+        except Exception:
+            pass
+        if credits < bc.BC_ACCOUNT_MIN_CREDITS:
+            return False, (f"BetterContact is out of credits ({credits:g} left) — "
+                           f"top up at app.bettercontact.rocks (enrich jobs park "
+                           f"'on hold' until then)")
+        return True, f"BetterContact OK ({credits:g} credits left)"
     except Exception as e:
-        return False, f"BetterContact enrichment not responding ({str(e)[:60]})"
+        return False, f"BetterContact check failed ({str(e)[:60]})"
 
 
 def _anthropic() -> tuple[bool, str]:
@@ -103,17 +110,14 @@ def check(revenue_first: bool = False, use_cache: bool = True) -> tuple[bool, li
     """Return (all_healthy, [per-provider status lines]) for the providers a
     batch must have UP to START spending.
 
-    Classic flow: Anthropic (ICP gate) + BetterContact (inline enrichment).
-    Revenue-first (tier-3): Anthropic + Rainforest (the revenue gate). NOT
-    BetterContact — enrichment is decoupled into the drain queue, so a degraded
-    BC no longer blocks the gate (which spends only Rainforest/Anthropic); the
-    drain retries the enrich when BC recovers. This is what lets a revenue-first
-    batch make progress during a BC-enrich outage instead of being held."""
+    Both flows: Anthropic (the ICP gate) + BetterContact CREDIT BALANCE (no
+    point starting a batch that can only park its enrich jobs 'on hold' — the
+    #1 real-world failure, and one that otherwise looks like a silent hang).
+    Revenue-first additionally needs Rainforest (the revenue gate)."""
     probes = [("anthropic", _anthropic)]   # the ICP gate needs it in BOTH flows
     if revenue_first:
         probes.append(("rainforest", _rainforest))
-    else:
-        probes.append(("bettercontact", _bettercontact))
+    probes.append(("bettercontact", _bettercontact))   # credit balance, both flows
     ok_all, msgs = True, []
     for name, fn in probes:
         ok, msg = _cached(name, fn) if use_cache else fn()

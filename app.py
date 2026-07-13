@@ -398,12 +398,36 @@ def admin_panel():
         enrich_queue = _enrich_queue_backlog()
     except Exception as e:
         db_error = str(e)[:300]
+    provider_credits = _provider_credits()   # best-effort, its own try/timeouts
     return render_template(
         "admin.html", summary=summary, recent=recent, credit_state=credit_state,
         hours=hours, kinds=api_events.KINDS, db_error=db_error,
         job_health=job_health, job_runs=job_runs, worker=worker,
-        enrich_queue=enrich_queue,
+        enrich_queue=enrich_queue, provider_credits=provider_credits,
     )
+
+
+def _provider_credits() -> dict:
+    """Live remaining balances for the paid providers, best-effort (None if a
+    provider is unreachable). BetterContact is the one that bit us — an empty
+    balance parks enrich jobs 'on hold' and looks like a hang — so surface it."""
+    out = {"bettercontact": None, "rainforest": None, "bc_min": None}
+    try:
+        import bettercontact_sync as bc
+        out["bettercontact"] = bc.account_credits()
+        out["bc_min"] = bc.BC_ACCOUNT_MIN_CREDITS
+    except Exception:
+        pass
+    try:
+        import os, requests
+        key = os.environ.get("RAINFOREST_API_KEY")
+        if key:
+            r = requests.get("https://api.rainforestapi.com/account",
+                             params={"api_key": key}, timeout=15)
+            out["rainforest"] = (r.json().get("account_info") or {}).get("credits_remaining")
+    except Exception:
+        pass
+    return out
 
 
 def _enrich_queue_backlog() -> dict:

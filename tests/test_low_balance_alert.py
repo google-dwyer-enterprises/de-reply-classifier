@@ -47,6 +47,20 @@ class TestLowBalanceAlert(unittest.TestCase):
             self.assertTrue(ca.maybe_low_balance_alert("Rainforest", 10))
             m.assert_not_called()
 
+    def test_bettercontact_has_a_threshold(self):
+        # BetterContact was previously uncovered (only Rainforest had a
+        # threshold), so an empty BC balance never warned — the gap that lost a
+        # day. It must now fire below threshold and stay quiet above.
+        self.assertIn("BetterContact", ca.LOW_BALANCE_THRESHOLDS)
+        with mock.patch.object(ca, "_should_send", return_value=True), \
+             mock.patch("api_events.record"), \
+             mock.patch.object(ca, "_send_low_balance_email") as m:
+            self.assertTrue(ca.maybe_low_balance_alert("BetterContact", 50))
+            m.assert_called_once()
+        with mock.patch.object(ca, "_send_low_balance_email") as m:
+            self.assertFalse(ca.maybe_low_balance_alert("BetterContact", 5000))
+            m.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
