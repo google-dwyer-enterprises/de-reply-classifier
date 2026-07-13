@@ -523,6 +523,10 @@ def _submit_base_context() -> dict:
         "industry_priority": pri_by_ind,
         "default_industries": scrape_more,
         "title_priority": title_priority,
+        # Live paid-provider balances, shown on the form so the operator sees
+        # available credits (esp. BetterContact — an empty balance parks enrich
+        # jobs) BEFORE launching a batch. Best-effort (None if unreachable).
+        "provider_credits": _provider_credits(),
     }
 
 
@@ -598,8 +602,7 @@ def submit_post():
             kind = "email + phone" if enrichment == "both" else "email"
             return render_template(
                 "submit.html",
-                industries=BC_INDUSTRIES,
-                countries=COUNTRIES,
+                **_submit_base_context(),
                 error=f"Max credits {max_credits} is too low — {requested_leads} "
                       f"lead(s) with {kind} enrichment needs at least {need} credits "
                       f"(one page). Set it to {need} or more, or leave it empty to "

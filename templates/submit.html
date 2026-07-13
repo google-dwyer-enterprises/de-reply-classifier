@@ -5,6 +5,26 @@
 <h1>Submit a lead batch request</h1>
 <p class="lede">Fill in what you need. You'll get an email when results are ready to review.</p>
 
+{% set pc = provider_credits if provider_credits is defined else {} %}
+{% set bc = pc.get('bettercontact') %}
+{% set bcmin = pc.get('bc_min') or 1 %}
+{% set rf = pc.get('rainforest') %}
+<div class="alert {{ 'alert-error' if (bc is not none and bc < bcmin) else 'alert-ok' }}"
+     style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;">
+  <span><strong>Credits available</strong></span>
+  <span>BetterContact (emails):
+    {% if bc is none %}<em>unavailable</em>
+    {% elif bc < bcmin %}<strong>{{ '%g'|format(bc) }} — OUT OF CREDITS</strong> · top up at app.bettercontact.rocks before launching
+    {% else %}<strong>{{ '%g'|format(bc) }}</strong>{% if bc < 200 %} <em>(running low)</em>{% endif %}
+    {% endif %}
+  </span>
+  <span>Rainforest (Amazon revenue gate):
+    {% if rf is none %}<em>unavailable</em>
+    {% else %}<strong>{{ rf }}</strong>{% if rf < 1000 %} <em>(running low)</em>{% endif %}
+    {% endif %}
+  </span>
+</div>
+
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
 {% set p = prefill if prefill is defined and prefill else {} %}
