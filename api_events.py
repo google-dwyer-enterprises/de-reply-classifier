@@ -70,7 +70,11 @@ def record(provider: str, kind: str, *, detail: str | None = None,
              (context or "")[:120] or None, (detail or "")[:1000] or None),
         )
         conn.close()
-    except Exception as e:
+    except (Exception, SystemExit) as e:
+        # Best-effort observability must NEVER break its caller. db.connect()
+        # raises SystemExit (not Exception) when DB creds are absent — catch that
+        # too, so a mis/unconfigured env (e.g. CI) can't turn a telemetry write
+        # into an uncaught exception in the pipeline path that called us.
         print(f"api_events: could not record {provider}/{kind}: {e}", file=sys.stderr)
 
 
