@@ -358,6 +358,17 @@ ENRICH_INFLIGHT_MAX_AGE_S = 1800  # a submitted enrich not done in 30 min -> res
 CLI_DRAIN_MAX_WALL_S = 1200     # inline CLI drain gives up waiting after 20 min
                                  # (the worker has no such cap — it drains over polls)
 
+# Yield-gate (breadth-over-depth): stop drilling an industry once a gate page's
+# Rainforest cost PER QUEUED SURVIVOR blows past a ceiling. Deep pages are dense
+# in sub-floor small brands that each cost an RF credit to Amazon-revenue-check
+# but then fail the floor — so drilling deeper burns Rainforest for little yield.
+# Parking the thinning industry and rotating the run to fresher SHALLOW pages of
+# other industries keeps RF/lead near the shallow rate. Tuned from batch #56
+# (shallow pages ran ~4-9 RF/survivor; thin deep pages 25-50+ and 0-survivor).
+YIELD_GATE_ENABLED = True
+YIELD_GATE_RF_PER_SURVIVOR_MAX = 15.0
+YIELD_GATE_MIN_RF_TO_JUDGE = 12.0   # never park a CHEAP (cache/SmartScout) page
+
 
 class InsufficientCreditsError(Exception):
     """Raised when BetterContact rejects with a no-credit error."""
@@ -1910,6 +1921,21 @@ def drain_enrich_queue(conn, api_key: str, *, scrape_request_id: int | None,
     }
 
 
+def should_park_industry(page_survivors: int, page_rf_spent: float) -> bool:
+    """Yield-gate decision: True when this page's Rainforest cost per queued
+    survivor is too high to keep drilling this industry — park it for the run and
+    rotate to fresher pages instead. A page that spent little RF (cache/SmartScout
+    hits) is never parked on, even with few survivors, since it wasn't the
+    expensive kind. Pure — unit-tested + replay-verified against real run data."""
+    if not YIELD_GATE_ENABLED:
+        return False
+    if page_rf_spent < YIELD_GATE_MIN_RF_TO_JUDGE:
+        return False
+    if page_survivors <= 0:
+        return True
+    return (page_rf_spent / page_survivors) > YIELD_GATE_RF_PER_SURVIVOR_MAX
+
+
 def _gate_revenue_first(conn, api_key: str, *,
                         target_leads: int | None,
                         country: list[str] | None,
@@ -1947,10 +1973,16 @@ def _gate_revenue_first(conn, api_key: str, *,
     n_discovered = n_gated_out = queued = 0
     aborted_reason = None
 
+    # Yield-gate: industries parked (this run only) once a page's RF/survivor
+    # blows past the ceiling — the round-robin skips them so the run rotates to
+    # fresher shallow pages instead of drilling deeper into a thinning industry.
+    parked_this_run: set[str] = set()
+
     def _revfirst_queue():
         while True:
             live = [i for i in BC_INDUSTRIES
-                    if i not in skip_set and not state.get(i, {}).get("exhausted")]
+                    if i not in skip_set and i not in parked_this_run
+                    and not state.get(i, {}).get("exhausted")]
             if not live:
                 return
             for i in live:
@@ -2041,6 +2073,7 @@ def _gate_revenue_first(conn, api_key: str, *,
                 kept.append(lead)
             survivors = kept
         # 6. Amazon revenue QA — the revenue gate (reject DROP; REVIEW/PENDING pass)
+        rf_before_page = amazon_qa_budget["spent"]   # for the yield-gate below
         if survivors and not skip_amazon_qa:
             try:
                 amazon_revenue_qa.qa_companies(conn, survivors, budget=amazon_qa_budget,
@@ -2076,6 +2109,17 @@ def _gate_revenue_first(conn, api_key: str, *,
             heartbeat.beat()
         except Exception:
             pass
+
+        # Yield-gate: park this industry for the run if the page's Rainforest
+        # cost per survivor was too high (deep/thin) — the round-robin then
+        # rotates to fresher shallow pages of other industries instead.
+        rf_delta_page = amazon_qa_budget["spent"] - rf_before_page
+        if should_park_industry(len(survivors), rf_delta_page):
+            parked_this_run.add(ind)
+            print(f"    [yield-gate] parked {ind!r} for this run — "
+                  f"{len(survivors)} survivor(s) for {rf_delta_page:.0f} RF this page "
+                  f"(rotating to fresher pages)")
+
         if aborted_reason:
             break
 
