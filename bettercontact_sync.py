@@ -366,8 +366,22 @@ CLI_DRAIN_MAX_WALL_S = 1200     # inline CLI drain gives up waiting after 20 min
 # other industries keeps RF/lead near the shallow rate. Tuned from batch #56
 # (shallow pages ran ~4-9 RF/survivor; thin deep pages 25-50+ and 0-survivor).
 YIELD_GATE_ENABLED = True
-YIELD_GATE_RF_PER_SURVIVOR_MAX = 15.0
+YIELD_GATE_RF_PER_SURVIVOR_MAX = 12.0   # park pages worse than ~1.4x the shallow rate
 YIELD_GATE_MIN_RF_TO_JUDGE = 12.0   # never park a CHEAP (cache/SmartScout) page
+
+# Layer-3: adaptive page size. At DEEP offsets (where pages thin into sub-floor
+# brands) use a SMALL page, so a thin page costs a fraction of the Rainforest
+# before the yield-gate parks it — instead of eating a full 200-lead page (~110
+# RF) to discover the industry is tapped out. Full page in the shallow zone.
+DEEP_OFFSET_THRESHOLD = 400
+DEEP_PAGE_LIMIT = 50
+
+# Layer-2: persist a yield-gate park across runs so a proven-thin industry is
+# skipped for a cooldown, then RESET to a shallow offset on retry — re-harvesting
+# the refreshed top of the industry (dedup + the revenue cache keep the re-scan
+# cheap). Attacks the "drilled-out, only deep pages left" worst case.
+YIELD_GATE_PERSIST_PARK = True
+PARK_COOLDOWN_DAYS = 14
 
 
 class InsufficientCreditsError(Exception):
@@ -1704,6 +1718,27 @@ def _contact_key(lead: dict) -> str:
     ])
 
 
+def _persist_park(conn, industry: str) -> None:
+    """Record a yield-gate park so future runs skip this proven-thin industry for
+    PARK_COOLDOWN_DAYS (see industry_park_status). Best-effort; own row upsert."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into bettercontact_scrape_state (industry, parked_at) "
+            "values (%s, now()) on conflict (industry) do update set parked_at = now()",
+            (industry,))
+    conn.commit()
+
+
+def _reset_park_to_shallow(conn, industry: str) -> None:
+    """Cooldown expired: clear the park and reset the industry to a shallow offset
+    so the next scan re-harvests the refreshed top (dedup + cache keep it cheap)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "update bettercontact_scrape_state set parked_at = null, "
+            "last_offset_consumed = 0 where industry = %s", (industry,))
+    conn.commit()
+
+
 def _enqueue_survivors(conn, survivors: list[dict],
                        scrape_request_id: int | None) -> int:
     """Persist gated survivors into revenue_first_enrich_queue. Idempotent on
@@ -1921,6 +1956,25 @@ def drain_enrich_queue(conn, api_key: str, *, scrape_request_id: int | None,
     }
 
 
+def page_limit_for_offset(offset: int, full: int) -> int:
+    """Adaptive page size: a SMALL page at deep offsets (thin territory) so a bad
+    page costs less Rainforest before the yield-gate parks it; the full page in
+    the shallow high-yield zone."""
+    return min(full, DEEP_PAGE_LIMIT) if offset >= DEEP_OFFSET_THRESHOLD else full
+
+
+def industry_park_status(parked_at, now, cooldown_days: int = PARK_COOLDOWN_DAYS):
+    """(available, reset_to_shallow) for an industry given its persisted
+    parked_at. Parked within the cooldown -> skip (not available). Cooldown
+    expired -> available AND reset to a shallow offset (re-harvest the refreshed
+    top). Never parked -> available, no reset. Pure — unit-tested."""
+    if not parked_at:
+        return True, False
+    if now - parked_at < timedelta(days=cooldown_days):
+        return False, False
+    return True, True
+
+
 def should_park_industry(page_survivors: int, page_rf_spent: float) -> bool:
     """Yield-gate decision: True when this page's Rainforest cost per queued
     survivor is too high to keep drilling this industry — park it for the run and
@@ -1973,6 +2027,22 @@ def _gate_revenue_first(conn, api_key: str, *,
     n_discovered = n_gated_out = queued = 0
     aborted_reason = None
 
+    # Layer-2: honor PERSISTED yield-gate parks. Skip an industry still within its
+    # cooldown; for one whose cooldown just expired, reset it to a shallow offset
+    # so we re-harvest its refreshed top instead of resuming at the tapped-out
+    # depth. Attacks the "drilled-out, only deep pages left" worst case.
+    now = datetime.now(timezone.utc)
+    cooldown_skip: set[str] = set()
+    for ind in BC_INDUSTRIES:
+        available, reset = industry_park_status(state.get(ind, {}).get("parked_at"), now)
+        if not available:
+            cooldown_skip.add(ind)
+        elif reset:
+            state.setdefault(ind, {})["last_offset_consumed"] = 0
+            state[ind]["parked_at"] = None
+            _reset_park_to_shallow(conn, ind)
+            print(f"  [yield-gate] {ind!r} park expired — reset to shallow offset 0")
+
     # Yield-gate: industries parked (this run only) once a page's RF/survivor
     # blows past the ceiling — the round-robin skips them so the run rotates to
     # fresher shallow pages instead of drilling deeper into a thinning industry.
@@ -1982,6 +2052,7 @@ def _gate_revenue_first(conn, api_key: str, *,
         while True:
             live = [i for i in BC_INDUSTRIES
                     if i not in skip_set and i not in parked_this_run
+                    and i not in cooldown_skip
                     and not state.get(i, {}).get("exhausted")]
             if not live:
                 return
@@ -1989,7 +2060,8 @@ def _gate_revenue_first(conn, api_key: str, *,
                 yield i
 
     live0 = [i for i in BC_INDUSTRIES
-             if i not in skip_set and not state.get(i, {}).get("exhausted")]
+             if i not in skip_set and i not in cooldown_skip
+             and not state.get(i, {}).get("exhausted")]
     if not live0:
         return {"queued": 0, "discovered": 0, "gated_out": 0,
                 "rejected_counts": {}, "amazon_qa_credits": 0,
@@ -2003,10 +2075,11 @@ def _gate_revenue_first(conn, api_key: str, *,
                               f"({amazon_qa_budget['spent']}/{amazon_qa_budget['max']})")
             break
         offset = state.get(ind, {}).get("last_offset_consumed", 0)
+        eff_limit = page_limit_for_offset(offset, page_limit)   # small at deep offsets
         filters = _industry_filters(ind, countries)
         # 1. email-free discovery (0 credits)
         try:
-            rid = _submit_search(filters, page_limit, offset, api_key,
+            rid = _submit_search(filters, eff_limit, offset, api_key,
                                  enrich_email_address=False)
             result = _poll_for_result(rid, api_key)
         except Exception as e:
@@ -2093,7 +2166,7 @@ def _gate_revenue_first(conn, api_key: str, *,
         if survivors:
             queued += _enqueue_survivors(conn, survivors, scrape_request_id)
 
-        new_offset = offset + page_limit
+        new_offset = offset + eff_limit
         est = state.get(ind, {}).get("total_leads_estimated") or leads_found or 0
         exhausted = (bool(est) and new_offset >= est) or len(bc_leads) == 0
         _update_state(conn, ind, new_offset=new_offset, leads_found=leads_found,
@@ -2116,9 +2189,11 @@ def _gate_revenue_first(conn, api_key: str, *,
         rf_delta_page = amazon_qa_budget["spent"] - rf_before_page
         if should_park_industry(len(survivors), rf_delta_page):
             parked_this_run.add(ind)
-            print(f"    [yield-gate] parked {ind!r} for this run — "
+            if YIELD_GATE_PERSIST_PARK:   # skip it in future runs for the cooldown
+                _persist_park(conn, ind)
+            print(f"    [yield-gate] parked {ind!r} — "
                   f"{len(survivors)} survivor(s) for {rf_delta_page:.0f} RF this page "
-                  f"(rotating to fresher pages)")
+                  f"(rotating away; persisted for {PARK_COOLDOWN_DAYS}d)")
 
         if aborted_reason:
             break

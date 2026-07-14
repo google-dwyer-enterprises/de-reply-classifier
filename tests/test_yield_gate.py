@@ -8,6 +8,7 @@ No network, no credits.
 """
 import unittest
 from unittest import mock
+from datetime import datetime, timezone, timedelta
 
 import bettercontact_sync as bc
 
@@ -68,6 +69,40 @@ class TestReplayBatch56(unittest.TestCase):
         # (50 RF for 0 leads) — pure waste it actually spent.
         self.assertEqual(avoided_pages, 1)
         self.assertEqual(avoided_rf, 50)
+
+
+class TestAdaptivePageSize(unittest.TestCase):
+    def test_full_page_in_shallow_zone(self):
+        self.assertEqual(bc.page_limit_for_offset(0, 200), 200)
+        self.assertEqual(bc.page_limit_for_offset(bc.DEEP_OFFSET_THRESHOLD - 1, 200), 200)
+
+    def test_small_page_at_deep_offset(self):
+        # deep offsets thin out -> use a small page so a bad page costs less RF
+        self.assertEqual(bc.page_limit_for_offset(bc.DEEP_OFFSET_THRESHOLD, 200), bc.DEEP_PAGE_LIMIT)
+        self.assertEqual(bc.page_limit_for_offset(2000, 200), bc.DEEP_PAGE_LIMIT)
+
+    def test_never_exceeds_requested_full(self):
+        self.assertEqual(bc.page_limit_for_offset(9999, 30), 30)   # full<floor -> full
+
+
+class TestParkStatus(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+
+    def test_never_parked_is_available(self):
+        self.assertEqual(bc.industry_park_status(None, self.now), (True, False))
+
+    def test_parked_within_cooldown_is_skipped(self):
+        recent = self.now - timedelta(days=1)
+        self.assertEqual(bc.industry_park_status(recent, self.now), (False, False))
+
+    def test_cooldown_expired_available_and_resets_to_shallow(self):
+        old = self.now - timedelta(days=bc.PARK_COOLDOWN_DAYS + 1)
+        self.assertEqual(bc.industry_park_status(old, self.now), (True, True))
+
+    def test_boundary_just_under_cooldown_still_skipped(self):
+        edge = self.now - timedelta(days=bc.PARK_COOLDOWN_DAYS, hours=-1)  # just under
+        self.assertEqual(bc.industry_park_status(edge, self.now), (False, False))
 
 
 if __name__ == "__main__":
