@@ -377,10 +377,12 @@ DEEP_OFFSET_THRESHOLD = 400
 DEEP_PAGE_LIMIT = 50
 
 # Layer-2: persist a yield-gate park across runs so a proven-thin industry is
-# skipped for a cooldown, then RESET to a shallow offset on retry — re-harvesting
-# the refreshed top of the industry (dedup + the revenue cache keep the re-scan
-# cheap). Attacks the "drilled-out, only deep pages left" worst case.
-YIELD_GATE_PERSIST_PARK = True
+# skipped for a cooldown, then RESET to a shallow offset on retry to re-harvest
+# its refreshed top. DEFAULT OFF: it shrinks the live-industry pool (fights the
+# breadth strategy) AND its payoff hinges on BetterContact's inventory-refresh
+# rate, which is UNMEASURED. Ship the in-run yield-gate + adaptive page + tighter
+# threshold; only flip this on once refresh is measured (see the memory note).
+YIELD_GATE_PERSIST_PARK = False
 PARK_COOLDOWN_DAYS = 14
 
 
@@ -2027,21 +2029,22 @@ def _gate_revenue_first(conn, api_key: str, *,
     n_discovered = n_gated_out = queued = 0
     aborted_reason = None
 
-    # Layer-2: honor PERSISTED yield-gate parks. Skip an industry still within its
-    # cooldown; for one whose cooldown just expired, reset it to a shallow offset
-    # so we re-harvest its refreshed top instead of resuming at the tapped-out
-    # depth. Attacks the "drilled-out, only deep pages left" worst case.
+    # Layer-2 (OFF by default — YIELD_GATE_PERSIST_PARK): honor PERSISTED parks.
+    # Skip an industry still within its cooldown; reset a cooldown-expired one to
+    # a shallow offset to re-harvest its refreshed top. Gated behind the toggle so
+    # it's a true no-op when disabled (no stale parked_at ever moves an offset).
     now = datetime.now(timezone.utc)
     cooldown_skip: set[str] = set()
-    for ind in BC_INDUSTRIES:
-        available, reset = industry_park_status(state.get(ind, {}).get("parked_at"), now)
-        if not available:
-            cooldown_skip.add(ind)
-        elif reset:
-            state.setdefault(ind, {})["last_offset_consumed"] = 0
-            state[ind]["parked_at"] = None
-            _reset_park_to_shallow(conn, ind)
-            print(f"  [yield-gate] {ind!r} park expired — reset to shallow offset 0")
+    if YIELD_GATE_PERSIST_PARK:
+        for ind in BC_INDUSTRIES:
+            available, reset = industry_park_status(state.get(ind, {}).get("parked_at"), now)
+            if not available:
+                cooldown_skip.add(ind)
+            elif reset:
+                state.setdefault(ind, {})["last_offset_consumed"] = 0
+                state[ind]["parked_at"] = None
+                _reset_park_to_shallow(conn, ind)
+                print(f"  [yield-gate] {ind!r} park expired — reset to shallow offset 0")
 
     # Yield-gate: industries parked (this run only) once a page's RF/survivor
     # blows past the ceiling — the round-robin skips them so the run rotates to
