@@ -254,14 +254,19 @@ def insert_scrape_request(
     requested_leads: int, industries: list[str], skip_industries: list[str],
     countries: list[str], notes: str, max_credits: int | None = None,
     enrichment: str = "email", revenue_floor: int | None = None,
-    revenue_first: bool = True,
+    revenue_first: bool = True, amazon_qa_max_credits: int | None = None,
 ) -> dict:
     """Insert a new scrape_requests row at status='pending'. Returns the
     row (incl. the auto-generated review_token).
 
-    `max_credits=None` means "let the worker auto-compute the budget cap
-    from requested_leads". An explicit value overrides that — Jam picks
-    it when she wants a tighter ceiling or more headroom than the default.
+    `max_credits=None` means "let the worker auto-compute the BetterContact
+    enrichment budget cap from requested_leads". An explicit value overrides
+    that — Jam picks it when she wants a tighter ceiling or more headroom.
+
+    `amazon_qa_max_credits=None` means "let the worker auto-compute the
+    Rainforest (Amazon revenue gate) budget", currently max(150, target*6).
+    An explicit value lets a large revenue-first run lift that ceiling so the
+    gate doesn't stop short of target on the Rainforest cap.
 
     `enrichment` is 'email' (default) or 'both' (emails + mobile phones;
     phones bill 10 BetterContact credits each — ClickUp 86exxhgek).
@@ -272,8 +277,9 @@ def insert_scrape_request(
             cur.execute("""
                 insert into scrape_requests
                   (requested_leads, industries, skip_industries, countries,
-                   notes, max_credits, enrichment, revenue_floor, revenue_first)
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   notes, max_credits, enrichment, revenue_floor, revenue_first,
+                   amazon_qa_max_credits)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 returning id, review_token
             """, (
                 requested_leads,
@@ -285,6 +291,7 @@ def insert_scrape_request(
                 enrichment,
                 revenue_floor,
                 revenue_first,
+                amazon_qa_max_credits,
             ))
             return cur.fetchone()
     finally:
@@ -542,6 +549,7 @@ def submit_form():
         "skip_industries": _parse_csv_list(request.args.get("skip_industries")),
         "countries":       _parse_csv_list(request.args.get("countries")),
         "max_credits":     request.args.get("max_credits"),
+        "amazon_qa_max_credits": request.args.get("amazon_qa_max_credits"),
         "enrichment":      request.args.get("enrichment"),
         "revenue_floor":   request.args.get("revenue_floor"),
         "notes":           "",   # intentionally NOT prefilled — new batch, new context
@@ -610,6 +618,20 @@ def submit_post():
                 form=request.form,
             ), 400
 
+    # Rainforest (Amazon revenue gate) cap: optional, revenue-first only. Empty
+    # -> NULL -> the worker auto-computes max(150, target*6). An explicit value
+    # lets a large run lift that ceiling so the gate doesn't stop short of target
+    # on the Rainforest cap. Reject a non-empty typo loudly (same as max_credits).
+    raw_rf = (request.form.get("amazon_qa_max_credits") or "").strip()
+    amazon_qa_max_credits = _parse_int_or_none(raw_rf, 1, 100_000)
+    if raw_rf and amazon_qa_max_credits is None:
+        return render_template(
+            "submit.html", **_submit_base_context(),
+            error=f"Max Rainforest credits {raw_rf!r} isn't a whole number "
+                  f"between 1 and 100,000. Leave it empty to auto-budget.",
+            form=request.form,
+        ), 400
+
     # Revenue floor: optional. Empty -> NULL -> worker uses the $300k default.
     # A non-empty value must be a sane dollar amount (per-client ICP floor,
     # e.g. 1000000 for a $1M client) — reject junk loudly.
@@ -645,7 +667,7 @@ def submit_post():
     row = insert_scrape_request(
         requested_leads, industries, skip_industries, countries, notes,
         max_credits=max_credits, enrichment=enrichment, revenue_floor=revenue_floor,
-        revenue_first=revenue_first,
+        revenue_first=revenue_first, amazon_qa_max_credits=amazon_qa_max_credits,
     )
     return redirect(url_for("batches", submitted=row["id"]))
 
