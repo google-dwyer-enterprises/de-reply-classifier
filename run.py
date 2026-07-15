@@ -77,6 +77,60 @@ def cmd_refresh(args) -> None:
     # needed here.
 
 
+# --------------------------------------------------------------------------- #
+# Daily cron — ONE command that runs the whole sequence
+# --------------------------------------------------------------------------- #
+# Railway runs the cron container with a SINGLE start command. A multi-command
+# `;`-chain start command silently collapses to ONLY its first command: the
+# Dockerfile's exec-form CMD means Railway never runs the start command through a
+# shell, so `;` is never interpreted. Verified 2026-07-15 — with the chain that
+# started `backfill-tags ; …` only backfill-tags ran (Jul 8-9); after the reorder
+# to `refresh ; …` only refresh ran (Jul 10-15); the follow-up steps never ran
+# from cron at all, which is why the analytics page went stale. Fix: put the
+# whole sequence behind this one command and make it the cron start command.
+DAILY_CRON_STEPS: list[list[str]] = [
+    ["refresh"],
+    ["refresh-followup-patterns"],
+    ["generate-followup-experiments"],
+    ["attribute-followup-experiments"],
+    ["llm-followup-features", "--yes"],
+    ["resolve-companies"],
+    ["backfill-tags"],
+]
+DAILY_CRON_STEP_TIMEOUT_S = 3600   # 60-min hard cap per step so a hung step can't stall the rest
+
+
+def cmd_daily_cron(args) -> None:
+    """Run every daily-cron step in order as an isolated `python run.py <step>`
+    subprocess (each keeps its own job_run_log row). Continue-on-error: a failing
+    or hung step is logged and skipped, never blocking the rest — strictly better
+    than the `;` semantics this replaces."""
+    dry = getattr(args, "dry_run", False)
+    print(f"===== daily-cron: {len(DAILY_CRON_STEPS)} steps "
+          f"({'DRY RUN — nothing executed' if dry else 'live'}) =====", flush=True)
+    failures: list[tuple[str, int]] = []
+    for step in DAILY_CRON_STEPS:
+        label = " ".join(step)
+        print(f"\n----- daily-cron step: run.py {label} -----", flush=True)
+        if dry:
+            print(f"  (dry-run) would exec: {sys.executable} run.py {label}", flush=True)
+            continue
+        try:
+            rc = subprocess.run([sys.executable, "run.py", *step],
+                                timeout=DAILY_CRON_STEP_TIMEOUT_S).returncode
+        except subprocess.TimeoutExpired:
+            rc = -1
+            print(f"  [daily-cron] {step[0]} exceeded {DAILY_CRON_STEP_TIMEOUT_S}s — "
+                  f"killed, continuing", flush=True)
+        if rc != 0:
+            failures.append((step[0], rc))
+            print(f"  [daily-cron] {step[0]} exited {rc} — continuing", flush=True)
+    if failures:
+        print(f"\n[daily-cron] done, {len(failures)} step(s) failed: {failures}", flush=True)
+    else:
+        print("\n[daily-cron] all steps completed cleanly.", flush=True)
+
+
 def _prompt(question: str, default: str | None = None) -> str:
     suffix = f" [{default}]" if default else ""
     val = input(f"{question}{suffix}: ").strip()
@@ -262,6 +316,14 @@ def main() -> None:
     rf = sub.add_parser("refresh", help="One-shot: sync → refresh-status → classify → update-status")
     rf.add_argument("--days", type=int, default=None, help="Lookback window for sync step")
 
+    dc = sub.add_parser("daily-cron",
+                        help="Run the WHOLE daily sequence (refresh + follow-up + "
+                             "maintenance) as one command — this IS the cron start "
+                             "command. A `;`-chain start command only runs its first "
+                             "step on Railway; this runs them all.")
+    dc.add_argument("--dry-run", action="store_true",
+                    help="Print the step sequence without executing anything")
+
     rc = sub.add_parser("resolve-companies", help="LLM-resolve ambiguous company names where apollo_company_name ≠ company_name")
     rc.add_argument("--limit", type=int, default=None, help="Cap number of rows (for dry-run)")
 
@@ -441,6 +503,8 @@ def _dispatch(args) -> None:
         cmd_refresh_status(args)
     elif args.command == "refresh":
         cmd_refresh(args)
+    elif args.command == "daily-cron":
+        cmd_daily_cron(args)
     elif args.command == "resolve-companies":
         resolve_companies_main(limit=args.limit)
     elif args.command == "upload-smartscout":
