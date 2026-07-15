@@ -35,6 +35,8 @@ HELIUM10_FEASIBILITY_RESEARCH.md. helium10_revenue.py remains unused.)
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
 
 import psycopg2.extras
 from rapidfuzz import fuzz
@@ -78,6 +80,37 @@ SUSPECT_UNITS_PER_RATING = 15       # a KEEP-level floor whose implied annual un
                                     # over-annualized ("bought last month" x 12 on a spiky
                                     # item) -> REVIEW, not auto-KEEP. (Cata-Kor: 26x -> REVIEW;
                                     # Waggin' Train: 7x -> KEEP.)
+
+
+# --- Absence-drop (SmartScout-miss -> free-drop) ------------------------------ #
+# A company with NO SmartScout match is ~98% sub-floor (measured: absence_drop_shadow
+# — batch #57 and a 1,738-company all-time sample). When ENFORCED, free-drop the miss
+# instead of paying Rainforest to confirm the obvious — EXCEPT a deterministic audit
+# slice (ABSENCE_DROP_SAMPLE_PCT), still Rainforest-checked so absence_drop_shadow keeps
+# a LIVE read on the real false-drop rate and can catch drift. Default OFF and fully
+# reversible: set ABSENCE_DROP_ENFORCE=true (and optionally ABSENCE_DROP_SAMPLE_PCT) on
+# the worker env — no redeploy needed to flip, exactly like AMAZON_QA_ENFORCE.
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+ABSENCE_DROP_ENFORCE = _env_flag("ABSENCE_DROP_ENFORCE")
+try:
+    ABSENCE_DROP_SAMPLE_PCT = max(0, min(100, int(os.environ.get("ABSENCE_DROP_SAMPLE_PCT", "10"))))
+except ValueError:
+    ABSENCE_DROP_SAMPLE_PCT = 10
+
+
+def _in_audit_sample(company: str) -> bool:
+    """Deterministically pick ~ABSENCE_DROP_SAMPLE_PCT% of misses to STILL Rainforest-
+    check under enforcement (keeps the shadow monitor fed). Stable per company (hash of
+    the normalized name) so re-runs are cache-consistent and testable — never random."""
+    if ABSENCE_DROP_SAMPLE_PCT <= 0:
+        return False
+    if ABSENCE_DROP_SAMPLE_PCT >= 100:
+        return True
+    h = int(hashlib.md5(normalize_brand(company or "").encode("utf-8")).hexdigest(), 16)
+    return (h % 100) < ABSENCE_DROP_SAMPLE_PCT
 
 
 # --------------------------------------------------------------------------- #
@@ -237,7 +270,8 @@ def floor_verdict(rev: dict, floor_line: float = REVENUE_FLOOR_ANNUAL) -> tuple[
 # Cascade
 # --------------------------------------------------------------------------- #
 def evaluate(cur, company: str, use_llm: bool = False, budget: dict | None = None,
-             floor_line: float = REVENUE_FLOOR_ANNUAL) -> dict:
+             floor_line: float = REVENUE_FLOOR_ANNUAL,
+             absence_enforce: bool | None = None) -> dict:
     # Per-client grey band scales with the floor (defaults 200k/500k at a 300k
     # floor): SmartScout is trusted outside [grey_low, grey_high]; inside it we
     # confirm with the Rainforest floor.
@@ -262,7 +296,18 @@ def evaluate(cur, company: str, use_llm: bool = False, budget: dict | None = Non
 
     m = match_brand(cur, company, use_llm=use_llm)
     if not m:
-        # No SmartScout brand -> Rainforest presence+floor by COMPANY name.
+        # No SmartScout brand. Absence-drop (validated ~98% sub-floor): when enforced,
+        # free-drop the miss instead of paying Rainforest — except a deterministic audit
+        # slice, kept flowing through Rainforest so absence_drop_shadow keeps measuring
+        # the live false-drop rate. Default OFF (env flag); behaviour-neutral until flipped.
+        enforce = ABSENCE_DROP_ENFORCE if absence_enforce is None else absence_enforce
+        if enforce and not _in_audit_sample(company):
+            res.update(verdict="DROP", on_amazon=False, annual_revenue=0,
+                       source="absence_drop",
+                       reason="no SmartScout match — absence-drop (misses ~98% sub-floor; "
+                              "Rainforest check skipped)")
+            return res
+        # Not enforced (or in the audit sample) -> Rainforest presence+floor by COMPANY name.
         apply_floor(rainforest_floor(cur, company, budget, floor_line),
                     prefix="no SmartScout match; ")
         return res

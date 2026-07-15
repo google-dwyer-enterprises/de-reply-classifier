@@ -324,6 +324,13 @@ def main() -> None:
     dc.add_argument("--dry-run", action="store_true",
                     help="Print the step sequence without executing anything")
 
+    adr = sub.add_parser("absence-drop-report",
+                         help="Absence-drop SHADOW measurement: the false-drop rate it "
+                              "WOULD cause + the Rainforest credits it would save "
+                              "(read-only; no pipeline change, no credits)")
+    adr.add_argument("--days", type=int, default=None, help="Only misses cached in the last N days")
+    adr.add_argument("--floor", type=int, default=None, help="Keep/drop line in $/yr (default 300k)")
+
     rc = sub.add_parser("resolve-companies", help="LLM-resolve ambiguous company names where apollo_company_name ≠ company_name")
     rc.add_argument("--limit", type=int, default=None, help="Cap number of rows (for dry-run)")
 
@@ -505,6 +512,10 @@ def _dispatch(args) -> None:
         cmd_refresh(args)
     elif args.command == "daily-cron":
         cmd_daily_cron(args)
+    elif args.command == "absence-drop-report":
+        from absence_drop_shadow import report
+        from amazon_revenue_qa import REVENUE_FLOOR_ANNUAL
+        report(since_days=args.days, floor_line=args.floor or REVENUE_FLOOR_ANNUAL)
     elif args.command == "resolve-companies":
         resolve_companies_main(limit=args.limit)
     elif args.command == "upload-smartscout":
