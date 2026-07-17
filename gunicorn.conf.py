@@ -1,26 +1,25 @@
-"""Gunicorn config for the Flask web service (app:app).
+"""Gunicorn config for the Flask web service (app:app) — the single source of
+truth for the web runtime. Dockerfile.web runs:
 
-Auto-loaded by gunicorn when it's started from the repo root (Railway WORKDIR is
-/app, and the image COPYs this file in). It only takes effect if the web
-service's start command is a bare `gunicorn app:app --bind 0.0.0.0:$PORT`
-(explicit CLI flags override these). If the start command hard-codes worker
-flags, simplify it to the bare form so this file drives the config.
+    gunicorn -c gunicorn.conf.py -b 0.0.0.0:$PORT app:app
 
-Why: the web app is I/O-bound (Postgres + external provider APIs). With a single
-sync worker, ONE slow request blocks the entire site. gthread workers let
-independent requests proceed while another waits on I/O.
+The app is I/O-bound (Postgres + external provider APIs). It previously ran
+2 *sync* workers, so a request held its whole worker while waiting on I/O and
+two slow requests could freeze the site. gthread workers add threads so
+independent requests proceed during that wait.
 
-Memory-safe default: workers=1 (one process -> no extra memory vs a single sync
-worker) + threads=4 (concurrency without OOM risk, since I/O releases the GIL).
-Scale workers UP only once the instance's memory headroom is confirmed, via the
-WEB_CONCURRENCY env var — no code change needed. bind is intentionally NOT set
-here; the Railway start command supplies --bind 0.0.0.0:$PORT.
+workers=2 keeps the prior capacity (the instance has ample memory); threads=4
+adds I/O concurrency on top (2 x 4 = 8 concurrent requests). Both are tunable
+via WEB_CONCURRENCY / WEB_THREADS env vars without a rebuild. bind is supplied
+on the CLI (--bind 0.0.0.0:$PORT) because $PORT is only known at runtime.
 """
 import os
 
-workers = int(os.environ.get("WEB_CONCURRENCY", "1"))
+workers = int(os.environ.get("WEB_CONCURRENCY", "2"))
 threads = int(os.environ.get("WEB_THREADS", "4"))
 worker_class = "gthread"
-timeout = 60            # was default 30s; headroom for a slow DB/provider call
+timeout = 120            # matches the prior Dockerfile.web setting
 graceful_timeout = 30
 keepalive = 5
+accesslog = "-"          # -> stdout, so requests show in Railway logs
+errorlog = "-"           # -> stderr
