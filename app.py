@@ -238,7 +238,16 @@ def fetch_batch_by_token(token: str) -> dict | None:
         conn.close()
 
 
-def fetch_leads_for_batch(scrape_request_id: int) -> list[dict]:
+def fetch_leads_for_batch(scrape_request_id: int, limit: int | None = None,
+                          offset: int = 0) -> list[dict]:
+    """Leads for a batch, ordered by id. With `limit` set, returns one page
+    (LIMIT/OFFSET) so a large batch doesn't render thousands of rows at once;
+    limit=None keeps the original 'all rows' behaviour for any other caller."""
+    page_clause = ""
+    params: tuple = (scrape_request_id,)
+    if limit is not None:
+        page_clause = " limit %s offset %s"
+        params = (scrape_request_id, int(limit), int(offset))
     conn = connect()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -251,9 +260,31 @@ def fetch_leads_for_batch(scrape_request_id: int) -> list[dict]:
                        amazon_revenue_source, amazon_reason
                   from prospeo_new_leads
                  where scrape_request_id = %s
-                 order by id
-            """, (scrape_request_id,))
+                 order by id""" + page_clause, params)
             return list(cur.fetchall())
+    finally:
+        conn.close()
+
+
+def fetch_batch_counts(scrape_request_id: int) -> dict:
+    """Whole-batch status counts via a single SQL aggregate — accurate no matter
+    which page is being viewed (the review page paginates rows but must show the
+    totals for the entire batch). Matches the previous per-status Python tallies
+    (exact 'pending'/'approved'/'rejected'; moved = lead_moved_at set)."""
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select count(*), "
+                "       count(*) filter (where lead_approval = 'pending'), "
+                "       count(*) filter (where lead_approval = 'approved'), "
+                "       count(*) filter (where lead_approval = 'rejected'), "
+                "       count(*) filter (where lead_moved_at is not null) "
+                "  from prospeo_new_leads where scrape_request_id = %s",
+                (scrape_request_id,))
+            total, pending, approved, rejected, moved = cur.fetchone()
+        return {"total": total, "pending": pending, "approved": approved,
+                "rejected": rejected, "moved": moved}
     finally:
         conn.close()
 
@@ -462,6 +493,28 @@ def _provider_credits(force: bool = False) -> dict:
     return out
 
 
+# Tiny per-process TTL cache for expensive READ-ONLY analytics producers. These
+# pages are descriptive and refreshed by the daily cron, so a few minutes of
+# staleness is fine and avoids re-running heavy CTEs on every page load. NOT for
+# interactive pages (e.g. /followups) where an action must show up immediately.
+_ROUTE_CACHE: dict = {}
+_ANALYTICS_TTL_S = 300
+
+
+def _ttl_cached(key: str, producer, ttl_s: int = _ANALYTICS_TTL_S):
+    """Return producer()'s result, cached per-process under `key` for ttl_s
+    seconds. A producer that raises is NOT cached, so a transient DB error just
+    retries on the next load."""
+    import time
+    now = time.monotonic()
+    hit = _ROUTE_CACHE.get(key)
+    if hit is not None and (now - hit[1]) < ttl_s:
+        return hit[0]
+    val = producer()
+    _ROUTE_CACHE[key] = (val, now)
+    return val
+
+
 def _enrich_queue_backlog() -> dict:
     """Tier-3 visibility: how many revenue-first survivors are waiting to be
     enriched. A rising 'pending' with 'batches' stuck in status='enriching'
@@ -487,7 +540,7 @@ def _enrich_queue_backlog() -> dict:
 @require_role("analyst")
 def analytics():
     from followup_analytics import fetch_analytics
-    return render_template("analytics.html", **fetch_analytics())
+    return render_template("analytics.html", **_ttl_cached("analytics", fetch_analytics))
 
 
 @app.route("/healthz")
@@ -741,22 +794,26 @@ def batches():
                            submit_queue_pos=submit_queue_pos)
 
 
+BATCH_PAGE_SIZE = 500   # big enough that every real batch is one page today;
+                        # only a pathological huge batch actually paginates
+
+
 @app.route("/batch/<token>")
 def batch_review(token):
     batch = fetch_batch_by_token(token)
     if not batch:
         abort(404)
-    leads = fetch_leads_for_batch(batch["id"])
-    counts = {
-        "pending":  sum(1 for ld in leads if ld["lead_approval"] == "pending"),
-        "approved": sum(1 for ld in leads if ld["lead_approval"] == "approved"),
-        "rejected": sum(1 for ld in leads if ld["lead_approval"] == "rejected"),
-        "total":    len(leads),
-        "moved":    sum(1 for ld in leads if ld["lead_moved_at"] is not None),
-    }
+    counts = fetch_batch_counts(batch["id"])       # whole-batch, page-independent
+    total = counts["total"]
+    total_pages = max(1, (total + BATCH_PAGE_SIZE - 1) // BATCH_PAGE_SIZE)
+    page = _parse_int_or_none(request.args.get("page"), 1, total_pages) or 1
+    leads = fetch_leads_for_batch(
+        batch["id"], limit=BATCH_PAGE_SIZE, offset=(page - 1) * BATCH_PAGE_SIZE)
+    pagination = {"page": page, "total_pages": total_pages,
+                  "page_size": BATCH_PAGE_SIZE, "total": total}
     return render_template(
         "batch_review.html",
-        batch=batch, leads=leads, counts=counts,
+        batch=batch, leads=leads, counts=counts, pagination=pagination,
     )
 
 
@@ -902,7 +959,7 @@ def followups_skip(exp_id):
 @require_role("analyst")
 def followups_results():
     import followup_experiments_attrib as fxa
-    return render_template("followups_results.html", **fxa.fetch_results())
+    return render_template("followups_results.html", **_ttl_cached("fu_results", fxa.fetch_results))
 
 
 @app.route("/followups/best")
@@ -911,7 +968,7 @@ def followups_best():
     # Data-ranked best replies by follow-up stage (rebuild of the old static
     # page). Reads followup_message_features live on every load.
     import followup_best_replies_data as br
-    return render_template("best_replies.html", **br.fetch_best_replies())
+    return render_template("best_replies.html", **_ttl_cached("fu_best", br.fetch_best_replies))
 
 
 @app.route("/followups/playbook")
@@ -920,7 +977,7 @@ def followups_playbook():
     # The FU1-FU5 guide. The prescriptive sequence is editorial; the evidence
     # and timing sections render live from the follow-up views on every load.
     import followup_playbook_data as pb
-    return render_template("playbook.html", **pb.fetch_playbook())
+    return render_template("playbook.html", **_ttl_cached("fu_playbook", pb.fetch_playbook))
 
 
 @app.route("/analytics/category-booking")
@@ -929,7 +986,7 @@ def category_booking():
     # "Which categories / titles book calls" — rendered live from leads +
     # lead_contacts on every load, so it's always current (no snapshot).
     import category_booking_data as cbd
-    return render_template("category_booking.html", **cbd.fetch_category_booking())
+    return render_template("category_booking.html", **_ttl_cached("category_booking", cbd.fetch_category_booking))
 
 
 # ---------------------------------------------------------------------------

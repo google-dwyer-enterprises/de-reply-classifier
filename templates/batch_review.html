@@ -132,6 +132,18 @@
   </tbody>
 </table>
 
+{% if pagination and pagination.total_pages > 1 %}
+<div class="pagination" style="margin-top:16px; display:flex; gap:12px; align-items:center;">
+  {% if pagination.page > 1 %}
+    <a class="btn btn-secondary btn-small" href="{{ url_for('batch_review', token=batch.review_token, page=pagination.page - 1) }}">← Prev</a>
+  {% endif %}
+  <span class="muted">Page {{ pagination.page }} of {{ pagination.total_pages }} · showing {{ leads|length }} of {{ pagination.total }} leads (mass-approve / mass-reject act on the whole batch)</span>
+  {% if pagination.page < pagination.total_pages %}
+    <a class="btn btn-secondary btn-small" href="{{ url_for('batch_review', token=batch.review_token, page=pagination.page + 1) }}">Next →</a>
+  {% endif %}
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block scripts %}
