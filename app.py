@@ -105,6 +105,14 @@ app.config.update(
 )
 
 
+@app.teardown_appcontext
+def _close_request_db(exc):
+    """Close the per-request shared DB connection (db.connect() hands out one
+    connection per request; this is where its real close happens)."""
+    import db
+    db.close_request_conn(exc)
+
+
 # ---------------------------------------------------------------------------
 # Auth — session login with two roles. Fails closed: no SECRET_KEY or no
 # matching credential pair => login impossible => protected routes redirect to
@@ -414,10 +422,25 @@ def admin_panel():
     )
 
 
-def _provider_credits() -> dict:
+# Provider balances change slowly, but fetching them costs two blocking external
+# API calls (BetterContact + Rainforest, 15s timeouts each). Doing that on EVERY
+# /admin and /submit render can hang those pages ~30s. Cache the result briefly
+# so a page load reuses a recent fetch. Per-process cache (fine under gunicorn —
+# each worker refreshes at most once per TTL).
+_PROVIDER_CREDITS_CACHE: dict = {"data": None, "at": 0.0}
+_PROVIDER_CREDITS_TTL_S = 90
+
+
+def _provider_credits(force: bool = False) -> dict:
     """Live remaining balances for the paid providers, best-effort (None if a
-    provider is unreachable). BetterContact is the one that bit us — an empty
-    balance parks enrich jobs 'on hold' and looks like a hang — so surface it."""
+    provider is unreachable), cached for _PROVIDER_CREDITS_TTL_S. BetterContact
+    is the one that bit us — an empty balance parks enrich jobs 'on hold' and
+    looks like a hang — so surface it. force=True bypasses the cache."""
+    import time
+    c = _PROVIDER_CREDITS_CACHE
+    if (not force and c["data"] is not None
+            and (time.monotonic() - c["at"]) < _PROVIDER_CREDITS_TTL_S):
+        return c["data"]
     out = {"bettercontact": None, "rainforest": None, "bc_min": None}
     try:
         import bettercontact_sync as bc
@@ -434,6 +457,8 @@ def _provider_credits() -> dict:
             out["rainforest"] = (r.json().get("account_info") or {}).get("credits_remaining")
     except Exception:
         pass
+    c["data"] = out
+    c["at"] = time.monotonic()
     return out
 
 

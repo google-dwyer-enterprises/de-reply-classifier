@@ -40,8 +40,8 @@ def _build_dsn() -> str:
     )
 
 
-def connect():
-    """Return a psycopg2 connection with statement_timeout + TCP keepalives.
+def _new_connection():
+    """A fresh real psycopg2 connection with statement_timeout + TCP keepalives.
 
     The Supabase pooler will drop idle/long-running connections silently,
     surfacing as 'SSL connection has been closed unexpectedly' mid-query.
@@ -61,6 +61,80 @@ def connect():
         keepalives_count=5,
         options="-c statement_timeout=300000",
     )
+
+
+class _RequestConn:
+    """Proxy over a real connection whose close() is a NO-OP, so the many DB
+    helpers a single web request fans out to can share ONE connection instead
+    of each opening its own (a /admin load was ~7 fresh TLS handshakes to the
+    flaky pooler). Every helper's `finally: conn.close()` becomes a no-op; the
+    real connection is closed once at request teardown (close_request_conn).
+    Everything else — cursor(), commit(), rollback(), .closed, autocommit — is
+    delegated to the real connection, so callers are unchanged. No __enter__/
+    __exit__ because nothing uses the connection as a context manager (verified).
+    """
+    __slots__ = ("_real",)
+
+    def __init__(self, real):
+        object.__setattr__(self, "_real", real)
+
+    def close(self):
+        pass  # real close is deferred to request teardown
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, "_real"), name)
+
+    def __setattr__(self, name, value):
+        setattr(object.__getattribute__(self, "_real"), name, value)
+
+
+def connect():
+    """Return a psycopg2 connection (statement_timeout + TCP keepalives).
+
+    Inside a Flask request this returns a SINGLE shared per-request connection
+    (stored on flask.g, wrapped so .close() is a no-op) — so a page that hits
+    several DB helpers opens ONE connection, not one per helper. The real
+    connection is closed once at request teardown via close_request_conn().
+
+    Outside a request (worker, cron, CLI) it returns a fresh real connection
+    exactly as before — no behaviour change for non-web callers. Each request is
+    handled by one thread/greenlet with its own flask.g, so the shared
+    connection is never touched concurrently.
+    """
+    try:
+        from flask import g, has_request_context
+        if has_request_context():
+            real = getattr(g, "_db_conn", None)
+            if real is None or real.closed:
+                real = _new_connection()
+                g._db_conn = real
+            return _RequestConn(real)
+    except Exception:
+        # Flask absent or not in a request context -> plain fresh connection.
+        pass
+    return _new_connection()
+
+
+def close_request_conn(exc=None):
+    """Flask teardown hook: roll back any dangling transaction and close the
+    request-scoped connection. Safe no-op when no request connection was opened.
+    """
+    try:
+        from flask import g
+    except Exception:
+        return
+    real = getattr(g, "_db_conn", None)
+    if real is None:
+        return
+    try:
+        if not real.closed:
+            try:
+                real.rollback()   # clear any open/aborted tx before closing
+            except Exception:
+                pass
+            real.close()
+    finally:
+        g._db_conn = None
 
 
 def refresh_lead_status() -> None:
