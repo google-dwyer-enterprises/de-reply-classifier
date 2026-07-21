@@ -724,10 +724,11 @@ def submit_post():
             form=request.form,
         ), 400
 
-    # Revenue-first is the production default: discover -> verify real e-commerce
-    # brand -> Amazon revenue gate -> enrich ONLY survivors. The "Classic pipeline"
-    # checkbox opts out (enrich everyone, no revenue gate).
-    revenue_first = not request.form.get("use_classic")
+    # Revenue-first is unconditional: discover -> verify real e-commerce brand ->
+    # Amazon revenue gate -> enrich ONLY survivors. The opt-out checkbox was
+    # removed (Task 1) so every batch runs the revenue gate. Kept as a variable
+    # so preflight.check(...) and insert_scrape_request(...) below are unchanged.
+    revenue_first = True
 
     # Preflight: don't queue a batch when a required provider is down — it would
     # just burn credits and fail (e.g. BetterContact enrichment hanging, or

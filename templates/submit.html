@@ -59,7 +59,7 @@
            min="1" max="100000"
            value="{{ p.amazon_qa_max_credits if p.amazon_qa_max_credits else (form.amazon_qa_max_credits if form else '') }}"
            placeholder="auto (~6 per lead, min 150)">
-    <p class="hint"><strong>Revenue-first only.</strong> Hard cap on <strong>Rainforest</strong> credits (the <strong>Amazon revenue check</strong> that qualifies each company). Leave empty and the worker auto-budgets <strong>~6 per target lead (minimum 150)</strong>. Raise it for a <strong>large target</strong> so the gate doesn't stop short — a strict filter checks many companies to find enough that qualify, and the auto cap can run out first (e.g. set <code>1500</code> for a 100-lead run). Ignored on the classic pipeline (no revenue gate).</p>
+    <p class="hint">Hard cap on <strong>Rainforest</strong> credits (the <strong>Amazon revenue check</strong> that qualifies each company). Leave empty and the worker auto-budgets <strong>~6 per target lead (minimum 150)</strong>. Raise it for a <strong>large target</strong> so the gate doesn't stop short — a strict filter checks many companies to find enough that qualify, and the auto cap can run out first (e.g. set <code>1500</code> for a 100-lead run).</p>
   </div>
 
   <div class="form-field">
@@ -69,15 +69,6 @@
            value="{{ p.revenue_floor if p.revenue_floor else (form.revenue_floor if form else '') }}"
            placeholder="300000 (default)">
     <p class="hint">The minimum yearly Amazon revenue a company must clear to be kept (in $/yr). Leave empty for the standard <strong>$300,000</strong> floor. Raise it for a higher-ICP client — e.g. <code>1000000</code> for a client who only wants $1M+ brands. The keep/drop line and the SmartScout confidence band both scale with this.</p>
-  </div>
-
-  <div class="form-field">
-    <label class="checkbox-row">
-      <input type="checkbox" name="use_classic" value="1"
-             {{ 'checked' if (form and form.use_classic) else '' }}>
-      Use the classic pipeline (opt out of revenue-first)
-    </label>
-    <p class="hint"><strong>Revenue-first is on by default:</strong> discover a company, verify it's a real e-commerce brand, check its Amazon revenue, and spend a BetterContact credit <em>only</em> on the ones that qualify — cheaper and higher-quality. Tick this only to fall back to the <strong>classic</strong> flow (enrich everyone first, no revenue gate). The Amazon revenue floor above applies to revenue-first only.</p>
   </div>
 
   <div class="form-field">
