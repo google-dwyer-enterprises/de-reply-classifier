@@ -1,0 +1,4 @@
+# Local-only artifacts that must never be uploaded to Railway via `railway up`.
+# (railway up honors this even when .gitignore edits are stashed during a deploy.)
+supabase_backup/
+*.dump
